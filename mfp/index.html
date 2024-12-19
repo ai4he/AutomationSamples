@@ -1,1 +1,390 @@
-OK
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Part Search Interface</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      color: #333;
+      background: #f5f5f5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 20px auto;
+      padding: 20px;
+    }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      background: white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #ddd;
+      background: white;
+      padding: 0 16px;
+      border-radius: 8px 8px 0 0;
+    }
+    .tab-button {
+      padding: 12px 20px;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: #666;
+      font-weight: 500;
+      position: relative;
+    }
+    .tab-button.active {
+      color: #2563eb;
+    }
+    .tab-button.active::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: #2563eb;
+    }
+    .tab-content {
+      display: none;
+      background: white;
+      padding: 20px;
+      border-radius: 0 0 8px 8px;
+      border: 1px solid #ddd;
+      border-top: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #1d4ed8;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      margin-top: 16px;
+    }
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #eee;
+      text-align: left;
+    }
+    th {
+      font-weight: 600;
+      color: #666;
+      background: #f8f9fa;
+    }
+    tr:hover td {
+      background: #f8f9fa;
+    }
+    .price-below { background-color: #fee2e2; }
+    .price-normal { background-color: #dcfce7; }
+    .price-above { background-color: #ffedd5; }
+    .text-success { color: #16a34a; }
+    .text-error { color: #dc2626; }
+    .legend {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+      padding: 8px;
+      background: #f8f9fa;
+      border-radius: 6px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+    }
+    .legend-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h2>Part Search</h2>
+      <label for="part-numbers">Part Number(s)</label>
+      <input type="text" id="part-numbers" placeholder="Enter part numbers (comma-separated)" />
+      <button onclick="handleSearch()">Search</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
+      <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
+      <button class="tab-button" onclick="switchTab('compatible')">Compatible Parts</button>
+      <button class="tab-button" onclick="switchTab('distributors')">Distributors</button>
+      <button class="tab-button" onclick="switchTab('marketplaces')">Marketplaces</button>
+      <button class="tab-button" onclick="switchTab('inventory')">Inventory</button>
+      <button class="tab-button" onclick="switchTab('analytics')">Analytics</button>
+    </div>
+
+    <div id="summary" class="tab-content active">
+      <div id="summary-content">No search results yet.</div>
+    </div>
+    <div id="lenovo" class="tab-content">
+      <div id="lenovo-content"></div>
+    </div>
+    <div id="compatible" class="tab-content">
+      <div id="compatible-content"></div>
+    </div>
+    <div id="distributors" class="tab-content">
+      <div id="distributors-content"></div>
+    </div>
+    <div id="marketplaces" class="tab-content">
+      <div id="marketplaces-content"></div>
+    </div>
+    <div id="inventory" class="tab-content">
+      <div id="inventory-content"></div>
+    </div>
+    <div id="analytics" class="tab-content">
+      <div id="analytics-content"></div>
+    </div>
+  </div>
+
+  <script>
+    // Mock data
+    const mockData = {
+      "SR630-RAM-32GB": {
+        compatibility: {
+          details: "Compatible with ThinkSystem SR630, SR650",
+          source: "Lenovo Press",
+          systemModels: ["SR630", "SR650"],
+          documentation: "https://lenovopress.lenovo.com/lp1050-thinksystem-sr650-server",
+          category: "Memory"
+        },
+        compatibleParts: [
+          {
+            partNumber: "4X77A12184",
+            description: "16GB TruDDR4 2933MHz RDIMM",
+            category: "Memory",
+            epicorInventory: 12,
+            price: 185.00,
+            marketAverage: 220.00
+          },
+          {
+            partNumber: "4X77A12185",
+            description: "32GB TruDDR4 2933MHz RDIMM",
+            category: "Memory",
+            epicorInventory: 5,
+            price: 320.00,
+            marketAverage: 315.00
+          },
+          {
+            partNumber: "4X77A12186",
+            description: "64GB TruDDR4 2933MHz RDIMM",
+            category: "Memory",
+            epicorInventory: 0,
+            price: 845.00,
+            marketAverage: 645.00
+          }
+        ],
+        inventory: {
+          connecticut: { new: 5, refurbished: 2 },
+          uk: { new: 3, refurbished: 0 }
+        },
+        prices: {
+          distributors: 220.00,
+          marketplaces: 245.00
+        },
+        analysis: {
+          position: "Below Market",
+          priceDifference: "8.2%",
+          priceRange: { min: 225.00, max: 245.00 }
+        }
+      }
+    };
+
+    function switchTab(tabId) {
+      // Hide all tabs
+      document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      document.querySelectorAll('.tab-button').forEach(button => {
+        button.classList.remove('active');
+      });
+
+      // Show selected tab
+      document.getElementById(tabId).classList.add('active');
+      document.querySelector(`button[onclick="switchTab('${tabId}')"]`).classList.add('active');
+    }
+
+    function analyzePriceDifference(price, marketAverage) {
+      const priceDiff = ((price - marketAverage) / marketAverage) * 100;
+      const isLow = priceDiff <= -20;
+      const isHigh = priceDiff >= 20;
+      
+      return {
+        class: isLow ? 'price-below' : isHigh ? 'price-above' : 'price-normal',
+        message: isLow ? 
+          `Potential pricing error or opportunity (${priceDiff.toFixed(1)}% below market)` :
+          isHigh ? 
+          `Above market average (${priceDiff.toFixed(1)}% above market)` :
+          'Within market range'
+      };
+    }
+
+    function handleSearch() {
+      const partNumber = document.getElementById('part-numbers').value.trim();
+      const data = mockData[partNumber];
+      
+      if (!data) {
+        document.getElementById('summary-content').innerHTML = 'Part not found';
+        return;
+      }
+
+      // Update Summary Tab
+      document.getElementById('summary-content').innerHTML = `
+        <div class="card">
+          <h3>Part Number: ${partNumber}</h3>
+          <p><strong>Compatibility:</strong> ${data.compatibility.details}</p>
+          <p><strong>Documentation Source:</strong> ${data.compatibility.source}</p>
+          <p><strong>Current Inventory:</strong></p>
+          <p>CT: ${data.inventory.connecticut.new + data.inventory.connecticut.refurbished} units</p>
+          <p>UK: ${data.inventory.uk.new + data.inventory.uk.refurbished} units</p>
+          <p>(${data.inventory.connecticut.new + data.inventory.uk.new} new, 
+             ${data.inventory.connecticut.refurbished + data.inventory.uk.refurbished} refurbished)</p>
+          <p><strong>Best Available Prices:</strong></p>
+          <p>Distributors: $${data.prices.distributors}</p>
+          <p>Marketplaces: $${data.prices.marketplaces}</p>
+          <p><strong>Market Analysis:</strong></p>
+          <p>Position: ${data.analysis.position}</p>
+          <p>Price Difference: ${data.analysis.priceDifference}</p>
+        </div>
+      `;
+
+      // Update Lenovo Tab
+      document.getElementById('lenovo-content').innerHTML = `
+        <div class="card">
+          <h3>System Compatibility</h3>
+          <p><strong>Compatible Systems:</strong> ${data.compatibility.systemModels.join(', ')}</p>
+          <p><strong>Documentation:</strong> <a href="${data.compatibility.documentation}" target="_blank">${data.compatibility.documentation}</a></p>
+          <p><strong>Part Category:</strong> ${data.compatibility.category}</p>
+          <p><strong>Validation:</strong> Verified by Lenovo Engineering</p>
+        </div>
+      `;
+
+      // Update Compatible Parts Tab
+      const compatibleHtml = `
+        <div class="card">
+          <h3>Compatible Parts List</h3>
+          <div class="legend">
+            <div class="legend-item">
+              <div class="legend-color price-below"></div>
+              <span>Below Market (-20%)</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-color price-normal"></div>
+              <span>Normal Range</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-color price-above"></div>
+              <span>Above Market (+20%)</span>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Part Number</th>
+                <th>Description</th>
+                <th>Category</th>
+                <th>Stock</th>
+                <th>Price</th>
+                <th>Market Avg</th>
+                <th>Analysis</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.compatibleParts.map(part => {
+                const analysis = analyzePriceDifference(part.price, part.marketAverage);
+                return `
+                  <tr>
+                    <td>${part.partNumber}</td>
+                    <td>${part.description}</td>
+                    <td>${part.category}</td>
+                    <td class="${part.epicorInventory > 0 ? 'text-success' : 'text-error'}">${part.epicorInventory} units</td>
+                    <td class="${analysis.class}">$${part.price}</td>
+                    <td>$${part.marketAverage}</td>
+                    <td>${analysis.message}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById('compatible-content').innerHTML = compatibleHtml;
+
+      // Update Inventory Tab
+      document.getElementById('inventory-content').innerHTML = `
+        <div class="card">
+          <h3>Detailed Inventory</h3>
+          <table>
+            <tr>
+              <th>Location</th>
+              <th>New Units</th>
+              <th>Refurbished Units</th>
+              <th>Total</th>
+            </tr>
+            <tr>
+              <td>Connecticut</td>
+              <td>${data.inventory.connecticut.new}</td>
+              <td>${data.inventory.connecticut.refurbished}</td>
+              <td>${data.inventory.connecticut.new + data.inventory.connecticut.refurbished}</td>
+            </tr>
+            <tr>
+              <td>UK</td>
+              <td>${data.inventory.uk.new}</td>
+              <td>${data.inventory.uk.refurbished}</td>
+              <td>${data.inventory.uk.new + data.inventory.uk.refurbished}</td>
+            </tr>
+          </table>
+        </div>
+      `;
+
+      // Update Analytics Tab
+      document.getElementById('analytics-content').innerHTML = `
+        <div class="card">
+          <h3>Market Position Analysis</h3>
+          <p><strong>Current Position:</strong> ${data.analysis.position}</p>
+          <p><strong>Price Range:</strong> $${data.analysis.priceRange.min} - $${data.analysis.priceRange.max}</p>
+          <p><strong>Price Difference from Market:</strong> ${data.analysis.priceDifference}</p>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>
