@@ -131,6 +131,12 @@
       height: 12px;
       border-radius: 2px;
     }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      font-style: italic;
+      color: #666;
+    }
   </style>
 </head>
 <body>
@@ -162,7 +168,10 @@
       <div id="compatible-content"></div>
     </div>
     <div id="distributors" class="tab-content">
-      <div id="distributors-content"></div>
+      <div id="distributors-content">
+        <div class="loading" style="display: none;">Loading distributor data...</div>
+        <div class="distributor-results"></div>
+      </div>
     </div>
     <div id="marketplaces" class="tab-content">
       <div id="marketplaces-content"></div>
@@ -176,9 +185,9 @@
   </div>
 
   <script>
-    // Mock data
+    // Mock data for other tabs
     const mockData = {
-      "SR630-RAM-32GB": {
+      "1": {
         compatibility: {
           details: "Compatible with ThinkSystem SR630, SR650",
           source: "Lenovo Press",
@@ -229,15 +238,12 @@
     };
 
     function switchTab(tabId) {
-      // Hide all tabs
       document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.remove('active');
       });
       document.querySelectorAll('.tab-button').forEach(button => {
         button.classList.remove('active');
       });
-
-      // Show selected tab
       document.getElementById(tabId).classList.add('active');
       document.querySelector(`button[onclick="switchTab('${tabId}')"]`).classList.add('active');
     }
@@ -257,133 +263,199 @@
       };
     }
 
-    function handleSearch() {
-      const partNumber = document.getElementById('part-numbers').value.trim();
-      const data = mockData[partNumber];
+    async function fetchDistributorData(searchText) {
+      const loading = document.querySelector('#distributors-content .loading');
+      const resultsDiv = document.querySelector('#distributors-content .distributor-results');
       
-      if (!data) {
-        document.getElementById('summary-content').innerHTML = 'Part not found';
-        return;
+      loading.style.display = 'block';
+      resultsDiv.innerHTML = '';
+
+      try {
+        const response = await fetch(`http://n8n.haielab.org:5678/webhook/cd705da3-61d5-4ae7-8fca-1d49a2d412f4/?item=${encodeURIComponent(searchText)}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+
+        const table = document.createElement('table');
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th>Category</th>
+              <th>Vendor</th>
+              <th>Part Number</th>
+              <th>UPC Code</th>
+              <th>Product Type</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.map(item => `
+              <tr>
+                <td>${item.description}</td>
+                <td>${item.category}</td>
+                <td>${item.vendorName}</td>
+                <td>${item.vendorPartNumber}</td>
+                <td>${item.upcCode}</td>
+                <td>${item.productType}</td>
+                <td>
+                  ${item.discontinued === 'True' ? '<span class="text-error">Discontinued</span>' : ''}
+                  ${item.newProduct === 'True' ? '<span class="text-success">New</span>' : ''}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        `;
+        
+        resultsDiv.appendChild(table);
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="card">
+          <p class="text-error">Error fetching distributor data: ${error.message}</p>
+        </div>`;
+      } finally {
+        loading.style.display = 'none';
+      }
+    }
+
+    async function handleSearch() {
+      const partNumber = document.getElementById('part-numbers').value.trim();
+      
+      // Handle mock data display
+      const data = mockData[partNumber];
+      if (data) {
+        // Update Summary Tab
+        document.getElementById('summary-content').innerHTML = `
+          <div class="card">
+            <h3>Part Number: ${partNumber}</h3>
+            <p><strong>Compatibility:</strong> ${data.compatibility.details}</p>
+            <p><strong>Documentation Source:</strong> ${data.compatibility.source}</p>
+            <p><strong>Current Inventory:</strong></p>
+            <p>CT: ${data.inventory.connecticut.new + data.inventory.connecticut.refurbished} units</p>
+            <p>UK: ${data.inventory.uk.new + data.inventory.uk.refurbished} units</p>
+            <p>(${data.inventory.connecticut.new + data.inventory.uk.new} new, 
+               ${data.inventory.connecticut.refurbished + data.inventory.uk.refurbished} refurbished)</p>
+            <p><strong>Best Available Prices:</strong></p>
+            <p>Distributors: $${data.prices.distributors}</p>
+            <p>Marketplaces: $${data.prices.marketplaces}</p>
+            <p><strong>Market Analysis:</strong></p>
+            <p>Position: ${data.analysis.position}</p>
+            <p>Price Difference: ${data.analysis.priceDifference}</p>
+          </div>
+        `;
+
+        // Update Lenovo Tab
+        document.getElementById('lenovo-content').innerHTML = `
+          <div class="card">
+            <h3>System Compatibility</h3>
+            <p><strong>Compatible Systems:</strong> ${data.compatibility.systemModels.join(', ')}</p>
+            <p><strong>Documentation:</strong> <a href="${data.compatibility.documentation}" target="_blank">${data.compatibility.documentation}</a></p>
+            <p><strong>Part Category:</strong> ${data.compatibility.category}</p>
+            <p><strong>Validation:</strong> Verified by Lenovo Engineering</p>
+          </div>
+        `;
+
+        // Update Compatible Parts Tab
+        const compatibleHtml = `
+          <div class="card">
+            <h3>Compatible Parts List</h3>
+            <div class="legend">
+              <div class="legend-item">
+                <div class="legend-color price-below"></div>
+                <span>Below Market (-20%)</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-color price-normal"></div>
+                <span>Normal Range</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-color price-above"></div>
+                <span>Above Market (+20%)</span>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Part Number</th>
+                  <th>Description</th>
+                  <th>Category</th>
+                  <th>Stock</th>
+                  <th>Price</th>
+                  <th>Market Avg</th>
+                  <th>Analysis</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.compatibleParts.map(part => {
+                  const analysis = analyzePriceDifference(part.price, part.marketAverage);
+                  return `
+                    <tr>
+                      <td>${part.partNumber}</td>
+                      <td>${part.description}</td>
+                      <td>${part.category}</td>
+                      <td class="${part.epicorInventory > 0 ? 'text-success' : 'text-error'}">${part.epicorInventory} units</td>
+                      <td class="${analysis.class}">$${part.price}</td>
+                      <td>$${part.marketAverage}</td>
+                      <td>${analysis.message}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+        document.getElementById('compatible-content').innerHTML = compatibleHtml;
+
+        // Update Inventory Tab
+        document.getElementById('inventory-content').innerHTML = `
+          <div class="card">
+            <h3>Detailed Inventory</h3>
+            <table>
+              <tr>
+                <th>Location</th>
+                <th>New Units</th>
+                <th>Refurbished Units</th>
+                <th>Total</th>
+              </tr>
+              <tr>
+                <td>Connecticut</td>
+                <td>${data.inventory.connecticut.new}</td>
+                <td>${data.inventory.connecticut.refurbished}</td>
+                <td>${data.inventory.connecticut.new + data.inventory.connecticut.refurbished}</td>
+              </tr>
+              <tr>
+                <td>UK</td>
+                <td>${data.inventory.uk.new}</td>
+                <td>${data.inventory.uk.refurbished}</td>
+                <td>${data.inventory.uk.new + data.inventory.uk.refurbished}</td>
+              </tr>
+            </table>
+          </div>
+        `;
+
+        // Update Analytics Tab
+        document.getElementById('analytics-content').innerHTML = `
+          <div class="card">
+            <h3>Market Position Analysis</h3>
+            <p><strong>Current Position:</strong> ${data.analysis.position}</p>
+            <p><strong>Price Range:</strong> $${data.analysis.priceRange.min} - $${data.analysis.priceRange.max}</p>
+            <p><strong>Price Difference from Market:</strong> ${data.analysis.priceDifference}</p>
+          </div>
+        `;
+      } else {
+        // Clear other tabs if no mock data is found
+        document.getElementById('summary-content').innerHTML = 'Part not found in internal database';
+        document.getElementById('lenovo-content').innerHTML = '';
+        document.getElementById('compatible-content').innerHTML = '';
+        document.getElementById('inventory-content').innerHTML = '';
+        document.getElementById('analytics-content').innerHTML = '';
       }
 
-      // Update Summary Tab
-      document.getElementById('summary-content').innerHTML = `
-        <div class="card">
-          <h3>Part Number: ${partNumber}</h3>
-          <p><strong>Compatibility:</strong> ${data.compatibility.details}</p>
-          <p><strong>Documentation Source:</strong> ${data.compatibility.source}</p>
-          <p><strong>Current Inventory:</strong></p>
-          <p>CT: ${data.inventory.connecticut.new + data.inventory.connecticut.refurbished} units</p>
-          <p>UK: ${data.inventory.uk.new + data.inventory.uk.refurbished} units</p>
-          <p>(${data.inventory.connecticut.new + data.inventory.uk.new} new, 
-             ${data.inventory.connecticut.refurbished + data.inventory.uk.refurbished} refurbished)</p>
-          <p><strong>Best Available Prices:</strong></p>
-          <p>Distributors: $${data.prices.distributors}</p>
-          <p>Marketplaces: $${data.prices.marketplaces}</p>
-          <p><strong>Market Analysis:</strong></p>
-          <p>Position: ${data.analysis.position}</p>
-          <p>Price Difference: ${data.analysis.priceDifference}</p>
-        </div>
-      `;
-
-      // Update Lenovo Tab
-      document.getElementById('lenovo-content').innerHTML = `
-        <div class="card">
-          <h3>System Compatibility</h3>
-          <p><strong>Compatible Systems:</strong> ${data.compatibility.systemModels.join(', ')}</p>
-          <p><strong>Documentation:</strong> <a href="${data.compatibility.documentation}" target="_blank">${data.compatibility.documentation}</a></p>
-          <p><strong>Part Category:</strong> ${data.compatibility.category}</p>
-          <p><strong>Validation:</strong> Verified by Lenovo Engineering</p>
-        </div>
-      `;
-
-      // Update Compatible Parts Tab
-      const compatibleHtml = `
-        <div class="card">
-          <h3>Compatible Parts List</h3>
-          <div class="legend">
-            <div class="legend-item">
-              <div class="legend-color price-below"></div>
-              <span>Below Market (-20%)</span>
-            </div>
-            <div class="legend-item">
-              <div class="legend-color price-normal"></div>
-              <span>Normal Range</span>
-            </div>
-            <div class="legend-item">
-              <div class="legend-color price-above"></div>
-              <span>Above Market (+20%)</span>
-            </div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Part Number</th>
-                <th>Description</th>
-                <th>Category</th>
-                <th>Stock</th>
-                <th>Price</th>
-                <th>Market Avg</th>
-                <th>Analysis</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data.compatibleParts.map(part => {
-                const analysis = analyzePriceDifference(part.price, part.marketAverage);
-                return `
-                  <tr>
-                    <td>${part.partNumber}</td>
-                    <td>${part.description}</td>
-                    <td>${part.category}</td>
-                    <td class="${part.epicorInventory > 0 ? 'text-success' : 'text-error'}">${part.epicorInventory} units</td>
-                    <td class="${analysis.class}">$${part.price}</td>
-                    <td>$${part.marketAverage}</td>
-                    <td>${analysis.message}</td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      `;
-      document.getElementById('compatible-content').innerHTML = compatibleHtml;
-
-      // Update Inventory Tab
-      document.getElementById('inventory-content').innerHTML = `
-        <div class="card">
-          <h3>Detailed Inventory</h3>
-          <table>
-            <tr>
-              <th>Location</th>
-              <th>New Units</th>
-              <th>Refurbished Units</th>
-              <th>Total</th>
-            </tr>
-            <tr>
-              <td>Connecticut</td>
-              <td>${data.inventory.connecticut.new}</td>
-              <td>${data.inventory.connecticut.refurbished}</td>
-              <td>${data.inventory.connecticut.new + data.inventory.connecticut.refurbished}</td>
-            </tr>
-            <tr>
-              <td>UK</td>
-              <td>${data.inventory.uk.new}</td>
-              <td>${data.inventory.uk.refurbished}</td>
-              <td>${data.inventory.uk.new + data.inventory.uk.refurbished}</td>
-            </tr>
-          </table>
-        </div>
-      `;
-
-      // Update Analytics Tab
-      document.getElementById('analytics-content').innerHTML = `
-        <div class="card">
-          <h3>Market Position Analysis</h3>
-          <p><strong>Current Position:</strong> ${data.analysis.position}</p>
-          <p><strong>Price Range:</strong> $${data.analysis.priceRange.min} - $${data.analysis.priceRange.max}</p>
-          <p><strong>Price Difference from Market:</strong> ${data.analysis.priceDifference}</p>
-        </div>
-      `;
+      // Fetch and display distributor data
+      await fetchDistributorData(partNumber);
+      
+      // Switch to distributors tab to show the results
+      switchTab('distributors');
     }
   </script>
 </body>
