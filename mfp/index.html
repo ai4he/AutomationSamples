@@ -271,7 +271,7 @@
       resultsDiv.innerHTML = '';
 
       try {
-        const response = await fetch(`http://n8n.haielab.org:5678/webhook/cd705da3-61d5-4ae7-8fca-1d49a2d412f4/?item=${encodeURIComponent(searchText)}`);
+        const response = await fetch(`https://n8n.haielab.org/webhook/cd705da3-61d5-4ae7-8fca-1d49a2d412f4/?item=${encodeURIComponent(searchText)}`);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
