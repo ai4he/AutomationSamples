@@ -114,6 +114,15 @@
       font-style: italic;
       color: #666;
     }
+    .ingram-results, .tdsynnex-results {
+      margin-bottom: 30px;
+    }
+    .ingram-results h3, .tdsynnex-results h3 {
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #eee;
+      color: #2563eb;
+    }
     .error {
       color: #dc2626;
       padding: 10px;
@@ -155,7 +164,15 @@
     <div id="distributors" class="tab-content">
       <div id="distributors-content">
         <div class="loading" style="display: none;">Loading distributor data...</div>
-        <div class="distributor-results"></div>
+        <div class="ingram-results">
+          <h3>Ingram</h3>
+          <div class="results-container"></div>
+        </div>
+        <div class="tdsynnex-results">
+          <h3>TDSynnex</h3>
+          <div class="loading" style="display: none;">Loading TDSynnex data...</div>
+          <div class="results-container"></div>
+        </div>
       </div>
     </div>
     <div id="marketplaces" class="tab-content">
@@ -228,9 +245,77 @@
       document.querySelector(`button[onclick="switchTab('${tabId}')"]`).classList.add('active');
     }
 
+    // Helper function to parse XML string
+    function parseXML(xmlString) {
+      const parser = new DOMParser();
+      return parser.parseFromString(xmlString, "text/xml");
+    }
+
+    async function fetchTDSynnexData(searchText) {
+      const loading = document.querySelector('.tdsynnex-results .loading');
+      const resultsDiv = document.querySelector('.tdsynnex-results .results-container');
+      
+      loading.style.display = 'block';
+      resultsDiv.innerHTML = '';
+
+      try {
+        const response = await fetch(`https://n8n.haielab.org/webhook/c05da902-3d00-4f82-bb07-6e568e21724f?item=${encodeURIComponent(searchText)}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const xmlText = await response.text();
+        const xmlDoc = parseXML(xmlText);
+
+        const priceList = xmlDoc.getElementsByTagName('PriceAvailabilityList')[0];
+        if (!priceList) {
+          throw new Error('No price availability data found');
+        }
+
+        const table = document.createElement('table');
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Synnex SKU</th>
+              <th>Mfg Part Number</th>
+              <th>Description</th>
+              <th>Status</th>
+              <th>Price</th>
+              <th>Total Quantity</th>
+              <th>Warehouses</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>${xmlDoc.querySelector('synnexSKU')?.textContent || '-'}</td>
+              <td>${xmlDoc.querySelector('mfgPN')?.textContent || '-'}</td>
+              <td>${xmlDoc.querySelector('description')?.textContent || '-'}</td>
+              <td>${xmlDoc.querySelector('status')?.textContent || '-'}</td>
+              <td>${xmlDoc.querySelector('price')?.textContent || '-'}</td>
+              <td>${xmlDoc.querySelector('totalQuantity')?.textContent || '0'}</td>
+              <td>
+                ${Array.from(xmlDoc.getElementsByTagName('AvailabilityByWarehouse'))
+                  .map(warehouse => {
+                    const city = warehouse.querySelector('warehouseInfo city')?.textContent;
+                    const qty = warehouse.querySelector('qty')?.textContent;
+                    return `${city}: ${qty} units`;
+                  })
+                  .join('<br>')}
+              </td>
+            </tr>
+          </tbody>
+        `;
+        
+        resultsDiv.appendChild(table);
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error">Error fetching TDSynnex data: ${error.message}</div>`;
+      } finally {
+        loading.style.display = 'none';
+      }
+    }
+
     async function fetchDistributorData(searchText) {
       const loading = document.querySelector('#distributors-content .loading');
-      const resultsDiv = document.querySelector('#distributors-content .distributor-results');
+      const resultsDiv = document.querySelector('#distributors-content .ingram-results .results-container');
       
       loading.style.display = 'block';
       resultsDiv.innerHTML = '';
@@ -364,10 +449,11 @@
         document.getElementById('analytics-content').innerHTML = '';
       }
 
-      // Fetch both distributor and inventory data in parallel
+      // Fetch all data in parallel
       await Promise.all([
         fetchDistributorData(partNumber),
-        fetchInventoryData(partNumber)
+        fetchInventoryData(partNumber),
+        fetchTDSynnexData(partNumber)
       ]);
     }
   </script>
