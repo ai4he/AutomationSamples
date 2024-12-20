@@ -114,39 +114,14 @@
       font-style: italic;
       color: #666;
     }
-    .ingram-results, .tdsynnex-results, .marketplace-results {
+    .ingram-results, .tdsynnex-results, .brokerbin-results {
       margin-bottom: 30px;
     }
-    .ingram-results h3, .tdsynnex-results h3, .marketplace-results h3 {
+    .ingram-results h3, .tdsynnex-results h3, .brokerbin-results h3 {
       margin-bottom: 15px;
       padding-bottom: 10px;
       border-bottom: 2px solid #eee;
       color: #2563eb;
-    }
-    .marketplace-summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 20px;
-      margin-bottom: 20px;
-      padding: 15px;
-      background: #f8fafc;
-      border-radius: 8px;
-    }
-    .marketplace-summary-item {
-      padding: 10px;
-      background: white;
-      border-radius: 6px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    .summary-label {
-      font-size: 0.875rem;
-      color: #64748b;
-      margin-bottom: 4px;
-    }
-    .summary-value {
-      font-size: 1.125rem;
-      font-weight: 600;
-      color: #334155;
     }
     .error {
       color: #dc2626;
@@ -198,10 +173,9 @@
           <div class="loading" style="display: none;">Loading TDSynnex data...</div>
           <div class="results-container"></div>
         </div>
-        <div class="marketplace-results">
+        <div class="brokerbin-results">
           <h3>BrokerBin</h3>
-          <div class="loading" style="display: none;">Loading marketplace data...</div>
-          <div class="summary"></div>
+          <div class="loading" style="display: none;">Loading BrokerBin data...</div>
           <div class="results-container"></div>
         </div>
       </div>
@@ -282,14 +256,12 @@
       return parser.parseFromString(xmlString, "text/xml");
     }
 
-    async function fetchMarketplaceData(searchText) {
-      const loading = document.querySelector('.marketplace-results .loading');
-      const resultsDiv = document.querySelector('.marketplace-results .results-container');
-      const summaryDiv = document.querySelector('.marketplace-results .summary');
+    async function fetchBrokerBinData(searchText) {
+      const loading = document.querySelector('.brokerbin-results .loading');
+      const resultsDiv = document.querySelector('.brokerbin-results .results-container');
       
       loading.style.display = 'block';
       resultsDiv.innerHTML = '';
-      summaryDiv.innerHTML = '';
 
       try {
         const response = await fetch(`https://n8n.haielab.org/webhook/5b7b4860-49b9-4481-b359-40f0bc1502ce?item=${encodeURIComponent(searchText)}`);
@@ -298,57 +270,33 @@
         }
         const data = await response.json();
 
-        // Create summary section
-        if (data[0]?.meta) {
-          const meta = data[0].meta;
-          const summaryHtml = `
-            <div class="marketplace-summary">
-              <div class="marketplace-summary-item">
-                <div class="summary-label">Total Listings</div>
-                <div class="summary-value">${meta.total.toLocaleString()}</div>
-              </div>
-              <div class="marketplace-summary-item">
-                <div class="summary-label">Average Price</div>
-                <div class="summary-value">${meta.price.avg.toFixed(2)}</div>
-              </div>
-              <div class="marketplace-summary-item">
-                <div class="summary-label">Price Range</div>
-                <div class="summary-value">${meta.price.min} - ${meta.price.max}</div>
-              </div>
-              <div class="marketplace-summary-item">
-                <div class="summary-label">Total Quantity</div>
-                <div class="summary-value">${meta.qty.sum.toLocaleString()}</div>
-              </div>
-            </div>
-          `;
-          summaryDiv.innerHTML = summaryHtml;
+        if (!data || !data[0] || !data[0].data) {
+          throw new Error('No data found');
         }
 
-        // Create results table
-        if (data[0]?.data?.length > 0) {
-          const table = document.createElement('table');
-          table.innerHTML = `
-            <thead>
+        const table = document.createElement('table');
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Country</th>
+              <th>Manufacturer</th>
+              <th>Condition</th>
+              <th>Description</th>
+              <th>Price</th>
+              <th>Quantity</th>
+              <th>Age</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data[0].data.map(item => `
               <tr>
-                <th>Company</th>
-                <th>Country</th>
-                <th>Manufacturer</th>
-                <th>Condition</th>
-                <th>Description</th>
-                <th>Price</th>
-                <th>Quantity</th>
-                <th>Age</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data[0].data.map(item => `
-                <tr>
-                  <td>${item.company || '-'}</td>
-                  <td>${item.country || '-'}</td>
-                  <td>${item.mfg || '-'}</td>
-                  <td>${item.cond || '-'}</td>
-                  <td>${item.description || '-'}</td>
-                  <td>${item.price ? '
+                <td>${item.company || '-'}</td>
+                <td>${item.country || '-'}</td>
+                <td>${item.mfg || '-'}</td>
+                <td>${item.cond || '-'}</td>
+                <td>${item.description || '-'}</td>
+                <td>${item.price ? '
       const loading = document.querySelector('.tdsynnex-results .loading');
       const resultsDiv = document.querySelector('.tdsynnex-results .results-container');
       
@@ -551,25 +499,40 @@
         fetchDistributorData(partNumber),
         fetchInventoryData(partNumber),
         fetchTDSynnexData(partNumber),
-        fetchMarketplaceData(partNumber)
+        fetchBrokerBinData(partNumber)
       ]);
     }
   </script>
 </body>
 </html>
  + item.price.toFixed(2) : '-'}</td>
-                  <td>${item.qty.toLocaleString()}</td>
-                  <td>${item.age_in_days} days</td>
-                </tr>
-              `).join('')}
-            </tbody>
+                <td>${item.qty || '0'}</td>
+                <td>${item.age_in_days} days</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        `;
+
+        // Add meta information
+        if (data[0].meta) {
+          const metaInfo = document.createElement('div');
+          metaInfo.className = 'meta-info';
+          metaInfo.innerHTML = `
+            <div class="card" style="margin-bottom: 15px;">
+              <h4 style="margin-bottom: 10px;">Market Overview</h4>
+              <p><strong>Total Listings:</strong> ${data[0].meta.total}</p>
+              <p><strong>Price Range:</strong> ${data[0].meta.price.min} - ${data[0].meta.price.max}</p>
+              <p><strong>Average Price:</strong> ${data[0].meta.price.avg.toFixed(2)}</p>
+              <p><strong>Total Available Quantity:</strong> ${data[0].meta.qty.sum}</p>
+              <p><strong>Top Countries:</strong> ${data[0].meta.countries.slice(0, 3).map(c => c.key).join(', ')}</p>
+            </div>
           `;
-          resultsDiv.appendChild(table);
-        } else {
-          resultsDiv.innerHTML = '<div class="card">No marketplace listings found.</div>';
+          resultsDiv.appendChild(metaInfo);
         }
+        
+        resultsDiv.appendChild(table);
       } catch (error) {
-        resultsDiv.innerHTML = `<div class="error">Error fetching marketplace data: ${error.message}</div>`;
+        resultsDiv.innerHTML = `<div class="error">Error fetching BrokerBin data: ${error.message}</div>`;
       } finally {
         loading.style.display = 'none';
       }
