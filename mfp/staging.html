@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Part Search Interface</title>
   <style>
+    /* Existing styles remain the same */
     body {
       font-family: Arial, sans-serif;
       margin: 0;
@@ -113,10 +114,10 @@
       font-style: italic;
       color: #666;
     }
-    .ingram-results, .tdsynnex-results, .brokerbin-results, .ebay-results {
+    .ingram-results, .tdsynnex-results, .brokerbin-results, .ebay-results, .amazon-results {
       margin-bottom: 30px;
     }
-    .ingram-results h3, .tdsynnex-results h3, .brokerbin-results h3, .ebay-results h3 {
+    .ingram-results h3, .tdsynnex-results h3, .brokerbin-results h3, .ebay-results h3, .amazon-results h3 {
       margin-bottom: 15px;
       padding-bottom: 10px;
       border-bottom: 2px solid #eee;
@@ -194,13 +195,18 @@
             Ingram
           </label>
           <label>
-            <input type="checkbox" id="toggle-ebay" checked>
+            <input type="checkbox" id="toggle-ebay">
             eBay
+          </label>
+          <label>
+            <input type="checkbox" id="toggle-amazon">
+            Amazon
           </label>
         </div>
       </div>
     </div>
 
+    <!-- Tabs structure remains the same -->
     <div class="tabs">
       <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
       <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
@@ -211,6 +217,7 @@
       <button class="tab-button" onclick="switchTab('analytics')">Analytics</button>
     </div>
 
+    <!-- Content sections -->
     <div id="summary" class="tab-content active">
       <div id="summary-content">No search results yet.</div>
     </div>
@@ -246,6 +253,11 @@
           <div class="loading" style="display: none;">Loading eBay data...</div>
           <div class="results-container"></div>
         </div>
+        <div class="amazon-results">
+          <h3>Amazon</h3>
+          <div class="loading" style="display: none;">Loading Amazon data...</div>
+          <div class="results-container"></div>
+        </div>
       </div>
     </div>
     <div id="inventory" class="tab-content">
@@ -260,6 +272,7 @@
   </div>
 
   <script>
+    // Existing mock data and functions remain unchanged
     const mockData = {
       "1": {
         compatibility: {
@@ -303,6 +316,112 @@
       }
     };
 
+    // Add new Amazon fetch function
+    async function fetchAmazonData(searchText) {
+      const loading = document.querySelector('.amazon-results .loading');
+      const resultsDiv = document.querySelector('.amazon-results .results-container');
+      
+      loading.style.display = 'block';
+      resultsDiv.innerHTML = '';
+
+      try {
+        const response = await fetch(`https://n8n.haielab.org/webhook/463a6301-9d58-4c76-aa01-867ae77f08a2?item=${encodeURIComponent(searchText)}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        
+        if (data && data[0] && data[0].data) {
+          const table = document.createElement('table');
+          table.innerHTML = `
+            <thead>
+              <tr>
+                <th>Image</th>
+                <th>Title</th>
+                <th>Price</th>
+                <th>Rating</th>
+                <th>Reviews</th>
+                <th>Features</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data[0].data.map(item => `
+                <tr>
+                  <td class="image-cell">
+                    <img src="${item.thumbnailImage || '-'}" alt="${item.title}" class="product-image">
+                  </td>
+                  <td>
+                    <a href="${item.url}" target="_blank">${item.title}</a>
+                  </td>
+                  <td>${item.price ? `${item.price.currency}${item.price.value}` : '-'}</td>
+                  <td>${item.stars ? `${item.stars}/5` : '-'}</td>
+                  <td>${item.reviewsCount || '-'}</td>
+                  <td>
+                    ${item.features ? 
+                      `<ul>${item.features.slice(0, 2).map(feature => 
+                        `<li>${feature}</li>`).join('')}</ul>` 
+                      : '-'}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          `;
+          
+          resultsDiv.appendChild(table);
+        } else {
+          resultsDiv.innerHTML = '<div class="error">No Amazon results found</div>';
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error">Error fetching Amazon data: ${error.message}</div>`;
+      } finally {
+        loading.style.display = 'none';
+      }
+    }
+
+    // Update handleSearch function to include Amazon
+    async function handleSearch() {
+      const partNumber = document.getElementById('part-numbers').value.trim();
+      
+      // Handle mock data display
+      const data = mockData[partNumber];
+      if (data) {
+        updateSummaryTab(data, partNumber);
+      } else {
+        clearTabs();
+      }
+
+      // Create an array of promises based on enabled endpoints
+      const promises = [];
+
+      if (document.getElementById('toggle-inventory').checked) {
+        promises.push(fetchInventoryData(partNumber));
+      }
+
+      if (document.getElementById('toggle-brokerbin').checked) {
+        promises.push(fetchBrokerBinData(partNumber));
+      }
+
+      if (document.getElementById('toggle-tdsynnex').checked) {
+        promises.push(fetchTDSynnexData(partNumber));
+      }
+
+      if (document.getElementById('toggle-ingram').checked) {
+        promises.push(fetchDistributorData(partNumber));
+      }
+
+      if (document.getElementById('toggle-ebay').checked) {
+        promises.push(fetchEbayData(partNumber));
+      }
+
+      if (document.getElementById('toggle-amazon').checked) {
+        promises.push(fetchAmazonData(partNumber));
+      }
+
+      // Execute all enabled endpoints in parallel
+      await Promise.all(promises);
+    }
+
+    // Rest of the existing functions
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.remove('active');
@@ -520,7 +639,7 @@
                 <td>${item.mfg || '-'}</td>
                 <td>${item.cond || '-'}</td>
                 <td>${item.description || '-'}</td>
-                <td>${item.price ? '$' + item.price.toFixed(2) : '-'}</td>
+                <td>${item.price ? ' + item.price.toFixed(2) : '-'}</td>
                 <td>${item.qty || '0'}</td>
                 <td>${item.age_in_days}</td>
               </tr>
@@ -594,44 +713,6 @@
       }
     }
 
-    async function handleSearch() {
-      const partNumber = document.getElementById('part-numbers').value.trim();
-      
-      // Handle mock data display
-      const data = mockData[partNumber];
-      if (data) {
-        updateSummaryTab(data, partNumber);
-      } else {
-        clearTabs();
-      }
-
-      // Create an array of promises based on enabled endpoints
-      const promises = [];
-
-      if (document.getElementById('toggle-inventory').checked) {
-        promises.push(fetchInventoryData(partNumber));
-      }
-
-      if (document.getElementById('toggle-brokerbin').checked) {
-        promises.push(fetchBrokerBinData(partNumber));
-      }
-
-      if (document.getElementById('toggle-tdsynnex').checked) {
-        promises.push(fetchTDSynnexData(partNumber));
-      }
-
-      if (document.getElementById('toggle-ingram').checked) {
-        promises.push(fetchDistributorData(partNumber));
-      }
-
-      if (document.getElementById('toggle-ebay').checked) {
-        promises.push(fetchEbayData(partNumber));
-      }
-
-      // Execute all enabled endpoints in parallel
-      await Promise.all(promises);
-    }
-
     function clearTabs() {
       document.getElementById('summary-content').innerHTML = 'Part not found in internal database';
       document.getElementById('lenovo-content').innerHTML = '';
@@ -651,8 +732,8 @@
           <p>(${data.inventory.connecticut.new + data.inventory.uk.new} new, 
              ${data.inventory.connecticut.refurbished + data.inventory.uk.refurbished} refurbished)</p>
           <p><strong>Best Available Prices:</strong></p>
-          <p>Distributors: $${data.prices.distributors}</p>
-          <p>Marketplaces: $${data.prices.marketplaces}</p>
+          <p>Distributors: ${data.prices.distributors}</p>
+          <p>Marketplaces: ${data.prices.marketplaces}</p>
           <p><strong>Market Analysis:</strong></p>
           <p>Position: ${data.analysis.position}</p>
           <p>Price Difference: ${data.analysis.priceDifference}</p>
