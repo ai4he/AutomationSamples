@@ -173,7 +173,7 @@
       <h2>Part Search</h2>
       <label for="part-numbers">Part Number(s)</label>
       <input type="text" id="part-numbers" placeholder="Enter part numbers (comma-separated)" />
-      <button onclick="handleSearch()">Search</button>
+      <button onclick="handleSearch();" id="search-button">Search</button>
       
       <div class="endpoints-toggle">
         <h4>Data Sources:</h4>
@@ -719,6 +719,19 @@
       document.getElementById('compatible-content').innerHTML = '';
       document.getElementById('analytics-content').innerHTML = '';
     }
+
+    // Add event listeners once the DOM is loaded
+    document.addEventListener('DOMContentLoaded', function() {
+      // Add click event listener to search button
+      document.getElementById('search-button').addEventListener('click', handleSearch);
+      
+      // Add enter key press listener to input field
+      document.getElementById('part-numbers').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          handleSearch();
+        }
+      });
+    });
 
     function updateSummaryTab(data, partNumber) {
       document.getElementById('summary-content').innerHTML = `
