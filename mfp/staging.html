@@ -299,6 +299,48 @@
   </div>
 
   <script>
+    const mockData = {
+      "1": {
+        compatibility: {
+          details: "Compatible with ThinkSystem SR630, SR650",
+          source: "Lenovo Press",
+          systemModels: ["SR630", "SR650"],
+          documentation: "https://lenovopress.lenovo.com/lp1050-thinksystem-sr650-server",
+          category: "Memory"
+        },
+        compatibleParts: [
+          {
+            partNumber: "4X77A12184",
+            description: "16GB TruDDR4 2933MHz RDIMM",
+            category: "Memory",
+            epicorInventory: 12,
+            price: 185.00,
+            marketAverage: 220.00
+          },
+          {
+            partNumber: "4X77A12185",
+            description: "32GB TruDDR4 2933MHz RDIMM",
+            category: "Memory",
+            epicorInventory: 5,
+            price: 320.00,
+            marketAverage: 315.00
+          }
+        ],
+        inventory: {
+          connecticut: { new: 5, refurbished: 2 },
+          uk: { new: 3, refurbished: 0 }
+        },
+        prices: {
+          distributors: 220.00,
+          marketplaces: 245.00
+        },
+        analysis: {
+          position: "Below Market",
+          priceDifference: "8.2%",
+          priceRange: { min: 225.00, max: 245.00 }
+        }
+      }
+    };
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.remove('active');
@@ -352,6 +394,39 @@
       }
     }
 
+    function parseXML(xmlString) {
+      const parser = new DOMParser();
+      return parser.parseFromString(xmlString, "text/xml");
+    }
+
+    function updateSummaryTab(data, partNumber) {
+      document.getElementById('summary-content').innerHTML = `
+        <div class="card">
+          <h3>Part Number: ${partNumber}</h3>
+          <p><strong>Compatibility:</strong> ${data.compatibility.details}</p>
+          <p><strong>Documentation Source:</strong> ${data.compatibility.source}</p>
+          <p><strong>Current Inventory:</strong></p>
+          <p>CT: ${data.inventory.connecticut.new + data.inventory.connecticut.refurbished} units</p>
+          <p>UK: ${data.inventory.uk.new + data.inventory.uk.refurbished} units</p>
+          <p>(${data.inventory.connecticut.new + data.inventory.uk.new} new, 
+             ${data.inventory.connecticut.refurbished + data.inventory.uk.refurbished} refurbished)</p>
+          <p><strong>Best Available Prices:</strong></p>
+          <p>Distributors: ${data.prices.distributors}</p>
+          <p>Marketplaces: ${data.prices.marketplaces}</p>
+          <p><strong>Market Analysis:</strong></p>
+          <p>Position: ${data.analysis.position}</p>
+          <p>Price Difference: ${data.analysis.priceDifference}</p>
+        </div>
+      `;
+    }
+
+    function clearTabs() {
+      document.getElementById('summary-content').innerHTML = 'Part not found in internal database';
+      document.getElementById('lenovo-content').innerHTML = '';
+      document.getElementById('compatible-content').innerHTML = '';
+      document.getElementById('analytics-content').innerHTML = '';
+    }
+
     async function handleSearch() {
       const partNumbers = document.getElementById('part-numbers').value;
       const parts = partNumbers.split(',').map(p => p.trim()).filter(p => p);
@@ -375,6 +450,17 @@
         if (resultsEl) resultsEl.innerHTML = '';
       });
 
+      // Handle mock data display
+      const parts = partNumbers.split(',').map(p => p.trim()).filter(p => p);
+      if (parts.length === 0) return;
+
+      const data = mockData[parts[0]];
+      if (data) {
+        updateSummaryTab(data, parts[0]);
+      } else {
+        clearTabs();
+      }
+
       const promises = [];
 
       if (enabledEndpoints.inventory) {
@@ -382,8 +468,33 @@
           fetch(`https://n8n.haielab.org/webhook/677e67d8-0f57-4f91-9b86-d7e67f8efb44?item=${encodeURIComponent(parts[0])}`)
             .then(r => r.json())
             .then(data => {
-              const resultsDiv = document.querySelector('.inventory-results');
-              // Render inventory results...
+              const table = document.createElement('table');
+              table.innerHTML = `
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Part Number</th>
+                    <th>Description</th>
+                    <th>Class</th>
+                    <th>Product Code</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${data.map(item => `
+                    <tr>
+                      <td>${item.Company || '-'}</td>
+                      <td>${item.PartNum?.trim() || '-'}</td>
+                      <td>${item.PartDescription || '-'}</td>
+                      <td>${item.ClassDescription || '-'}</td>
+                      <td>${item.ProdCodeDescription || '-'}</td>
+                      <td>${item.InActive ? '<span class="text-error">Inactive</span>' : '<span class="text-success">Active</span>'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              `;
+              document.querySelector('.inventory-results').innerHTML = '';
+              document.querySelector('.inventory-results').appendChild(table);
             })
             .catch(err => console.error('Error fetching inventory:', err))
             .finally(() => {
@@ -437,7 +548,7 @@
                       <td>${item.mfg || '-'}</td>
                       <td>${item.cond || '-'}</td>
                       <td>${item.description || '-'}</td>
-                      <td>${item.price ? item.price.toFixed(2) : '-'}</td>
+                      <td>${item.price ? ' + item.price.toFixed(2) : '-'}</td>
                       <td>${item.qty || '0'}</td>
                       <td>${item.age_in_days}</td>
                     </tr>
