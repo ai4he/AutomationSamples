@@ -725,10 +725,30 @@
         return;
       }
 
-      const lenovoContent = document.getElementById('lenovo-content');
-      const subtabs = document.getElementById('lenovo-subtabs');
-      const subcontent = document.getElementById('lenovo-subcontent');
+      const lenovoContentDiv = document.getElementById('lenovo-content');
+      if (!lenovoContentDiv) {
+        console.error('Lenovo content div not found');
+        return;
+      }
+
+      // Create containers if they don't exist
+      let subtabs = document.getElementById('lenovo-subtabs');
+      let subcontent = document.getElementById('lenovo-subcontent');
+
+      if (!subtabs) {
+        subtabs = document.createElement('div');
+        subtabs.id = 'lenovo-subtabs';
+        subtabs.className = 'subtabs';
+        lenovoContentDiv.appendChild(subtabs);
+      }
+
+      if (!subcontent) {
+        subcontent = document.createElement('div');
+        subcontent.id = 'lenovo-subcontent';
+        lenovoContentDiv.appendChild(subcontent);
+      }
       
+      // Clear existing content
       subtabs.innerHTML = '<div class="loading">Loading Lenovo data...</div>';
       subcontent.innerHTML = '';
       
@@ -739,10 +759,11 @@
         }
         const data = await response.json();
 
+        // Clear loading message
         subtabs.innerHTML = '';
         subcontent.innerHTML = '';
 
-        if (data[0] && data[0].data) {
+        if (data[0] && data[0].data && data[0].data.length > 0) {
           data[0].data.forEach((doc, index) => {
             const subtabButton = document.createElement('button');
             subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
