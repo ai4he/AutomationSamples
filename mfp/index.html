@@ -242,7 +242,6 @@
     <div class="tabs">
       <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
       <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
-      <button class="tab-button" onclick="switchTab('compatible')">Compatible Parts</button>
       <button class="tab-button" onclick="switchTab('distributors')">Distributors</button>
       <button class="tab-button" onclick="switchTab('marketplaces')">Marketplaces</button>
       <button class="tab-button" onclick="switchTab('inventory')">Inventory</button>
@@ -257,9 +256,6 @@
         <div class="subtabs" id="lenovo-subtabs"></div>
         <div id="lenovo-subcontent"></div>
       </div>
-    </div>
-    <div id="compatible" class="tab-content">
-      <div id="compatible-content"></div>
     </div>
     <div id="distributors" class="tab-content">
       <div id="distributors-content">
@@ -306,48 +302,6 @@
   </div>
 
   <script>
-    const mockData = {
-      "1": {
-        compatibility: {
-          details: "Compatible with ThinkSystem SR630, SR650",
-          source: "Lenovo Press",
-          systemModels: ["SR630", "SR650"],
-          documentation: "https://lenovopress.lenovo.com/lp1050-thinksystem-sr650-server",
-          category: "Memory"
-        },
-        compatibleParts: [
-          {
-            partNumber: "4X77A12184",
-            description: "16GB TruDDR4 2933MHz RDIMM",
-            category: "Memory",
-            epicorInventory: 12,
-            price: 185.00,
-            marketAverage: 220.00
-          },
-          {
-            partNumber: "4X77A12185",
-            description: "32GB TruDDR4 2933MHz RDIMM",
-            category: "Memory",
-            epicorInventory: 5,
-            price: 320.00,
-            marketAverage: 315.00
-          }
-        ],
-        inventory: {
-          connecticut: { new: 5, refurbished: 2 },
-          uk: { new: 3, refurbished: 0 }
-        },
-        prices: {
-          distributors: 220.00,
-          marketplaces: 245.00
-        },
-        analysis: {
-          position: "Below Market",
-          priceDifference: "8.2%",
-          priceRange: { min: 225.00, max: 245.00 }
-        }
-      }
-    };
 
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(tab => {
@@ -822,20 +776,11 @@
     function clearTabs() {
       document.getElementById('summary-content').innerHTML = 'Part not found in internal database';
       document.getElementById('lenovo-content').innerHTML = '';
-      document.getElementById('compatible-content').innerHTML = '';
       document.getElementById('analytics-content').innerHTML = '';
     }
 
     async function handleSearch() {
       const partNumber = document.getElementById('part-numbers').value.trim();
-      
-      // Handle mock data display
-      const data = mockData[partNumber];
-      if (data) {
-        updateSummaryTab(data, partNumber);
-      } else {
-        clearTabs();
-      }
 
       // Create an array of promises based on enabled endpoints
       const promises = [];
