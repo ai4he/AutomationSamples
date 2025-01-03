@@ -674,7 +674,7 @@
       }
     }
 
-  async function fetchLenovoData(searchText) {
+async function fetchLenovoData(searchText) {
   if (!document.getElementById('toggle-lenovo').checked) {
     return;
   }
@@ -722,7 +722,12 @@
         // Create tab button
         const subtabButton = document.createElement('button');
         subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
-        subtabButton.textContent = doc.title;
+        // Clean up the title by removing newlines and extra spaces
+        const cleanTitle = doc.title
+          .replace(/\n/g, ' ')  // Replace newlines with spaces
+          .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
+          .trim();               // Remove leading/trailing spaces
+        subtabButton.textContent = cleanTitle;
         subtabButton.onclick = () => switchLenovoSubtab(index);
         subtabs.appendChild(subtabButton);
 
