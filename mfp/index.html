@@ -717,16 +717,23 @@ async function fetchLenovoData(searchText) {
     subtabs.innerHTML = '';
     subcontent.innerHTML = '';
 
-    if (data[0] && data[0].data && data[0].data.length > 0) {
+    if (data?.[0]?.data?.length > 0) {
       data[0].data.forEach((doc, index) => {
+        if (!doc) return;
+
         // Create tab button
         const subtabButton = document.createElement('button');
         subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
-        // Clean up the title by removing newlines and extra spaces
-        const cleanTitle = doc.title
-          .replace(/\n/g, ' ')  // Replace newlines with spaces
-          .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
-          .trim();               // Remove leading/trailing spaces
+        
+        // Safely handle the title
+        const title = doc.title || 'Untitled Document';
+        const cleanTitle = typeof title === 'string' 
+          ? title
+              .replace(/\n/g, ' ')  // Replace newlines with spaces
+              .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
+              .trim()               // Remove leading/trailing spaces
+          : 'Untitled Document';
+        
         subtabButton.textContent = cleanTitle;
         subtabButton.onclick = () => switchLenovoSubtab(index);
         subtabs.appendChild(subtabButton);
@@ -739,10 +746,12 @@ async function fetchLenovoData(searchText) {
         // Process the content:
         // 1. Decode Unicode escape sequences
         // 2. Wrap table contents in table tags
-        let processedContent = decodeUnicodeEscapes(doc.content);
+        let processedContent = doc.content 
+          ? decodeUnicodeEscapes(doc.content)
+          : '<div class="error">No content available</div>';
         
-        // Add table tags if they don't exist
-        if (!processedContent.trim().toLowerCase().startsWith('<table')) {
+        // Add table tags if they don't exist and content is not an error message
+        if (doc.content && !processedContent.trim().toLowerCase().startsWith('<table')) {
           processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
         }
 
@@ -754,12 +763,14 @@ async function fetchLenovoData(searchText) {
     }
 
   } catch (error) {
+    console.error('Lenovo data fetch error:', error);
     subtabs.innerHTML = `<div class="error">Error fetching Lenovo data: ${error.message}</div>`;
   }
 }
 
 // Helper function to decode Unicode escape sequences
 function decodeUnicodeEscapes(str) {
+  if (typeof str !== 'string') return '';
   return str.replace(/\\u[\dA-F]{4}/gi, match => 
     String.fromCharCode(parseInt(match.replace(/\\u/g, ''), 16))
   );
