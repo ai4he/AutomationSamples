@@ -726,6 +726,7 @@ async function fetchLenovoData(searchText) {
         subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
         
         // Safely handle the title
+        console.log(doc);
         const title = doc.title || 'Untitled Document';
         const cleanTitle = typeof title === 'string' 
           ? title
