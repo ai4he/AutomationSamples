@@ -726,7 +726,6 @@ async function fetchLenovoData(searchText) {
         subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
         
         // Safely handle the title
-        console.log(doc);
         const title = doc.title || 'Untitled Document';
         const cleanTitle = typeof title === 'string' 
           ? title
@@ -736,6 +735,7 @@ async function fetchLenovoData(searchText) {
           : 'Untitled Document';
         
         subtabButton.textContent = cleanTitle;
+        subtabButton.title = cleanTitle; // Add tooltip with full text
         subtabButton.onclick = () => switchLenovoSubtab(index);
         subtabs.appendChild(subtabButton);
 
