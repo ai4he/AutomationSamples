@@ -573,6 +573,74 @@ function switchLenovoSubtab(index) {
   document.querySelector(`.subtab-content[data-subtab-index="${index}"]`).classList.add('active');
 }
 
+// Data fetching functions
+async function fetchInventoryData(partNumbers) {
+  if (!document.getElementById('toggle-inventory').checked) {
+    return;
+  }
+
+  const loading = document.querySelector('#inventory-content .loading');
+  const resultsDiv = document.querySelector('#inventory-content .inventory-results');
+  
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      try {
+        const response = await fetch(`https://n8n.haielab.org/webhook/677e67d8-0f57-4f91-9b86-d7e67f8efb44?item=${encodeURIComponent(number)}`);
+        if (!response.ok) {
+          console.warn(`Warning: Failed to fetch inventory data for part number ${number}`);
+          continue;
+        }
+        const data = await response.json();
+        const resultsWithSource = data.map(item => ({
+          ...item,
+          sourcePartNumber: source
+        }));
+        allResults.push(...resultsWithSource);
+      } catch (error) {
+        console.warn(`Error processing inventory data for part number ${number}:`, error);
+      }
+    }
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Source Part</th>
+          <th>Company</th>
+          <th>Part Number</th>
+          <th>Description</th>
+          <th>Class</th>
+          <th>Product Code</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allResults.map(item => `
+          <tr>
+            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td>${item.Company || '-'}</td>
+            <td>${item.PartNum?.trim() || '-'}</td>
+            <td>${item.PartDescription || '-'}</td>
+            <td>${item.ClassDescription || '-'}</td>
+            <td>${item.ProdCodeDescription || '-'}</td>
+            <td>${item.InActive ? '<span class="text-error">Inactive</span>' : '<span class="text-success">Active</span>'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    
+    resultsDiv.appendChild(table);
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching inventory data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
 async function handleSearch() {
   const partNumber = document.getElementById('part-numbers').value.trim();
   if (!partNumber) {
