@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Part Search Interface</title>
+  <link rel="stylesheet" type="text/css" href="index.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h2>Part Search</h2>
+      <label for="part-numbers">Part Number(s)</label>
+      <input type="text" id="part-numbers" placeholder="Enter part numbers (comma-separated)" />
+      <div id="alternative-numbers" class="alternative-numbers">
+        <!-- Alternative part numbers will be displayed here -->
+      </div>
+      <button onclick="handleSearch()">Search</button>
+      
+      <div class="endpoints-toggle">
+        <h4>Data Sources:</h4>
+        <div class="checkbox-group">
+          <label>
+            <input type="checkbox" id="toggle-inventory" checked>
+            Epicor (Inventory)
+          </label>
+          <label>
+            <input type="checkbox" id="toggle-brokerbin" checked>
+            BrokerBin
+          </label>
+          <label>
+            <input type="checkbox" id="toggle-tdsynnex" checked>
+            TDSynnex
+          </label>
+          <label>
+            <input type="checkbox" id="toggle-ingram" checked>
+            Ingram
+          </label>
+          <label>
+            <input type="checkbox" id="toggle-ebay">
+            eBay
+          </label>
+          <label>
+            <input type="checkbox" id="toggle-amazon">
+            Amazon
+          </label>
+          <label>
+            <input type="checkbox" id="toggle-lenovo" checked>
+            Lenovo
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
+      <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
+      <button class="tab-button" onclick="switchTab('distributors')">Distributors</button>
+      <button class="tab-button" onclick="switchTab('marketplaces')">Marketplaces</button>
+      <button class="tab-button" onclick="switchTab('inventory')">Inventory</button>
+      <button class="tab-button" onclick="switchTab('analytics')">Analytics</button>
+    </div>
+
+    <div id="summary" class="tab-content active">
+      <div id="summary-content">No search results yet.</div>
+    </div>
+    <div id="lenovo" class="tab-content">
+      <div id="lenovo-content">
+        <div class="subtabs" id="lenovo-subtabs"></div>
+        <div id="lenovo-subcontent"></div>
+      </div>
+    </div>
+    <div id="distributors" class="tab-content">
+      <div id="distributors-content">
+        <div class="loading" style="display: none;">Loading distributor data...</div>
+        <div class="ingram-results">
+          <h3>Ingram</h3>
+          <div class="results-container"></div>
+        </div>
+        <div class="tdsynnex-results">
+          <h3>TDSynnex</h3>
+          <div class="loading" style="display: none;">Loading TDSynnex data...</div>
+          <div class="results-container"></div>
+        </div>
+        <div class="brokerbin-results">
+          <h3>BrokerBin</h3>
+          <div class="loading" style="display: none;">Loading BrokerBin data...</div>
+          <div class="results-container"></div>
+        </div>
+      </div>
+    </div>
+    <div id="marketplaces" class="tab-content">
+      <div id="marketplaces-content">
+        <div class="ebay-results">
+          <h3>eBay</h3>
+          <div class="loading" style="display: none;">Loading eBay data...</div>
+          <div class="results-container"></div>
+        </div>
+        <div class="amazon-results">
+          <h3>Amazon</h3>
+          <div class="loading" style="display: none;">Loading Amazon data...</div>
+          <div class="results-container"></div>
+        </div>
+      </div>
+    </div>
+    <div id="inventory" class="tab-content">
+      <div id="inventory-content">
+        <div class="loading" style="display: none;">Loading inventory data...</div>
+        <div class="inventory-results"></div>
+      </div>
+    </div>
+    <div id="analytics" class="tab-content">
+      <div id="analytics-content"></div>
+    </div>
+  </div>
+  <script type="text/javascript" src="index.js"></script>
+</body>
+</html>
