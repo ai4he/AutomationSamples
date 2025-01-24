@@ -63,3 +63,586 @@ function parseXML(xmlString) {
 
 async function fetchAmazonData(partNumbers) {
   if (!document.getElementById('toggle-amazon').checked) {
+    return;
+  }
+
+  const loading = document.querySelector('.amazon-results .loading');
+  const resultsDiv = document.querySelector('.amazon-results .results-container');
+  
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      const response = await fetch(`https://n8n.haielab.org/webhook/463a6301-9d58-4c76-aa01-867ae77f08a2?item=${encodeURIComponent(number)}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      data.forEach(item => {
+        item.sourcePartNumber = source;
+      });
+      allResults.push(...data);
+    }
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Source Part</th>
+          <th>Image</th>
+          <th>Title</th>
+          <th>Price</th>
+          <th>List Price</th>
+          <th>Rating</th>
+          <th>Reviews</th>
+          <th>Stock Status</th>
+          <th>Seller</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allResults.map(item => `
+          <tr>
+            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td class="image-cell">
+              <img src="${item.thumbnailImage || '-'}" alt="${item.title}" class="product-image">
+            </td>
+            <td>
+              <a href="${item.url}" target="_blank">${item.title}</a>
+            </td>
+            <td>${item.price ? `${item.price.currency}${item.price.value}` : '-'}</td>
+            <td>${item.listPrice ? `${item.listPrice.currency}${item.listPrice.value}` : '-'}</td>
+            <td>${item.stars ? `${item.stars}/5` : '-'}</td>
+            <td>${item.reviewsCount || '0'}</td>
+            <td>${item.inStockText || '-'}</td>
+            <td>${item.seller?.name || '-'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    
+    resultsDiv.appendChild(table);
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching Amazon data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+async function fetchTDSynnexData(partNumbers) {
+  if (!document.getElementById('toggle-tdsynnex').checked) {
+    return;
+  }
+
+  const loading = document.querySelector('.tdsynnex-results .loading');
+  const resultsDiv = document.querySelector('.tdsynnex-results .results-container');
+  
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      const response = await fetch(`https://n8n.haielab.org/webhook/c05da902-3d00-4f82-bb07-6e568e21724f?item=${encodeURIComponent(number)}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const xmlText = await response.text();
+      const xmlDoc = parseXML(xmlText);
+
+      const result = {
+        sourcePartNumber: source,
+        synnexSKU: xmlDoc.querySelector('synnexSKU')?.textContent || '-',
+        mfgPN: xmlDoc.querySelector('mfgPN')?.textContent || '-',
+        description: xmlDoc.querySelector('description')?.textContent || '-',
+        status: xmlDoc.querySelector('status')?.textContent || '-',
+        price: xmlDoc.querySelector('price')?.textContent || '-',
+        totalQuantity: xmlDoc.querySelector('totalQuantity')?.textContent || '0',
+        warehouses: Array.from(xmlDoc.getElementsByTagName('AvailabilityByWarehouse'))
+          .map(warehouse => ({
+            city: warehouse.querySelector('warehouseInfo city')?.textContent,
+            qty: warehouse.querySelector('qty')?.textContent
+          }))
+      };
+      allResults.push(result);
+    }
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Source Part</th>
+          <th>Synnex SKU</th>
+          <th>Mfg Part Number</th>
+          <th>Description</th>
+          <th>Status</th>
+          <th>Price</th>
+          <th>Total Quantity</th>
+          <th>Warehouses</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allResults.map(item => `
+          <tr>
+            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td>${item.synnexSKU}</td>
+            <td>${item.mfgPN}</td>
+            <td>${item.description}</td>
+            <td>${item.status}</td>
+            <td>${item.price}</td>
+            <td>${item.totalQuantity}</td>
+            <td>
+              ${item.warehouses.map(wh => `${wh.city}: ${wh.qty} units`).join('<br>')}
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    
+    resultsDiv.appendChild(table);
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching TDSynnex data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+async function fetchDistributorData(partNumbers) {
+  if (!document.getElementById('toggle-ingram').checked) {
+    return;
+  }
+
+  const loading = document.querySelector('#distributors-content .loading');
+  const resultsDiv = document.querySelector('#distributors-content .ingram-results .results-container');
+  
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      const response = await fetch(`https://n8n.haielab.org/webhook/cd705da3-61d5-4ae7-8fca-1d49a2d412f4/?item=${encodeURIComponent(number)}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      data.forEach(item => {
+        item.sourcePartNumber = source;
+      });
+      allResults.push(...data);
+    }
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Source Part</th>
+          <th>Description</th>
+          <th>Category</th>
+          <th>Vendor</th>
+          <th>Part Number</th>
+          <th>UPC Code</th>
+          <th>Product Type</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allResults.map(item => `
+          <tr>
+            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td>${item.description || '-'}</td>
+            <td>${item.category || '-'}</td>
+            <td>${item.vendorName || '-'}</td>
+            <td>${item.vendorPartNumber || '-'}</td>
+            <td>${item.upcCode || '-'}</td>
+            <td>${item.productType || '-'}</td>
+            <td>
+              ${item.discontinued === 'True' ? '<span class="text-error">Discontinued</span>' : ''}
+              ${item.newProduct === 'True' ? '<span class="text-success">New</span>' : ''}
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    
+    resultsDiv.appendChild(table);
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching distributor data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+async function fetchInventoryData(partNumbers) {
+  if (!document.getElementById('toggle-inventory').checked) {
+    return;
+  }
+
+  const loading = document.querySelector('#inventory-content .loading');
+  const resultsDiv = document.querySelector('#inventory-content .inventory-results');
+  
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      const response = await fetch(`https://n8n.haielab.org/webhook/677e67d8-0f57-4f91-9b86-d7e67f8efb44?item=${encodeURIComponent(number)}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      data.forEach(item => {
+        item.sourcePartNumber = source;
+      });
+      allResults.push(...data);
+    }
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Source Part</th>
+          <th>Company</th>
+          <th>Part Number</th>
+          <th>Description</th>
+          <th>Class</th>
+          <th>Product Code</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allResults.map(item => `
+          <tr>
+            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td>${item.Company || '-'}</td>
+            <td>${item.PartNum?.trim() || '-'}</td>
+            <td>${item.PartDescription || '-'}</td>
+            <td>${item.ClassDescription || '-'}</td>
+            <td>${item.ProdCodeDescription || '-'}</td>
+            <td>${item.InActive ? '<span class="text-error">Inactive</span>' : '<span class="text-success">Active</span>'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    
+    resultsDiv.appendChild(table);
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching inventory data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+async function fetchBrokerBinData(partNumbers) {
+  if (!document.getElementById('toggle-brokerbin').checked) {
+    return;
+  }
+
+  const loading = document.querySelector('.brokerbin-results .loading');
+  const resultsDiv = document.querySelector('.brokerbin-results .results-container');
+  
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      const response = await fetch(`https://n8n.haielab.org/webhook/5b7b4860-49b9-4481-b359-40f0bc1502ce?item=${encodeURIComponent(number)}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      data.forEach(item => {
+        item.sourcePartNumber = source;
+      });
+      allResults.push(...data);
+    }
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Source Part</th>
+          <th>Company</th>
+          <th>Country</th>
+          <th>Part</th>
+          <th>Manufacturer</th>
+          <th>Condition</th>
+          <th>Description</th>
+          <th>Price</th>
+          <th>Quantity</th>
+          <th>Age (Days)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allResults.map(item => `
+          <tr>
+            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td>${item.company || '-'}</td>
+            <td>${item.country || '-'}</td>
+            <td>${item.part || '-'}</td>
+            <td>${item.mfg || '-'}</td>
+            <td>${item.cond || '-'}</td>
+            <td>${item.description || '-'}</td>
+            <td>${item.price ? '$' + item.price.toFixed(2) : '-'}</td>
+            <td>${item.qty || '0'}</td>
+            <td>${item.age_in_days}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    
+    resultsDiv.appendChild(table);
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching BrokerBin data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+async function fetchEbayData(partNumbers) {
+  if (!document.getElementById('toggle-ebay').checked) {
+    return;
+  }
+
+  const loading = document.querySelector('.ebay-results .loading');
+  const resultsDiv = document.querySelector('.ebay-results .results-container');
+  
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      const response = await fetch(`https://n8n.haielab.org/webhook/5f01af23-5963-451d-8b3b-590e9504e654?item=${encodeURIComponent(number)}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      data.forEach(item => {
+        item.sourcePartNumber = source;
+      });
+      allResults.push(...data);
+    }
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Source Part</th>
+          <th>Image</th>
+          <th>Title</th>
+          <th>Price</th>
+          <th>Condition</th>
+          <th>Seller</th>
+          <th>Location</th>
+          <th>Shipping</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allResults.map(item => `
+          <tr>
+            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td class="image-cell">
+              ${item.images && item.images.length > 0 ? 
+                `<img src="${item.images[0]}" alt="${item.title}" class="product-image">` : 
+                '-'}
+            </td>
+            <td>
+              <a href="${item.url}" target="_blank">${item.title}</a>
+            </td>
+            <td>${item.priceWithCurrency || '-'}</td>
+            <td>${item.condition || '-'}</td>
+            <td>
+              <a href="${item.sellerUrl}" target="_blank">${item.sellerName}</a>
+            </td>
+            <td>${item.itemLocation || '-'}</td>
+            <td>${item.shipping || '-'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    
+    resultsDiv.appendChild(table);
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching eBay data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+async function fetchLenovoData(partNumbers) {
+  if (!document.getElementById('toggle-lenovo').checked) {
+    return;
+  }
+
+  const lenovoContentDiv = document.getElementById('lenovo-content');
+  if (!lenovoContentDiv) {
+    console.error('Lenovo content div not found');
+    return;
+  }
+
+  // Create containers if they don't exist
+  let subtabs = document.getElementById('lenovo-subtabs');
+  let subcontent = document.getElementById('lenovo-subcontent');
+
+  if (!subtabs) {
+    subtabs = document.createElement('div');
+    subtabs.id = 'lenovo-subtabs';
+    subtabs.className = 'subtabs';
+    lenovoContentDiv.appendChild(subtabs);
+  }
+
+  if (!subcontent) {
+    subcontent = document.createElement('div');
+    subcontent.id = 'lenovo-subcontent';
+    lenovoContentDiv.appendChild(subcontent);
+  }
+
+  // Clear existing content
+  subtabs.innerHTML = '<div class="loading">Loading Lenovo data...</div>';
+  subcontent.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      const response = await fetch(`https://n8n.haielab.org/webhook/7ab28ae7-f7dd-461e-a1de-0657f3c0d997?item=${encodeURIComponent(number)}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      if (data?.[0]?.data?.length > 0) {
+        data[0].data.forEach(doc => {
+          if (doc) {
+            doc.sourcePartNumber = source;
+            allResults.push(doc);
+          }
+        });
+      }
+    }
+
+    // Clear loading message
+    subtabs.innerHTML = '';
+    subcontent.innerHTML = '';
+
+    if (allResults.length > 0) {
+      allResults.forEach((doc, index) => {
+        // Create tab button
+        const subtabButton = document.createElement('button');
+        subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
+        
+        // Safely handle the title
+        const title = doc.title || 'Untitled Document';
+        const cleanTitle = typeof title === 'string' 
+          ? title
+              .replace(/\n/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+          : 'Untitled Document';
+        
+        subtabButton.textContent = `${doc.sourcePartNumber} - ${cleanTitle}`;
+        subtabButton.title = cleanTitle;
+        subtabButton.onclick = () => switchLenovoSubtab(index);
+        subtabs.appendChild(subtabButton);
+
+        // Create content div
+        const contentDiv = document.createElement('div');
+        contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
+        contentDiv.setAttribute('data-subtab-index', index);
+
+        // Process the content
+        let processedContent = doc.content 
+          ? decodeUnicodeEscapes(doc.content)
+          : '<div class="error">No content available</div>';
+        
+        if (doc.content && !processedContent.trim().toLowerCase().startsWith('<table')) {
+          processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
+        }
+
+        contentDiv.innerHTML = processedContent;
+        subcontent.appendChild(contentDiv);
+      });
+    } else {
+      subtabs.innerHTML = '<div class="error">No Lenovo data found</div>';
+    }
+  } catch (error) {
+    console.error('Lenovo data fetch error:', error);
+    subtabs.innerHTML = `<div class="error">Error fetching Lenovo data: ${error.message}</div>`;
+  }
+}
+
+function decodeUnicodeEscapes(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/\\u[\dA-F]{4}/gi, match => 
+    String.fromCharCode(parseInt(match.replace(/\\u/g, ''), 16))
+  );
+}
+
+function switchLenovoSubtab(index) {
+  document.querySelectorAll('.subtab-button').forEach(button => {
+    button.classList.remove('active');
+  });
+  document.querySelectorAll('.subtab-button')[index].classList.add('active');
+
+  document.querySelectorAll('.subtab-content').forEach(content => {
+    content.classList.remove('active');
+  });
+  document.querySelector(`.subtab-content[data-subtab-index="${index}"]`).classList.add('active');
+}
+
+async function handleSearch() {
+  const partNumber = document.getElementById('part-numbers').value.trim();
+  if (!partNumber) {
+    alert('Please enter a part number');
+    return;
+  }
+
+  // Get alternative part numbers
+  const { original, alternatives } = await getAlternativePartNumbers(partNumber);
+  
+  // Create an array of all part numbers to search, including the original and alternatives
+  const partNumbers = [
+    { number: original, source: original },
+    ...alternatives.map(alt => ({ number: alt, source: original }))
+  ];
+
+  // Create an array of promises based on enabled endpoints
+  const promises = [];
+
+  if (document.getElementById('toggle-inventory').checked) {
+    promises.push(fetchInventoryData(partNumbers));
+  }
+
+  if (document.getElementById('toggle-brokerbin').checked) {
+    promises.push(fetchBrokerBinData(partNumbers));
+  }
+
+  if (document.getElementById('toggle-tdsynnex').checked) {
+    promises.push(fetchTDSynnexData(partNumbers));
+  }
+
+  if (document.getElementById('toggle-ingram').checked) {
+    promises.push(fetchDistributorData(partNumbers));
+  }
+
+  if (document.getElementById('toggle-ebay').checked) {
+    promises.push(fetchEbayData(partNumbers));
+  }
+
+  if (document.getElementById('toggle-amazon').checked) {
+    promises.push(fetchAmazonData(partNumbers));
+  }
+
+  if (document.getElementById('toggle-lenovo').checked) {
+    promises.push(fetchLenovoData(partNumbers));
+  }
+
+  // Execute all enabled endpoints in parallel
+  try {
+    await Promise.all(promises);
+  } catch (error) {
+    console.error('Error during parallel execution:', error);
+  }
+}
