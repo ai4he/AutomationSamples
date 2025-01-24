@@ -654,7 +654,7 @@ async function handleSearch() {
   // Create an array of all part numbers to search, including the original and alternatives
   const partNumbers = [
     { number: original, source: original },
-    ...alternatives.map(alt => ({ number: alt, source: original }))
+    ...alternatives.map(alt => ({ number: alt, source: alt }))
   ];
 
   // Create an array of promises based on enabled endpoints
