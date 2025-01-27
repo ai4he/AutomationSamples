@@ -489,7 +489,7 @@ async function fetchLenovoData(partNumbers) {
     const allResults = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook-test/lenovo-scraper?item=${encodeURIComponent(number)}`);
+        const response = await fetch(`https://${serverDomain}/webhook/lenovo-scraper?item=${encodeURIComponent(number)}`);
         if (!response.ok) {
           console.warn(`Warning: Failed to fetch Lenovo data for part number ${number}`);
           continue;
