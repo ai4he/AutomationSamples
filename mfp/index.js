@@ -1,4 +1,5 @@
-var serverDomain = "n8n.haielab.org";
+var serverDomain = "gpu.haielab.org";
+// var serverDomain = "n8n.haielab.org";
 
 // Utility functions
 async function getAlternativePartNumbers(partNumber) {
