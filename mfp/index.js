@@ -1,7 +1,9 @@
+var serverDomain = "n8n.haielab.org";
+
 // Utility functions
 async function getAlternativePartNumbers(partNumber) {
   try {
-    const response = await fetch(`https://n8n.haielab.org/webhook/get-parts?item=${encodeURIComponent(partNumber)}`);
+    const response = await fetch(`https://${serverDomain}/webhook/get-parts?item=${encodeURIComponent(partNumber)}`);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -78,7 +80,7 @@ async function fetchAmazonData(partNumbers) {
     const allResults = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://n8n.haielab.org/webhook/amazon-search?item=${encodeURIComponent(number)}`);
+        const response = await fetch(`https://${serverDomain}/webhook/amazon-search?item=${encodeURIComponent(number)}`);
         if (!response.ok) {
           console.warn(`Warning: Failed to fetch Amazon data for part number ${number}`);
           continue;
@@ -153,7 +155,7 @@ async function fetchTDSynnexData(partNumbers) {
     const allResults = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://n8n.haielab.org/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
+        const response = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
         if (!response.ok) {
           console.warn(`Warning: Failed to fetch TDSynnex data for part number ${number}`);
           continue;
@@ -242,7 +244,7 @@ async function fetchDistributorData(partNumbers) {
     const allResults = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://n8n.haielab.org/webhook/ingram-search?item=${encodeURIComponent(number)}`);
+        const response = await fetch(`https://${serverDomain}/webhook/ingram-search?item=${encodeURIComponent(number)}`);
         if (!response.ok) {
           console.warn(`Warning: Failed to fetch Ingram data for part number ${number}`);
           continue;
@@ -314,7 +316,7 @@ async function fetchBrokerBinData(partNumbers) {
     const allResults = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://n8n.haielab.org/webhook/brokerbin-search?item=${encodeURIComponent(number)}`);
+        const response = await fetch(`https://${serverDomain}/webhook/brokerbin-search?item=${encodeURIComponent(number)}`);
         if (!response.ok) {
           console.warn(`Warning: Failed to fetch BrokerBin data for part number ${number}`);
           continue;
@@ -387,7 +389,7 @@ async function fetchEbayData(partNumbers) {
     const allResults = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://n8n.haielab.org/webhook/ebay-search?item=${encodeURIComponent(number)}`);
+        const response = await fetch(`https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`);
         if (!response.ok) {
           console.warn(`Warning: Failed to fetch eBay data for part number ${number}`);
           continue;
@@ -486,7 +488,7 @@ async function fetchLenovoData(partNumbers) {
     const allResults = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://n8n.haielab.org/webhook/lenovo-scraper?item=${encodeURIComponent(number)}`);
+        const response = await fetch(`https://${serverDomain}/webhook/lenovo-scraper?item=${encodeURIComponent(number)}`);
         if (!response.ok) {
           console.warn(`Warning: Failed to fetch Lenovo data for part number ${number}`);
           continue;
@@ -589,7 +591,7 @@ async function fetchInventoryData(partNumbers) {
     const allResults = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://n8n.haielab.org/webhook/epicor-search?item=${encodeURIComponent(number)}`);
+        const response = await fetch(`https://${serverDomain}/webhook/epicor-search?item=${encodeURIComponent(number)}`);
         if (!response.ok) {
           console.warn(`Warning: Failed to fetch inventory data for part number ${number}`);
           continue;
