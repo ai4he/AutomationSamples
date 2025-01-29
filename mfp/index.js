@@ -1,5 +1,7 @@
 var serverDomain = "gpu.haielab.org";
 // var serverDomain = "n8n.haielab.org";
+var llmModel = "gemini";
+// var llmModel = "ollama";
 
 // Master object storing each endpoint’s results
 let searchResults = {
@@ -1073,7 +1075,7 @@ async function handleSearch() {
   analysisData.alternativePartNumbers = alternatives;
 
   try {
-    const response = await fetch(`https://${serverDomain}/webhook/analyze-data?model=gemini`, {
+    const response = await fetch(`https://${serverDomain}/webhook/analyze-data?model=${llmModel}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(analysisData)
