@@ -1,6 +1,16 @@
 var serverDomain = "gpu.haielab.org";
 // var serverDomain = "n8n.haielab.org";
 
+// Store raw results for each distributor/endpoint here
+let searchResults = {
+  amazon: [],
+  ebay: [],
+  ingram: [],
+  tdsynnex: [],
+  brokerbin: [],
+  epicor: [] // from the "inventory" endpoint
+};
+
 // Utility functions
 async function getAlternativePartNumbers(partNumber) {
   try {
@@ -65,15 +75,24 @@ function parseXML(xmlString) {
   return parser.parseFromString(xmlString, "text/xml");
 }
 
-// Data fetching functions
+// Simple helper to parse a string that may include currency symbols, e.g. "$123.45" or "USD123.45"
+function parsePrice(str) {
+  if (!str) return null;
+  const numeric = parseFloat(str.replace(/[^\d.]/g, '')); 
+  return isNaN(numeric) ? null : numeric;
+}
+
+//======================== Fetch Functions ========================//
+
 async function fetchAmazonData(partNumbers) {
   if (!document.getElementById('toggle-amazon').checked) {
     return;
   }
+  // Clear any old data in the global array
+  searchResults.amazon = [];
 
   const loading = document.querySelector('.amazon-results .loading');
   const resultsDiv = document.querySelector('.amazon-results .results-container');
-  
   loading.style.display = 'block';
   resultsDiv.innerHTML = '';
 
@@ -97,6 +116,10 @@ async function fetchAmazonData(partNumbers) {
       }
     }
 
+    // Store all results in our global array
+    searchResults.amazon = allResults;
+
+    // Build table for Amazon UI
     const table = document.createElement('table');
     table.innerHTML = `
       <thead>
@@ -132,7 +155,6 @@ async function fetchAmazonData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    
     resultsDiv.appendChild(table);
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching Amazon data: ${error.message}</div>`;
@@ -145,10 +167,10 @@ async function fetchTDSynnexData(partNumbers) {
   if (!document.getElementById('toggle-tdsynnex').checked) {
     return;
   }
+  searchResults.tdsynnex = [];
 
   const loading = document.querySelector('.tdsynnex-results .loading');
   const resultsDiv = document.querySelector('.tdsynnex-results .results-container');
-  
   loading.style.display = 'block';
   resultsDiv.innerHTML = '';
 
@@ -190,6 +212,8 @@ async function fetchTDSynnexData(partNumbers) {
       }
     }
 
+    searchResults.tdsynnex = allResults;
+
     const table = document.createElement('table');
     table.innerHTML = `
       <thead>
@@ -221,7 +245,6 @@ async function fetchTDSynnexData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    
     resultsDiv.appendChild(table);
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching TDSynnex data: ${error.message}</div>`;
@@ -234,6 +257,7 @@ async function fetchDistributorData(partNumbers) {
   if (!document.getElementById('toggle-ingram').checked) {
     return;
   }
+  searchResults.ingram = [];
 
   const loading = document.querySelector('#distributors-content .loading');
   const resultsDiv = document.querySelector('#distributors-content .ingram-results .results-container');
@@ -260,6 +284,8 @@ async function fetchDistributorData(partNumbers) {
         console.warn(`Error processing Ingram data for part number ${number}:`, error);
       }
     }
+
+    searchResults.ingram = allResults;
 
     const table = document.createElement('table');
     table.innerHTML = `
@@ -306,10 +332,10 @@ async function fetchBrokerBinData(partNumbers) {
   if (!document.getElementById('toggle-brokerbin').checked) {
     return;
   }
+  searchResults.brokerbin = [];
 
   const loading = document.querySelector('.brokerbin-results .loading');
   const resultsDiv = document.querySelector('.brokerbin-results .results-container');
-  
   loading.style.display = 'block';
   resultsDiv.innerHTML = '';
 
@@ -332,6 +358,8 @@ async function fetchBrokerBinData(partNumbers) {
         console.warn(`Error processing BrokerBin data for part number ${number}:`, error);
       }
     }
+
+    searchResults.brokerbin = allResults;
 
     const table = document.createElement('table');
     table.innerHTML = `
@@ -366,7 +394,6 @@ async function fetchBrokerBinData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    
     resultsDiv.appendChild(table);
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching BrokerBin data: ${error.message}</div>`;
@@ -379,10 +406,10 @@ async function fetchEbayData(partNumbers) {
   if (!document.getElementById('toggle-ebay').checked) {
     return;
   }
+  searchResults.ebay = [];
 
   const loading = document.querySelector('.ebay-results .loading');
   const resultsDiv = document.querySelector('.ebay-results .results-container');
-  
   loading.style.display = 'block';
   resultsDiv.innerHTML = '';
 
@@ -405,6 +432,8 @@ async function fetchEbayData(partNumbers) {
         console.warn(`Error processing eBay data for part number ${number}:`, error);
       }
     }
+
+    searchResults.ebay = allResults;
 
     const table = document.createElement('table');
     table.innerHTML = `
@@ -443,7 +472,6 @@ async function fetchEbayData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    
     resultsDiv.appendChild(table);
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching eBay data: ${error.message}</div>`;
@@ -451,7 +479,6 @@ async function fetchEbayData(partNumbers) {
     loading.style.display = 'none';
   }
 }
-
 
 async function fetchLenovoData(partNumbers) {
   if (!document.getElementById('toggle-lenovo').checked) {
@@ -576,11 +603,11 @@ function switchLenovoSubtab(index) {
   document.querySelector(`.subtab-content[data-subtab-index="${index}"]`).classList.add('active');
 }
 
-// Data fetching functions
 async function fetchInventoryData(partNumbers) {
   if (!document.getElementById('toggle-inventory').checked) {
     return;
   }
+  searchResults.epicor = [];
 
   const loading = document.querySelector('#inventory-content .loading');
   const resultsDiv = document.querySelector('#inventory-content .inventory-results');
@@ -607,6 +634,8 @@ async function fetchInventoryData(partNumbers) {
         console.warn(`Error processing inventory data for part number ${number}:`, error);
       }
     }
+
+    searchResults.epicor = allResults;
 
     const table = document.createElement('table');
     table.innerHTML = `
@@ -635,7 +664,6 @@ async function fetchInventoryData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    
     resultsDiv.appendChild(table);
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching inventory data: ${error.message}</div>`;
@@ -644,7 +672,161 @@ async function fetchInventoryData(partNumbers) {
   }
 }
 
-// Gather table HTML for analyze-data
+//======================== Summary Tab Logic ========================//
+
+/**
+ * Build summary tables in the #summary-content area, showing:
+ *  - Number of items found per part number
+ *  - Best price (if applicable)
+ * We create one table per distributor/endpoint that is enabled.
+ */
+function updateSummaryTab() {
+  const summaryDiv = document.getElementById('summary-content');
+  if (!summaryDiv) return;
+
+  // Clear the existing summary content
+  summaryDiv.innerHTML = '';
+
+  // If no searches were done yet, or all toggles are off, just say "No results yet"
+  const anyEnabled = (
+    document.getElementById('toggle-inventory').checked ||
+    document.getElementById('toggle-brokerbin').checked ||
+    document.getElementById('toggle-tdsynnex').checked ||
+    document.getElementById('toggle-ingram').checked ||
+    document.getElementById('toggle-ebay').checked ||
+    document.getElementById('toggle-amazon').checked
+  );
+  if (!anyEnabled) {
+    summaryDiv.innerHTML = 'No search results yet.';
+    return;
+  }
+
+  // Helper to create the summary table
+  function createSummaryTable(distributorKey, distributorLabel) {
+    const dataArray = searchResults[distributorKey] || [];
+    if (!dataArray.length) return '';
+
+    // Group by sourcePartNumber
+    const grouped = {};
+    dataArray.forEach(item => {
+      const pnum = item.sourcePartNumber || 'Unknown';
+      if (!grouped[pnum]) {
+        grouped[pnum] = [];
+      }
+      grouped[pnum].push(item);
+    });
+
+    // Build rows
+    let rowsHtml = '';
+    for (const partNum in grouped) {
+      const items = grouped[partNum];
+      const count = items.length;
+      // Find best price among these items, if any
+      const bestPrice = findBestPrice(distributorKey, items);
+
+      rowsHtml += `
+        <tr>
+          <td>${partNum}</td>
+          <td>${count}</td>
+          <td>${bestPrice != null ? '$' + bestPrice.toFixed(2) : '-'}</td>
+        </tr>
+      `;
+    }
+
+    return `
+      <h3>${distributorLabel} Summary</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Part Number</th>
+            <th>Items Found</th>
+            <th>Best Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    `;
+  }
+
+  // For each distributor, figure out how to parse out a price
+  function findBestPrice(distributorKey, items) {
+    let minPrice = null;
+
+    for (const it of items) {
+      let price = null;
+      switch (distributorKey) {
+        case 'amazon':
+          // item.price -> { currency, value }, parse float from value
+          if (it.price && it.price.value) {
+            price = parseFloat(it.price.value);
+          }
+          break;
+        case 'ebay':
+          // item.priceWithCurrency might be "$123.45", parse it
+          price = parsePrice(it.priceWithCurrency);
+          break;
+        case 'brokerbin':
+          // item.price is either float or not. If float, we can use directly.
+          if (typeof it.price === 'number') {
+            price = it.price;
+          } else if (typeof it.price === 'string') {
+            price = parseFloat(it.price);
+          }
+          break;
+        case 'tdsynnex':
+          // item.price is a string, e.g. "123.45"
+          price = parseFloat(it.price);
+          break;
+        // ingram => no price in default data
+        // epicor => no price in the default data
+        default:
+          price = null;
+          break;
+      }
+      if (!isNaN(price) && price != null) {
+        if (minPrice == null || price < minPrice) {
+          minPrice = price;
+        }
+      }
+    }
+
+    return minPrice;
+  }
+
+  // Generate summary tables for all enabled distributors
+  let summaryHTML = '';
+
+  if (document.getElementById('toggle-inventory').checked) {
+    summaryHTML += createSummaryTable('epicor', 'Epicor (Inventory)');
+  }
+  if (document.getElementById('toggle-brokerbin').checked) {
+    summaryHTML += createSummaryTable('brokerbin', 'BrokerBin');
+  }
+  if (document.getElementById('toggle-tdsynnex').checked) {
+    summaryHTML += createSummaryTable('tdsynnex', 'TDSynnex');
+  }
+  if (document.getElementById('toggle-ingram').checked) {
+    summaryHTML += createSummaryTable('ingram', 'Ingram');
+  }
+  if (document.getElementById('toggle-ebay').checked) {
+    summaryHTML += createSummaryTable('ebay', 'eBay');
+  }
+  if (document.getElementById('toggle-amazon').checked) {
+    summaryHTML += createSummaryTable('amazon', 'Amazon');
+  }
+
+  // If we built nothing, that means we have no results yet
+  if (!summaryHTML.trim()) {
+    summaryDiv.innerHTML = 'No search results yet.';
+  } else {
+    summaryDiv.innerHTML = summaryHTML;
+  }
+}
+
+//======================== Analyze Data Helper ========================//
+// Gathers table HTML (to post to analyze-data endpoint)
 function gatherResultsForAnalysis() {
   const results = {};
 
@@ -687,6 +869,8 @@ function gatherResultsForAnalysis() {
   return results;
 }
 
+//======================== Main Handle Search ========================//
+
 async function handleSearch() {
   const partNumber = document.getElementById('part-numbers').value.trim();
   if (!partNumber) {
@@ -709,40 +893,37 @@ async function handleSearch() {
   if (document.getElementById('toggle-inventory').checked) {
     nonLenovoPromises.push(fetchInventoryData(partNumbers));
   }
-
   if (document.getElementById('toggle-brokerbin').checked) {
     nonLenovoPromises.push(fetchBrokerBinData(partNumbers));
   }
-
   if (document.getElementById('toggle-tdsynnex').checked) {
     nonLenovoPromises.push(fetchTDSynnexData(partNumbers));
   }
-
   if (document.getElementById('toggle-ingram').checked) {
     nonLenovoPromises.push(fetchDistributorData(partNumbers));
   }
-
   if (document.getElementById('toggle-ebay').checked) {
     nonLenovoPromises.push(fetchEbayData(partNumbers));
   }
-
   if (document.getElementById('toggle-amazon').checked) {
     nonLenovoPromises.push(fetchAmazonData(partNumbers));
   }
 
-  // Start Lenovo separately (if toggled), but don't wait for it before analyze-data
+  // Start Lenovo separately (if toggled), but do NOT wait for it
   let lenovoPromise = null;
   if (document.getElementById('toggle-lenovo').checked) {
-    lenovoPromise = fetchLenovoData(partNumbers); 
-    // (We do not await lenovo here — it's separate.)
+    lenovoPromise = fetchLenovoData(partNumbers);
   }
 
-  // Wait for all non-Lenovo calls to finish
+  // Wait for all non-Lenovo calls
   try {
     await Promise.all(nonLenovoPromises);
   } catch (error) {
     console.error('Error during parallel execution for non-Lenovo endpoints:', error);
   }
+
+  // Update the Summary tab with item counts & best price (one table per distributor)
+  updateSummaryTab();
 
   // Gather results from completed endpoints and send to "analyze-data"
   const analysisData = gatherResultsForAnalysis();
@@ -758,8 +939,7 @@ async function handleSearch() {
     console.error('Analyze data error:', error);
   }
 
-  // Finally, we can await Lenovo if we want to ensure it completes for the UI
-  // but analyzing data does NOT wait for it. You can choose to wait or not:
+  // Finally, await Lenovo if you want it to complete for the UI
   if (lenovoPromise) {
     try {
       await lenovoPromise;
