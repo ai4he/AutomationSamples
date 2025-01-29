@@ -1,15 +1,16 @@
 var serverDomain = "gpu.haielab.org";
 // var serverDomain = "n8n.haielab.org";
 
-// Store raw results for each endpoint, including new eBayScraper:
+// Store raw results for each endpoint, including new AmazonScraper and eBayScraper
 let searchResults = {
   amazon: [],
+  amazonScraper: [], // <-- NEW
   ebay: [],
-  ebayScraper: [], // <-- NEW
+  ebayScraper: [],   // <-- NEW
   ingram: [],
   tdsynnex: [],
   brokerbin: [],
-  epicor: [] // from the "inventory" endpoint
+  epicor: []
 };
 
 // Utility functions
@@ -159,6 +160,83 @@ async function fetchAmazonData(partNumbers) {
   }
 }
 
+// NEW: AmazonScraper endpoint
+/**
+ * Example JSON structure:
+ * [
+ *   {
+ *     "title": ["ThinkPad E16...", "Tab M11...", ...],
+ *     "price": ["655.", "159.", ...]
+ *   }
+ * ]
+ */
+async function fetchAmazonScraperData(partNumbers) {
+  if (!document.getElementById('toggle-amazon-scraper').checked) return;
+  searchResults.amazonScraper = [];
+
+  const loading = document.querySelector('.amazon-scraper-results .loading');
+  const resultsDiv = document.querySelector('.amazon-scraper-results .results-container');
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      try {
+        const response = await fetch(`https://${serverDomain}/webhook/amazon-scraper?item=${encodeURIComponent(number)}`);
+        if (!response.ok) {
+          console.warn(`Warning: Failed to fetch AmazonScraper data for part number ${number}`);
+          continue;
+        }
+        const data = await response.json(); 
+        // Expecting data like: [ { title: [...], price: [...] } ]
+
+        if (Array.isArray(data) && data.length > 0 && data[0].title && data[0].price) {
+          const titleArr = data[0].title;
+          const priceArr = data[0].price;
+          for (let i = 0; i < titleArr.length; i++) {
+            allResults.push({
+              sourcePartNumber: source,
+              title: titleArr[i] || '-',
+              rawPrice: priceArr[i] || '-'
+            });
+          }
+        }
+      } catch (error) {
+        console.warn(`Error processing AmazonScraper data for part number ${number}:`, error);
+      }
+    }
+
+    searchResults.amazonScraper = allResults;
+
+    // Build table
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Source Part</th>
+          <th>Title</th>
+          <th>Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allResults.map(item => `
+          <tr>
+            <td>${item.sourcePartNumber}</td>
+            <td>${item.title}</td>
+            <td>${item.rawPrice}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    resultsDiv.appendChild(table);
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching AmazonScraper data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
 async function fetchEbayData(partNumbers) {
   if (!document.getElementById('toggle-ebay').checked) return;
   searchResults.ebay = [];
@@ -209,9 +287,9 @@ async function fetchEbayData(partNumbers) {
           <tr>
             <td>${item.sourcePartNumber}</td>
             <td class="image-cell">
-              ${item.images && item.images.length > 0 ? 
-                `<img src="${item.images[0]}" alt="${item.title}" class="product-image">` : 
-                '-'}
+              ${item.images && item.images.length > 0 
+                ? `<img src="${item.images[0]}" alt="${item.title}" class="product-image">`
+                : '-'}
             </td>
             <td><a href="${item.url}" target="_blank">${item.title}</a></td>
             <td>${item.priceWithCurrency || '-'}</td>
@@ -236,7 +314,7 @@ async function fetchEbayData(partNumbers) {
  * Example JSON structure:
  * [
  *   {
- *     "title": ["Item 1", "Item 2", ...],
+ *     "title": ["Shop on eBay", "Lenovo T580...", ...],
  *     "price": ["$20.00", "$156.35", ...]
  *   }
  * ]
@@ -254,7 +332,6 @@ async function fetchEbayScraperData(partNumbers) {
     const allResults = [];
     for (const { number, source } of partNumbers) {
       try {
-        // For each part number, call the "ebay-scraper" endpoint
         const response = await fetch(`https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`);
         if (!response.ok) {
           console.warn(`Warning: Failed to fetch eBayScraper data for part number ${number}`);
@@ -265,7 +342,6 @@ async function fetchEbayScraperData(partNumbers) {
         if (Array.isArray(data) && data.length > 0 && data[0].title && data[0].price) {
           const titles = data[0].title;
           const prices = data[0].price;
-          // We assume same length for both arrays
           for (let i = 0; i < titles.length; i++) {
             allResults.push({
               sourcePartNumber: source,
@@ -301,7 +377,6 @@ async function fetchEbayScraperData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-
     resultsDiv.appendChild(table);
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching eBayScraper data: ${error.message}</div>`;
@@ -735,6 +810,7 @@ function updateSummaryTab() {
     document.getElementById('toggle-ingram').checked ||
     document.getElementById('toggle-ebay').checked ||
     document.getElementById('toggle-amazon').checked ||
+    document.getElementById('toggle-amazon-scraper').checked ||
     document.getElementById('toggle-ebay-scraper').checked
   );
   if (!anyEnabled) {
@@ -798,6 +874,10 @@ function updateSummaryTab() {
             price = parseFloat(it.price.value);
           }
           break;
+        case 'amazonScraper':
+          // item.rawPrice e.g. "655."
+          price = parsePrice(it.rawPrice);
+          break;
         case 'ebay':
           // item.priceWithCurrency e.g. "$123.45"
           price = parsePrice(it.priceWithCurrency);
@@ -807,7 +887,7 @@ function updateSummaryTab() {
           price = parsePrice(it.rawPrice);
           break;
         case 'brokerbin':
-          // item.price is a float or a string
+          // item.price is a float or string
           if (typeof it.price === 'number') {
             price = it.price;
           } else if (typeof it.price === 'string') {
@@ -851,7 +931,11 @@ function updateSummaryTab() {
   if (document.getElementById('toggle-amazon').checked) {
     summaryHTML += createSummaryTable('amazon', 'Amazon');
   }
-  // NEW: eBayScraper summary
+  // Add summary for AmazonScraper
+  if (document.getElementById('toggle-amazon-scraper').checked) {
+    summaryHTML += createSummaryTable('amazonScraper', 'AmazonScraper');
+  }
+  // Add summary for eBayScraper
   if (document.getElementById('toggle-ebay-scraper').checked) {
     summaryHTML += createSummaryTable('ebayScraper', 'eBayScraper');
   }
@@ -868,32 +952,42 @@ function updateSummaryTab() {
 function gatherResultsForAnalysis() {
   const results = {};
 
+  // Inventory
   if (document.getElementById('toggle-inventory').checked) {
     const invElem = document.querySelector('#inventory-content .inventory-results');
     results['epicor-search'] = invElem ? invElem.innerHTML : "";
   }
+  // BrokerBin
   if (document.getElementById('toggle-brokerbin').checked) {
     const bbElem = document.querySelector('.brokerbin-results .results-container');
     results['brokerbin-search'] = bbElem ? bbElem.innerHTML : "";
   }
+  // TDSynnex
   if (document.getElementById('toggle-tdsynnex').checked) {
     const tdElem = document.querySelector('.tdsynnex-results .results-container');
     results['tdsynnex-search'] = tdElem ? tdElem.innerHTML : "";
   }
+  // Ingram
   if (document.getElementById('toggle-ingram').checked) {
     const ingElem = document.querySelector('.ingram-results .results-container');
     results['ingram-search'] = ingElem ? ingElem.innerHTML : "";
   }
+  // eBay
   if (document.getElementById('toggle-ebay').checked) {
     const ebayElem = document.querySelector('.ebay-results .results-container');
     results['ebay-search'] = ebayElem ? ebayElem.innerHTML : "";
   }
+  // Amazon
   if (document.getElementById('toggle-amazon').checked) {
     const amzElem = document.querySelector('.amazon-results .results-container');
     results['amazon-search'] = amzElem ? amzElem.innerHTML : "";
   }
-
-  // NEW: eBayScraper table
+  // AmazonScraper
+  if (document.getElementById('toggle-amazon-scraper').checked) {
+    const amzScrElem = document.querySelector('.amazon-scraper-results .results-container');
+    results['amazon-scraper'] = amzScrElem ? amzScrElem.innerHTML : "";
+  }
+  // eBayScraper
   if (document.getElementById('toggle-ebay-scraper').checked) {
     const eScrElem = document.querySelector('.ebay-scraper-results .results-container');
     results['ebay-scraper'] = eScrElem ? eScrElem.innerHTML : "";
@@ -939,7 +1033,11 @@ async function handleSearch() {
   if (document.getElementById('toggle-amazon').checked) {
     nonLenovoPromises.push(fetchAmazonData(partNumbers));
   }
-  // NEW: eBayScraper
+  // AmazonScraper
+  if (document.getElementById('toggle-amazon-scraper').checked) {
+    nonLenovoPromises.push(fetchAmazonScraperData(partNumbers));
+  }
+  // eBayScraper
   if (document.getElementById('toggle-ebay-scraper').checked) {
     nonLenovoPromises.push(fetchEbayScraperData(partNumbers));
   }
