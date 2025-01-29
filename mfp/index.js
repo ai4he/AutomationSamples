@@ -1085,7 +1085,7 @@ async function handleSearch() {
     // 7) POST to the "analyze-data" endpoint
     let analyzeResultText = '';
     try {
-      const response = await fetch(`https://${serverDomain}/webhook/analyze-data`, {
+      const response = await fetch(`https://${serverDomain}/webhook/analyze-data?model=gemini`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(analysisData)
