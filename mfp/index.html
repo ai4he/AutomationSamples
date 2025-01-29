@@ -48,6 +48,11 @@
             <input type="checkbox" id="toggle-lenovo" checked>
             Lenovo
           </label>
+          <!-- New AmazonScraper toggle -->
+          <label>
+            <input type="checkbox" id="toggle-amazon-scraper">
+            AmazonScraper
+          </label>
           <!-- New eBayScraper toggle -->
           <label>
             <input type="checkbox" id="toggle-ebay-scraper">
@@ -107,6 +112,12 @@
         <div class="amazon-results">
           <h3>Amazon</h3>
           <div class="loading" style="display: none;">Loading Amazon data...</div>
+          <div class="results-container"></div>
+        </div>
+        <!-- New AmazonScraper results section -->
+        <div class="amazon-scraper-results">
+          <h3>AmazonScraper</h3>
+          <div class="loading" style="display: none;">Loading AmazonScraper data...</div>
           <div class="results-container"></div>
         </div>
         <!-- New eBayScraper results section -->
