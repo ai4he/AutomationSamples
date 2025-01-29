@@ -249,15 +249,6 @@ async function fetchEbayConnectorData(partNumbers) {
 }
 
 // ====================== New Amazon (was AmazonScraper) ======================
-/**
- * Example response:
- * [
- *   {
- *     "title": [...],
- *     "price": [...]
- *   }
- * ]
- */
 async function fetchAmazonData(partNumbers) {
   if (!document.getElementById('toggle-amazon').checked) return;
   searchResults.amazon = [];
@@ -326,15 +317,6 @@ async function fetchAmazonData(partNumbers) {
 }
 
 // ====================== New eBay (was eBayScraper) ======================
-/**
- * Example response:
- * [
- *   {
- *     "title": [...],
- *     "price": [...]
- *   }
- * ]
- */
 async function fetchEbayData(partNumbers) {
   if (!document.getElementById('toggle-ebay').checked) return;
   searchResults.ebay = [];
@@ -804,7 +786,19 @@ function updateSummaryTab() {
   const summaryDiv = document.getElementById('summary-content');
   if (!summaryDiv) return;
 
-  summaryDiv.innerHTML = '';
+  // We preserve any existing text at the top (for the "analyze-data" message), 
+  // but we'll re-generate the summary tables below that.
+  // So let's keep the summaryDiv.innerHTML, but strip out the old tables portion 
+  // so we can rebuild. A simple approach is to store any existing text from
+  // `.analyze-result-text` and then re-append it.
+  const existingAnalyzeMessage = summaryDiv.querySelector('.analyze-result-text');
+  let topMessageHTML = '';
+  if (existingAnalyzeMessage) {
+    topMessageHTML = existingAnalyzeMessage.outerHTML; // preserve it
+  }
+
+  // We'll rebuild everything after removing existing summary tables:
+  summaryDiv.innerHTML = topMessageHTML; // start fresh with the message on top
 
   // Check which toggles are on
   const anyEnabled = (
@@ -818,7 +812,7 @@ function updateSummaryTab() {
     document.getElementById('toggle-ebay').checked
   );
   if (!anyEnabled) {
-    summaryDiv.innerHTML = 'No search results yet.';
+    summaryDiv.innerHTML += 'No search results yet.';
     return;
   }
 
@@ -951,9 +945,9 @@ function updateSummaryTab() {
   }
 
   if (!summaryHTML.trim()) {
-    summaryDiv.innerHTML = 'No search results yet.';
+    summaryDiv.innerHTML += 'No search results yet.';
   } else {
-    summaryDiv.innerHTML = summaryHTML;
+    summaryDiv.innerHTML += summaryHTML;
   }
 }
 
@@ -1071,14 +1065,30 @@ async function handleSearch() {
 
   // 5) Gather results & POST to "analyze-data"
   const analysisData = gatherResultsForAnalysis();
+
+  // Add your two new keys:
+  // "originalPartNumber" => the string with the searched item (user input),
+  // "alternativePartNumbers" => array with the alternative part numbers found.
+  analysisData.originalPartNumber = partNumber;
+  analysisData.alternativePartNumbers = alternatives;
+
   try {
     const response = await fetch(`https://${serverDomain}/webhook/analyze-data`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(analysisData)
     });
-    const analyzeResult = await response.json();
-    console.log('Analyze data response:', analyzeResult);
+
+    // We get a text result, which we'll display at the top of the Summary section:
+    const analyzeResultText = await response.text();
+    console.log('Analyze data response:', analyzeResultText);
+
+    const summaryDiv = document.getElementById('summary-content');
+    if (summaryDiv) {
+      // Insert the analyzeResultText at the top
+      const existingContent = summaryDiv.innerHTML;
+      summaryDiv.innerHTML = `<div class="analyze-result-text">${analyzeResultText}</div>` + existingContent;
+    }
   } catch (error) {
     console.error('Analyze data error:', error);
   }
