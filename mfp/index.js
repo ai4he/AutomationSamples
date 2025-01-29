@@ -1073,7 +1073,7 @@ async function handleSearch() {
   analysisData.alternativePartNumbers = alternatives;
 
   try {
-    const response = await fetch(`https://${serverDomain}/webhook/analyze-data`, {
+    const response = await fetch(`https://${serverDomain}/webhook/analyze-data?model=gemini`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(analysisData)
