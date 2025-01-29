@@ -1009,110 +1009,115 @@ async function handleSearch() {
     return;
   }
 
-  // 1) get alternative part numbers
-  const { original, alternatives } = await getAlternativePartNumbers(partNumber);
-  const partNumbers = [
-    { number: original, source: original },
-    ...alternatives.map(alt => ({ number: alt, source: alt }))
-  ];
-
-  // 2) separate Lenovo from other calls
-  const nonLenovoPromises = [];
-
-  if (document.getElementById('toggle-inventory').checked) {
-    nonLenovoPromises.push(fetchInventoryData(partNumbers));
+  // === SHOW the loader right away ===
+  const spinner = document.getElementById('loading-spinner');
+  if (spinner) {
+    spinner.style.display = 'inline-block'; // or 'block'
   }
-  if (document.getElementById('toggle-brokerbin').checked) {
-    nonLenovoPromises.push(fetchBrokerBinData(partNumbers));
-  }
-  if (document.getElementById('toggle-tdsynnex').checked) {
-    nonLenovoPromises.push(fetchTDSynnexData(partNumbers));
-  }
-  if (document.getElementById('toggle-ingram').checked) {
-    nonLenovoPromises.push(fetchDistributorData(partNumbers));
-  }
-
-  // old amazon => AmazonConnector
-  if (document.getElementById('toggle-amazon-connector').checked) {
-    nonLenovoPromises.push(fetchAmazonConnectorData(partNumbers));
-  }
-  // old eBay => eBayConnector
-  if (document.getElementById('toggle-ebay-connector').checked) {
-    nonLenovoPromises.push(fetchEbayConnectorData(partNumbers));
-  }
-  // new Amazon
-  if (document.getElementById('toggle-amazon').checked) {
-    nonLenovoPromises.push(fetchAmazonData(partNumbers));
-  }
-  // new eBay
-  if (document.getElementById('toggle-ebay').checked) {
-    nonLenovoPromises.push(fetchEbayData(partNumbers));
-  }
-
-  // Lenovo fetch if toggled
-  let lenovoPromise = null;
-  if (document.getElementById('toggle-lenovo').checked) {
-    lenovoPromise = fetchLenovoData(partNumbers);
-  }
-
-  // 3) Wait for non-Lenovo calls
-  try {
-    await Promise.all(nonLenovoPromises);
-  } catch (err) {
-    console.error('Error in parallel execution for non-Lenovo endpoints:', err);
-  }
-
-  // 4) Update summary
-  updateSummaryTab();
-
-  // 5) Gather results & POST to "analyze-data"
-  const analysisData = gatherResultsForAnalysis();
-
-  // Add your two new keys:
-  // "originalPartNumber" => the string with the searched item (user input),
-  // "alternativePartNumbers" => array with the alternative part numbers found.
-  analysisData.originalPartNumber = partNumber;
-  analysisData.alternativePartNumbers = alternatives;
 
   try {
-    const response = await fetch(`https://${serverDomain}/webhook/analyze-data?model=${llmModel}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(analysisData)
-    });
+    // 1) get alternative part numbers
+    const { original, alternatives } = await getAlternativePartNumbers(partNumber);
+    const partNumbers = [
+      { number: original, source: original },
+      ...alternatives.map(alt => ({ number: alt, source: alt }))
+    ];
 
-    // 1) Parse as JSON instead of text
-    const analyzeResult = await response.json();
-    console.log('Analyze data response:', analyzeResult);
-    
-    // 2) In your example, analyzeResult might look like:
-    //    [ { "text": "I'm sorry, there is no information..." } ]
-    
-    // Let's pick the text from the first element (if it exists)
-    let analyzeResultText = '';
-    if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
-      analyzeResultText = analyzeResult[0].text;
-    } else {
-      // Fallback: just stringify it
-      analyzeResultText = JSON.stringify(analyzeResult);
-    }
-    
-    // 3) Display it in the Summary section
-    const summaryDiv = document.getElementById('summary-content');
-    if (summaryDiv) {
-      const existingContent = summaryDiv.innerHTML;
-      summaryDiv.innerHTML = `<div class="analyze-result-text">${analyzeResultText}</div>` + existingContent;
-    }
-  } catch (error) {
-    console.error('Analyze data error:', error);
-  }
+    // 2) separate Lenovo from other calls
+    const nonLenovoPromises = [];
 
-  // 6) Optionally await Lenovo
-  if (lenovoPromise) {
+    if (document.getElementById('toggle-inventory').checked) {
+      nonLenovoPromises.push(fetchInventoryData(partNumbers));
+    }
+    if (document.getElementById('toggle-brokerbin').checked) {
+      nonLenovoPromises.push(fetchBrokerBinData(partNumbers));
+    }
+    if (document.getElementById('toggle-tdsynnex').checked) {
+      nonLenovoPromises.push(fetchTDSynnexData(partNumbers));
+    }
+    if (document.getElementById('toggle-ingram').checked) {
+      nonLenovoPromises.push(fetchDistributorData(partNumbers));
+    }
+
+    // old amazon => AmazonConnector
+    if (document.getElementById('toggle-amazon-connector').checked) {
+      nonLenovoPromises.push(fetchAmazonConnectorData(partNumbers));
+    }
+    // old eBay => eBayConnector
+    if (document.getElementById('toggle-ebay-connector').checked) {
+      nonLenovoPromises.push(fetchEbayConnectorData(partNumbers));
+    }
+    // new Amazon
+    if (document.getElementById('toggle-amazon').checked) {
+      nonLenovoPromises.push(fetchAmazonData(partNumbers));
+    }
+    // new eBay
+    if (document.getElementById('toggle-ebay').checked) {
+      nonLenovoPromises.push(fetchEbayData(partNumbers));
+    }
+
+    // Lenovo fetch if toggled
+    let lenovoPromise = null;
+    if (document.getElementById('toggle-lenovo').checked) {
+      lenovoPromise = fetchLenovoData(partNumbers);
+    }
+
+    // 3) Wait for non-Lenovo calls
     try {
-      await lenovoPromise;
+      await Promise.all(nonLenovoPromises);
     } catch (err) {
-      console.error('Error during Lenovo data fetch:', err);
+      console.error('Error in parallel execution for non-Lenovo endpoints:', err);
+    }
+
+    // 4) Update summary
+    updateSummaryTab();
+
+    // 5) Gather results & POST to "analyze-data"
+    const analysisData = gatherResultsForAnalysis();
+    analysisData.originalPartNumber = partNumber;
+    analysisData.alternativePartNumbers = alternatives;
+
+    let analyzeResultText = '';
+    try {
+      const response = await fetch(`https://${serverDomain}/webhook/analyze-data`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(analysisData)
+      });
+
+      // Example: if the endpoint returns JSON like [{"text":"Some message"}]
+      const analyzeResult = await response.json();
+
+      if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
+        analyzeResultText = analyzeResult[0].text;
+      } else {
+        analyzeResultText = JSON.stringify(analyzeResult);
+      }
+
+      // Show it at the top of summary
+      const summaryDiv = document.getElementById('summary-content');
+      if (summaryDiv) {
+        const existingContent = summaryDiv.innerHTML;
+        summaryDiv.innerHTML = `<div class="analyze-result-text">${analyzeResultText}</div>` + existingContent;
+      }
+    } catch (error) {
+      console.error('Analyze data error:', error);
+    }
+
+    // 6) Optionally await Lenovo
+    if (lenovoPromise) {
+      try {
+        await lenovoPromise;
+      } catch (err) {
+        console.error('Error during Lenovo data fetch:', err);
+      }
+    }
+
+  } finally {
+    // === HIDE the loader once we're done (success or error) ===
+    if (spinner) {
+      spinner.style.display = 'none';
     }
   }
 }
+
