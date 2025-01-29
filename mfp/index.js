@@ -644,6 +644,49 @@ async function fetchInventoryData(partNumbers) {
   }
 }
 
+// Gather table HTML for analyze-data
+function gatherResultsForAnalysis() {
+  const results = {};
+
+  // Inventory (epicor-search)
+  if (document.getElementById('toggle-inventory').checked) {
+    const invElem = document.querySelector('#inventory-content .inventory-results');
+    results['epicor-search'] = invElem ? invElem.innerHTML : "";
+  }
+
+  // BrokerBin (brokerbin-search)
+  if (document.getElementById('toggle-brokerbin').checked) {
+    const bbElem = document.querySelector('.brokerbin-results .results-container');
+    results['brokerbin-search'] = bbElem ? bbElem.innerHTML : "";
+  }
+
+  // TDSynnex (tdsynnex-search)
+  if (document.getElementById('toggle-tdsynnex').checked) {
+    const tdElem = document.querySelector('.tdsynnex-results .results-container');
+    results['tdsynnex-search'] = tdElem ? tdElem.innerHTML : "";
+  }
+
+  // Ingram (ingram-search)
+  if (document.getElementById('toggle-ingram').checked) {
+    const ingElem = document.querySelector('.ingram-results .results-container');
+    results['ingram-search'] = ingElem ? ingElem.innerHTML : "";
+  }
+
+  // eBay (ebay-search)
+  if (document.getElementById('toggle-ebay').checked) {
+    const ebayElem = document.querySelector('.ebay-results .results-container');
+    results['ebay-search'] = ebayElem ? ebayElem.innerHTML : "";
+  }
+
+  // Amazon (amazon-search)
+  if (document.getElementById('toggle-amazon').checked) {
+    const amzElem = document.querySelector('.amazon-results .results-container');
+    results['amazon-search'] = amzElem ? amzElem.innerHTML : "";
+  }
+
+  return results;
+}
+
 async function handleSearch() {
   const partNumber = document.getElementById('part-numbers').value.trim();
   if (!partNumber) {
@@ -660,41 +703,68 @@ async function handleSearch() {
     ...alternatives.map(alt => ({ number: alt, source: alt }))
   ];
 
-  // Create an array of promises based on enabled endpoints
-  const promises = [];
+  // Separate the Lenovo call from other calls
+  const nonLenovoPromises = [];
 
   if (document.getElementById('toggle-inventory').checked) {
-    promises.push(fetchInventoryData(partNumbers));
+    nonLenovoPromises.push(fetchInventoryData(partNumbers));
   }
 
   if (document.getElementById('toggle-brokerbin').checked) {
-    promises.push(fetchBrokerBinData(partNumbers));
+    nonLenovoPromises.push(fetchBrokerBinData(partNumbers));
   }
 
   if (document.getElementById('toggle-tdsynnex').checked) {
-    promises.push(fetchTDSynnexData(partNumbers));
+    nonLenovoPromises.push(fetchTDSynnexData(partNumbers));
   }
 
   if (document.getElementById('toggle-ingram').checked) {
-    promises.push(fetchDistributorData(partNumbers));
+    nonLenovoPromises.push(fetchDistributorData(partNumbers));
   }
 
   if (document.getElementById('toggle-ebay').checked) {
-    promises.push(fetchEbayData(partNumbers));
+    nonLenovoPromises.push(fetchEbayData(partNumbers));
   }
 
   if (document.getElementById('toggle-amazon').checked) {
-    promises.push(fetchAmazonData(partNumbers));
+    nonLenovoPromises.push(fetchAmazonData(partNumbers));
   }
 
+  // Start Lenovo separately (if toggled), but don't wait for it before analyze-data
+  let lenovoPromise = null;
   if (document.getElementById('toggle-lenovo').checked) {
-    promises.push(fetchLenovoData(partNumbers));
+    lenovoPromise = fetchLenovoData(partNumbers); 
+    // (We do not await lenovo here — it's separate.)
   }
 
-  // Execute all enabled endpoints in parallel
+  // Wait for all non-Lenovo calls to finish
   try {
-    await Promise.all(promises);
+    await Promise.all(nonLenovoPromises);
   } catch (error) {
-    console.error('Error during parallel execution:', error);
+    console.error('Error during parallel execution for non-Lenovo endpoints:', error);
+  }
+
+  // Gather results from completed endpoints and send to "analyze-data"
+  const analysisData = gatherResultsForAnalysis();
+  try {
+    const response = await fetch(`https://${serverDomain}/webhook/analyze-data`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(analysisData)
+    });
+    const analyzeResult = await response.json();
+    console.log('Analyze data response:', analyzeResult);
+  } catch (error) {
+    console.error('Analyze data error:', error);
+  }
+
+  // Finally, we can await Lenovo if we want to ensure it completes for the UI
+  // but analyzing data does NOT wait for it. You can choose to wait or not:
+  if (lenovoPromise) {
+    try {
+      await lenovoPromise;
+    } catch (err) {
+      console.error('Error during Lenovo data fetch:', err);
+    }
   }
 }
