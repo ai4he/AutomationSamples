@@ -19,6 +19,15 @@ let searchResults = {
   epicor: []
 };
 
+// ============= New: helper to check all visible checkboxes ============
+function selectAllVisible() {
+  // Find all labels that are NOT hidden, then check the associated checkbox
+  const visibleLabels = document.querySelectorAll('.checkbox-group label:not([style*="display: none"]) input[type="checkbox"]');
+  visibleLabels.forEach(chk => {
+    chk.checked = true;
+  });
+}
+
 // ====================== Utility functions ======================
 
 async function getAlternativePartNumbers(partNumber) {
