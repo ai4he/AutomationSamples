@@ -1079,13 +1079,25 @@ async function handleSearch() {
       body: JSON.stringify(analysisData)
     });
 
-    // We get a text result, which we'll display at the top of the Summary section:
-    const analyzeResultText = await response.text();
-    console.log('Analyze data response:', analyzeResultText);
-
+    // 1) Parse as JSON instead of text
+    const analyzeResult = await response.json();
+    console.log('Analyze data response:', analyzeResult);
+    
+    // 2) In your example, analyzeResult might look like:
+    //    [ { "text": "I'm sorry, there is no information..." } ]
+    
+    // Let's pick the text from the first element (if it exists)
+    let analyzeResultText = '';
+    if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
+      analyzeResultText = analyzeResult[0].text;
+    } else {
+      // Fallback: just stringify it
+      analyzeResultText = JSON.stringify(analyzeResult);
+    }
+    
+    // 3) Display it in the Summary section
     const summaryDiv = document.getElementById('summary-content');
     if (summaryDiv) {
-      // Insert the analyzeResultText at the top
       const existingContent = summaryDiv.innerHTML;
       summaryDiv.innerHTML = `<div class="analyze-result-text">${analyzeResultText}</div>` + existingContent;
     }
