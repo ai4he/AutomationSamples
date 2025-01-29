@@ -19,45 +19,50 @@
       
       <div class="endpoints-toggle">
         <h4>Data Sources:</h4>
+
+        <!-- "All" button to enable visible checkboxes -->
+        <button type="button" onclick="selectAllVisible()">All</button>
+
         <div class="checkbox-group">
           <label>
-            <input type="checkbox" id="toggle-inventory" checked>
+            <!-- Removed 'checked' so it starts unchecked -->
+            <input type="checkbox" id="toggle-inventory">
             Epicor (Inventory)
           </label>
           <label>
-            <input type="checkbox" id="toggle-brokerbin" checked>
+            <input type="checkbox" id="toggle-brokerbin">
             BrokerBin
           </label>
           <label>
-            <input type="checkbox" id="toggle-tdsynnex" checked>
+            <input type="checkbox" id="toggle-tdsynnex">
             TDSynnex
           </label>
           <label>
-            <input type="checkbox" id="toggle-ingram" checked>
+            <input type="checkbox" id="toggle-ingram">
             Ingram
           </label>
 
-          <!-- Old eBay (hidden) -->
+          <!-- Old eBay hidden -->
           <label style="display: none;">
             <input type="checkbox" id="toggle-ebay-connector">
             eBayConnector
           </label>
-          <!-- Old Amazon (hidden) -->
+          <!-- Old Amazon hidden -->
           <label style="display: none;">
             <input type="checkbox" id="toggle-amazon-connector">
             AmazonConnector
           </label>
 
           <label>
-            <input type="checkbox" id="toggle-lenovo" checked>
+            <input type="checkbox" id="toggle-lenovo">
             Lenovo
           </label>
-          <!-- Renamed eBayScraper => eBay (visible) -->
+          <!-- New eBay (was eBayScraper) -->
           <label>
             <input type="checkbox" id="toggle-ebay">
             eBay
           </label>
-          <!-- Renamed AmazonScraper => Amazon (visible) -->
+          <!-- New Amazon (was AmazonScraper) -->
           <label>
             <input type="checkbox" id="toggle-amazon">
             Amazon
@@ -108,26 +113,22 @@
 
     <div id="marketplaces" class="tab-content">
       <div id="marketplaces-content">
-        <!-- Old eBay container renamed & hidden -->
         <div class="ebay-connector-results" style="display:none;">
           <h3>eBayConnector</h3>
           <div class="loading" style="display: none;">Loading eBayConnector data...</div>
           <div class="results-container"></div>
         </div>
-        <!-- Old Amazon container renamed & hidden -->
         <div class="amazon-connector-results" style="display:none;">
           <h3>AmazonConnector</h3>
           <div class="loading" style="display: none;">Loading AmazonConnector data...</div>
           <div class="results-container"></div>
         </div>
 
-        <!-- Renamed new eBayScraper => eBay (visible) -->
         <div class="ebay-results">
           <h3>eBay</h3>
           <div class="loading" style="display: none;">Loading eBay data...</div>
           <div class="results-container"></div>
         </div>
-        <!-- Renamed new AmazonScraper => Amazon (visible) -->
         <div class="amazon-results">
           <h3>Amazon</h3>
           <div class="loading" style="display: none;">Loading Amazon data...</div>
