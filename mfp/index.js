@@ -1,10 +1,11 @@
 var serverDomain = "gpu.haielab.org";
 // var serverDomain = "n8n.haielab.org";
 
-// Store raw results for each distributor/endpoint here
+// Store raw results for each endpoint, including new eBayScraper:
 let searchResults = {
   amazon: [],
   ebay: [],
+  ebayScraper: [], // <-- NEW
   ingram: [],
   tdsynnex: [],
   brokerbin: [],
@@ -75,20 +76,17 @@ function parseXML(xmlString) {
   return parser.parseFromString(xmlString, "text/xml");
 }
 
-// Simple helper to parse a string that may include currency symbols, e.g. "$123.45" or "USD123.45"
+// Helper to parse numeric from "123.45" or "$123.45"
 function parsePrice(str) {
   if (!str) return null;
-  const numeric = parseFloat(str.replace(/[^\d.]/g, '')); 
+  const numeric = parseFloat(str.replace(/[^\d.]/g, ''));
   return isNaN(numeric) ? null : numeric;
 }
 
-//======================== Fetch Functions ========================//
+//------------------- Fetch Functions -------------------//
 
 async function fetchAmazonData(partNumbers) {
-  if (!document.getElementById('toggle-amazon').checked) {
-    return;
-  }
-  // Clear any old data in the global array
+  if (!document.getElementById('toggle-amazon').checked) return;
   searchResults.amazon = [];
 
   const loading = document.querySelector('.amazon-results .loading');
@@ -116,10 +114,8 @@ async function fetchAmazonData(partNumbers) {
       }
     }
 
-    // Store all results in our global array
     searchResults.amazon = allResults;
 
-    // Build table for Amazon UI
     const table = document.createElement('table');
     table.innerHTML = `
       <thead>
@@ -138,7 +134,7 @@ async function fetchAmazonData(partNumbers) {
       <tbody>
         ${allResults.map(item => `
           <tr>
-            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td>${item.sourcePartNumber}</td>
             <td class="image-cell">
               <img src="${item.thumbnailImage || '-'}" alt="${item.title}" class="product-image">
             </td>
@@ -163,10 +159,159 @@ async function fetchAmazonData(partNumbers) {
   }
 }
 
-async function fetchTDSynnexData(partNumbers) {
-  if (!document.getElementById('toggle-tdsynnex').checked) {
-    return;
+async function fetchEbayData(partNumbers) {
+  if (!document.getElementById('toggle-ebay').checked) return;
+  searchResults.ebay = [];
+
+  const loading = document.querySelector('.ebay-results .loading');
+  const resultsDiv = document.querySelector('.ebay-results .results-container');
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      try {
+        const response = await fetch(`https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`);
+        if (!response.ok) {
+          console.warn(`Warning: Failed to fetch eBay data for part number ${number}`);
+          continue;
+        }
+        const data = await response.json();
+        const resultsWithSource = data.map(item => ({
+          ...item,
+          sourcePartNumber: source
+        }));
+        allResults.push(...resultsWithSource);
+      } catch (error) {
+        console.warn(`Error processing eBay data for part number ${number}:`, error);
+      }
+    }
+
+    searchResults.ebay = allResults;
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Source Part</th>
+          <th>Image</th>
+          <th>Title</th>
+          <th>Price</th>
+          <th>Condition</th>
+          <th>Seller</th>
+          <th>Location</th>
+          <th>Shipping</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allResults.map(item => `
+          <tr>
+            <td>${item.sourcePartNumber}</td>
+            <td class="image-cell">
+              ${item.images && item.images.length > 0 ? 
+                `<img src="${item.images[0]}" alt="${item.title}" class="product-image">` : 
+                '-'}
+            </td>
+            <td><a href="${item.url}" target="_blank">${item.title}</a></td>
+            <td>${item.priceWithCurrency || '-'}</td>
+            <td>${item.condition || '-'}</td>
+            <td><a href="${item.sellerUrl}" target="_blank">${item.sellerName}</a></td>
+            <td>${item.itemLocation || '-'}</td>
+            <td>${item.shipping || '-'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    resultsDiv.appendChild(table);
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching eBay data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
   }
+}
+
+// NEW: eBayScraper endpoint
+/**
+ * Example JSON structure:
+ * [
+ *   {
+ *     "title": ["Item 1", "Item 2", ...],
+ *     "price": ["$20.00", "$156.35", ...]
+ *   }
+ * ]
+ */
+async function fetchEbayScraperData(partNumbers) {
+  if (!document.getElementById('toggle-ebay-scraper').checked) return;
+  searchResults.ebayScraper = [];
+
+  const loading = document.querySelector('.ebay-scraper-results .loading');
+  const resultsDiv = document.querySelector('.ebay-scraper-results .results-container');
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+    for (const { number, source } of partNumbers) {
+      try {
+        // For each part number, call the "ebay-scraper" endpoint
+        const response = await fetch(`https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`);
+        if (!response.ok) {
+          console.warn(`Warning: Failed to fetch eBayScraper data for part number ${number}`);
+          continue;
+        }
+        const data = await response.json(); // Expecting structure as above
+
+        if (Array.isArray(data) && data.length > 0 && data[0].title && data[0].price) {
+          const titles = data[0].title;
+          const prices = data[0].price;
+          // We assume same length for both arrays
+          for (let i = 0; i < titles.length; i++) {
+            allResults.push({
+              sourcePartNumber: source,
+              title: titles[i] || '-',
+              rawPrice: prices[i] || '-'
+            });
+          }
+        }
+      } catch (error) {
+        console.warn(`Error processing eBayScraper data for part number ${number}:`, error);
+      }
+    }
+
+    searchResults.ebayScraper = allResults;
+
+    // Build table
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Source Part</th>
+          <th>Title</th>
+          <th>Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allResults.map(item => `
+          <tr>
+            <td>${item.sourcePartNumber}</td>
+            <td>${item.title}</td>
+            <td>${item.rawPrice}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+
+    resultsDiv.appendChild(table);
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching eBayScraper data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+async function fetchTDSynnexData(partNumbers) {
+  if (!document.getElementById('toggle-tdsynnex').checked) return;
   searchResults.tdsynnex = [];
 
   const loading = document.querySelector('.tdsynnex-results .loading');
@@ -231,7 +376,7 @@ async function fetchTDSynnexData(partNumbers) {
       <tbody>
         ${allResults.map(item => `
           <tr>
-            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td>${item.sourcePartNumber}</td>
             <td>${item.synnexSKU}</td>
             <td>${item.mfgPN}</td>
             <td>${item.description}</td>
@@ -254,14 +399,11 @@ async function fetchTDSynnexData(partNumbers) {
 }
 
 async function fetchDistributorData(partNumbers) {
-  if (!document.getElementById('toggle-ingram').checked) {
-    return;
-  }
+  if (!document.getElementById('toggle-ingram').checked) return;
   searchResults.ingram = [];
 
   const loading = document.querySelector('#distributors-content .loading');
   const resultsDiv = document.querySelector('#distributors-content .ingram-results .results-container');
-  
   loading.style.display = 'block';
   resultsDiv.innerHTML = '';
 
@@ -304,7 +446,7 @@ async function fetchDistributorData(partNumbers) {
       <tbody>
         ${allResults.map(item => `
           <tr>
-            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td>${item.sourcePartNumber}</td>
             <td>${item.description || '-'}</td>
             <td>${item.category || '-'}</td>
             <td>${item.vendorName || '-'}</td>
@@ -319,7 +461,6 @@ async function fetchDistributorData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    
     resultsDiv.appendChild(table);
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching distributor data: ${error.message}</div>`;
@@ -329,9 +470,7 @@ async function fetchDistributorData(partNumbers) {
 }
 
 async function fetchBrokerBinData(partNumbers) {
-  if (!document.getElementById('toggle-brokerbin').checked) {
-    return;
-  }
+  if (!document.getElementById('toggle-brokerbin').checked) return;
   searchResults.brokerbin = [];
 
   const loading = document.querySelector('.brokerbin-results .loading');
@@ -380,7 +519,7 @@ async function fetchBrokerBinData(partNumbers) {
       <tbody>
         ${allResults.map(item => `
           <tr>
-            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td>${item.sourcePartNumber}</td>
             <td>${item.company || '-'}</td>
             <td>${item.country || '-'}</td>
             <td>${item.part || '-'}</td>
@@ -402,88 +541,8 @@ async function fetchBrokerBinData(partNumbers) {
   }
 }
 
-async function fetchEbayData(partNumbers) {
-  if (!document.getElementById('toggle-ebay').checked) {
-    return;
-  }
-  searchResults.ebay = [];
-
-  const loading = document.querySelector('.ebay-results .loading');
-  const resultsDiv = document.querySelector('.ebay-results .results-container');
-  loading.style.display = 'block';
-  resultsDiv.innerHTML = '';
-
-  try {
-    const allResults = [];
-    for (const { number, source } of partNumbers) {
-      try {
-        const response = await fetch(`https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`);
-        if (!response.ok) {
-          console.warn(`Warning: Failed to fetch eBay data for part number ${number}`);
-          continue;
-        }
-        const data = await response.json();
-        const resultsWithSource = data.map(item => ({
-          ...item,
-          sourcePartNumber: source
-        }));
-        allResults.push(...resultsWithSource);
-      } catch (error) {
-        console.warn(`Error processing eBay data for part number ${number}:`, error);
-      }
-    }
-
-    searchResults.ebay = allResults;
-
-    const table = document.createElement('table');
-    table.innerHTML = `
-      <thead>
-        <tr>
-          <th>Source Part</th>
-          <th>Image</th>
-          <th>Title</th>
-          <th>Price</th>
-          <th>Condition</th>
-          <th>Seller</th>
-          <th>Location</th>
-          <th>Shipping</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${allResults.map(item => `
-          <tr>
-            <td class="source-part-number">${item.sourcePartNumber}</td>
-            <td class="image-cell">
-              ${item.images && item.images.length > 0 ? 
-                `<img src="${item.images[0]}" alt="${item.title}" class="product-image">` : 
-                '-'}
-            </td>
-            <td>
-              <a href="${item.url}" target="_blank">${item.title}</a>
-            </td>
-            <td>${item.priceWithCurrency || '-'}</td>
-            <td>${item.condition || '-'}</td>
-            <td>
-              <a href="${item.sellerUrl}" target="_blank">${item.sellerName}</a>
-            </td>
-            <td>${item.itemLocation || '-'}</td>
-            <td>${item.shipping || '-'}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    `;
-    resultsDiv.appendChild(table);
-  } catch (error) {
-    resultsDiv.innerHTML = `<div class="error">Error fetching eBay data: ${error.message}</div>`;
-  } finally {
-    loading.style.display = 'none';
-  }
-}
-
 async function fetchLenovoData(partNumbers) {
-  if (!document.getElementById('toggle-lenovo').checked) {
-    return;
-  }
+  if (!document.getElementById('toggle-lenovo').checked) return;
 
   const lenovoContentDiv = document.getElementById('lenovo-content');
   if (!lenovoContentDiv) {
@@ -491,7 +550,6 @@ async function fetchLenovoData(partNumbers) {
     return;
   }
 
-  // Create containers if they don't exist
   let subtabs = document.getElementById('lenovo-subtabs');
   let subcontent = document.getElementById('lenovo-subcontent');
 
@@ -534,44 +592,35 @@ async function fetchLenovoData(partNumbers) {
       }
     }
 
-    // Clear loading message
     subtabs.innerHTML = '';
     subcontent.innerHTML = '';
 
     if (allResults.length > 0) {
       allResults.forEach((doc, index) => {
-        // Create tab button
         const subtabButton = document.createElement('button');
         subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
-        
-        // Safely handle the title
+
         const title = doc.title || 'Untitled Document';
-        const cleanTitle = typeof title === 'string' 
-          ? title
-              .replace(/\n/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim()
+        const cleanTitle = typeof title === 'string'
+          ? title.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
           : 'Untitled Document';
-        
+
         subtabButton.textContent = `${doc.sourcePartNumber} - ${cleanTitle}`;
         subtabButton.title = cleanTitle;
         subtabButton.onclick = () => switchLenovoSubtab(index);
         subtabs.appendChild(subtabButton);
 
-        // Create content div
         const contentDiv = document.createElement('div');
         contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
         contentDiv.setAttribute('data-subtab-index', index);
 
-        // Process the content
-        let processedContent = doc.content 
+        let processedContent = doc.content
           ? decodeUnicodeEscapes(doc.content)
           : '<div class="error">No content available</div>';
-        
+
         if (doc.content && !processedContent.trim().toLowerCase().startsWith('<table')) {
           processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
         }
-
         contentDiv.innerHTML = processedContent;
         subcontent.appendChild(contentDiv);
       });
@@ -604,14 +653,11 @@ function switchLenovoSubtab(index) {
 }
 
 async function fetchInventoryData(partNumbers) {
-  if (!document.getElementById('toggle-inventory').checked) {
-    return;
-  }
+  if (!document.getElementById('toggle-inventory').checked) return;
   searchResults.epicor = [];
 
   const loading = document.querySelector('#inventory-content .loading');
   const resultsDiv = document.querySelector('#inventory-content .inventory-results');
-  
   loading.style.display = 'block';
   resultsDiv.innerHTML = '';
 
@@ -653,7 +699,7 @@ async function fetchInventoryData(partNumbers) {
       <tbody>
         ${allResults.map(item => `
           <tr>
-            <td class="source-part-number">${item.sourcePartNumber}</td>
+            <td>${item.sourcePartNumber}</td>
             <td>${item.Company || '-'}</td>
             <td>${item.PartNum?.trim() || '-'}</td>
             <td>${item.PartDescription || '-'}</td>
@@ -672,14 +718,8 @@ async function fetchInventoryData(partNumbers) {
   }
 }
 
-//======================== Summary Tab Logic ========================//
+//------------------- Summary Tab Logic -------------------//
 
-/**
- * Build summary tables in the #summary-content area, showing:
- *  - Number of items found per part number
- *  - Best price (if applicable)
- * We create one table per distributor/endpoint that is enabled.
- */
 function updateSummaryTab() {
   const summaryDiv = document.getElementById('summary-content');
   if (!summaryDiv) return;
@@ -687,21 +727,21 @@ function updateSummaryTab() {
   // Clear the existing summary content
   summaryDiv.innerHTML = '';
 
-  // If no searches were done yet, or all toggles are off, just say "No results yet"
+  // Check which toggles are on
   const anyEnabled = (
     document.getElementById('toggle-inventory').checked ||
     document.getElementById('toggle-brokerbin').checked ||
     document.getElementById('toggle-tdsynnex').checked ||
     document.getElementById('toggle-ingram').checked ||
     document.getElementById('toggle-ebay').checked ||
-    document.getElementById('toggle-amazon').checked
+    document.getElementById('toggle-amazon').checked ||
+    document.getElementById('toggle-ebay-scraper').checked
   );
   if (!anyEnabled) {
     summaryDiv.innerHTML = 'No search results yet.';
     return;
   }
 
-  // Helper to create the summary table
   function createSummaryTable(distributorKey, distributorLabel) {
     const dataArray = searchResults[distributorKey] || [];
     if (!dataArray.length) return '';
@@ -716,14 +756,11 @@ function updateSummaryTab() {
       grouped[pnum].push(item);
     });
 
-    // Build rows
     let rowsHtml = '';
     for (const partNum in grouped) {
       const items = grouped[partNum];
       const count = items.length;
-      // Find best price among these items, if any
       const bestPrice = findBestPrice(distributorKey, items);
-
       rowsHtml += `
         <tr>
           <td>${partNum}</td>
@@ -750,25 +787,27 @@ function updateSummaryTab() {
     `;
   }
 
-  // For each distributor, figure out how to parse out a price
   function findBestPrice(distributorKey, items) {
     let minPrice = null;
-
     for (const it of items) {
       let price = null;
       switch (distributorKey) {
         case 'amazon':
-          // item.price -> { currency, value }, parse float from value
+          // item.price.value
           if (it.price && it.price.value) {
             price = parseFloat(it.price.value);
           }
           break;
         case 'ebay':
-          // item.priceWithCurrency might be "$123.45", parse it
+          // item.priceWithCurrency e.g. "$123.45"
           price = parsePrice(it.priceWithCurrency);
           break;
+        case 'ebayScraper':
+          // item.rawPrice e.g. "$20.00"
+          price = parsePrice(it.rawPrice);
+          break;
         case 'brokerbin':
-          // item.price is either float or not. If float, we can use directly.
+          // item.price is a float or a string
           if (typeof it.price === 'number') {
             price = it.price;
           } else if (typeof it.price === 'string') {
@@ -776,28 +815,24 @@ function updateSummaryTab() {
           }
           break;
         case 'tdsynnex':
-          // item.price is a string, e.g. "123.45"
+          // item.price is a string "123.45"
           price = parseFloat(it.price);
           break;
         // ingram => no price in default data
-        // epicor => no price in the default data
+        // epicor => no price in default data
         default:
           price = null;
-          break;
       }
-      if (!isNaN(price) && price != null) {
+      if (price != null && !isNaN(price)) {
         if (minPrice == null || price < minPrice) {
           minPrice = price;
         }
       }
     }
-
     return minPrice;
   }
 
-  // Generate summary tables for all enabled distributors
   let summaryHTML = '';
-
   if (document.getElementById('toggle-inventory').checked) {
     summaryHTML += createSummaryTable('epicor', 'Epicor (Inventory)');
   }
@@ -816,8 +851,11 @@ function updateSummaryTab() {
   if (document.getElementById('toggle-amazon').checked) {
     summaryHTML += createSummaryTable('amazon', 'Amazon');
   }
+  // NEW: eBayScraper summary
+  if (document.getElementById('toggle-ebay-scraper').checked) {
+    summaryHTML += createSummaryTable('ebayScraper', 'eBayScraper');
+  }
 
-  // If we built nothing, that means we have no results yet
   if (!summaryHTML.trim()) {
     summaryDiv.innerHTML = 'No search results yet.';
   } else {
@@ -825,51 +863,46 @@ function updateSummaryTab() {
   }
 }
 
-//======================== Analyze Data Helper ========================//
-// Gathers table HTML (to post to analyze-data endpoint)
+//--------------- gatherResultsForAnalysis (Analyze Data) ---------------//
+
 function gatherResultsForAnalysis() {
   const results = {};
 
-  // Inventory (epicor-search)
   if (document.getElementById('toggle-inventory').checked) {
     const invElem = document.querySelector('#inventory-content .inventory-results');
     results['epicor-search'] = invElem ? invElem.innerHTML : "";
   }
-
-  // BrokerBin (brokerbin-search)
   if (document.getElementById('toggle-brokerbin').checked) {
     const bbElem = document.querySelector('.brokerbin-results .results-container');
     results['brokerbin-search'] = bbElem ? bbElem.innerHTML : "";
   }
-
-  // TDSynnex (tdsynnex-search)
   if (document.getElementById('toggle-tdsynnex').checked) {
     const tdElem = document.querySelector('.tdsynnex-results .results-container');
     results['tdsynnex-search'] = tdElem ? tdElem.innerHTML : "";
   }
-
-  // Ingram (ingram-search)
   if (document.getElementById('toggle-ingram').checked) {
     const ingElem = document.querySelector('.ingram-results .results-container');
     results['ingram-search'] = ingElem ? ingElem.innerHTML : "";
   }
-
-  // eBay (ebay-search)
   if (document.getElementById('toggle-ebay').checked) {
     const ebayElem = document.querySelector('.ebay-results .results-container');
     results['ebay-search'] = ebayElem ? ebayElem.innerHTML : "";
   }
-
-  // Amazon (amazon-search)
   if (document.getElementById('toggle-amazon').checked) {
     const amzElem = document.querySelector('.amazon-results .results-container');
     results['amazon-search'] = amzElem ? amzElem.innerHTML : "";
   }
 
+  // NEW: eBayScraper table
+  if (document.getElementById('toggle-ebay-scraper').checked) {
+    const eScrElem = document.querySelector('.ebay-scraper-results .results-container');
+    results['ebay-scraper'] = eScrElem ? eScrElem.innerHTML : "";
+  }
+
   return results;
 }
 
-//======================== Main Handle Search ========================//
+//------------------- Main Handle Search -------------------//
 
 async function handleSearch() {
   const partNumber = document.getElementById('part-numbers').value.trim();
@@ -878,16 +911,14 @@ async function handleSearch() {
     return;
   }
 
-  // Get alternative part numbers
+  // 1) Get alternative part numbers
   const { original, alternatives } = await getAlternativePartNumbers(partNumber);
-  
-  // Create an array of all part numbers to search, including the original and alternatives
   const partNumbers = [
     { number: original, source: original },
     ...alternatives.map(alt => ({ number: alt, source: alt }))
   ];
 
-  // Separate the Lenovo call from other calls
+  // 2) Separate Lenovo from other calls
   const nonLenovoPromises = [];
 
   if (document.getElementById('toggle-inventory').checked) {
@@ -908,24 +939,28 @@ async function handleSearch() {
   if (document.getElementById('toggle-amazon').checked) {
     nonLenovoPromises.push(fetchAmazonData(partNumbers));
   }
+  // NEW: eBayScraper
+  if (document.getElementById('toggle-ebay-scraper').checked) {
+    nonLenovoPromises.push(fetchEbayScraperData(partNumbers));
+  }
 
-  // Start Lenovo separately (if toggled), but do NOT wait for it
+  // Lenovo fetch if toggled
   let lenovoPromise = null;
   if (document.getElementById('toggle-lenovo').checked) {
     lenovoPromise = fetchLenovoData(partNumbers);
   }
 
-  // Wait for all non-Lenovo calls
+  // 3) Wait for non-Lenovo
   try {
     await Promise.all(nonLenovoPromises);
   } catch (error) {
     console.error('Error during parallel execution for non-Lenovo endpoints:', error);
   }
 
-  // Update the Summary tab with item counts & best price (one table per distributor)
+  // 4) Update summary
   updateSummaryTab();
 
-  // Gather results from completed endpoints and send to "analyze-data"
+  // 5) Gather results & POST to "analyze-data"
   const analysisData = gatherResultsForAnalysis();
   try {
     const response = await fetch(`https://${serverDomain}/webhook/analyze-data`, {
@@ -939,7 +974,7 @@ async function handleSearch() {
     console.error('Analyze data error:', error);
   }
 
-  // Finally, await Lenovo if you want it to complete for the UI
+  // 6) Optionally wait for Lenovo
   if (lenovoPromise) {
     try {
       await lenovoPromise;
