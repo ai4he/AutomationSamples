@@ -20,25 +20,25 @@
       <div class="endpoints-toggle">
         <h4>Data Sources:</h4>
 
-        <!-- "All" button to enable visible checkboxes -->
-        <button type="button" onclick="selectAllVisible()">All</button>
+        <!-- REMOVED the "All" button -->
+        <!-- <button type="button" onclick="selectAllVisible()">All</button> -->
 
         <div class="checkbox-group">
           <label>
-            <!-- Removed 'checked' so it starts unchecked -->
-            <input type="checkbox" id="toggle-inventory">
+            <!-- Added 'checked' so it starts checked -->
+            <input type="checkbox" id="toggle-inventory" checked>
             Epicor (Inventory)
           </label>
           <label>
-            <input type="checkbox" id="toggle-brokerbin">
+            <input type="checkbox" id="toggle-brokerbin" checked>
             BrokerBin
           </label>
           <label>
-            <input type="checkbox" id="toggle-tdsynnex">
+            <input type="checkbox" id="toggle-tdsynnex" checked>
             TDSynnex
           </label>
           <label>
-            <input type="checkbox" id="toggle-ingram">
+            <input type="checkbox" id="toggle-ingram" checked>
             Ingram
           </label>
 
