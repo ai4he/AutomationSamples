@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>Part Search Interface</title>
   <link rel="stylesheet" type="text/css" href="index.css">
 </head>
@@ -48,6 +48,11 @@
             <input type="checkbox" id="toggle-lenovo" checked>
             Lenovo
           </label>
+          <!-- New eBayScraper toggle -->
+          <label>
+            <input type="checkbox" id="toggle-ebay-scraper">
+            eBayScraper
+          </label>
         </div>
       </div>
     </div>
@@ -64,12 +69,14 @@
     <div id="summary" class="tab-content active">
       <div id="summary-content">No search results yet.</div>
     </div>
+
     <div id="lenovo" class="tab-content">
       <div id="lenovo-content">
         <div class="subtabs" id="lenovo-subtabs"></div>
         <div id="lenovo-subcontent"></div>
       </div>
     </div>
+
     <div id="distributors" class="tab-content">
       <div id="distributors-content">
         <div class="loading" style="display: none;">Loading distributor data...</div>
@@ -89,6 +96,7 @@
         </div>
       </div>
     </div>
+
     <div id="marketplaces" class="tab-content">
       <div id="marketplaces-content">
         <div class="ebay-results">
@@ -101,14 +109,22 @@
           <div class="loading" style="display: none;">Loading Amazon data...</div>
           <div class="results-container"></div>
         </div>
+        <!-- New eBayScraper results section -->
+        <div class="ebay-scraper-results">
+          <h3>eBayScraper</h3>
+          <div class="loading" style="display: none;">Loading eBayScraper data...</div>
+          <div class="results-container"></div>
+        </div>
       </div>
     </div>
+
     <div id="inventory" class="tab-content">
       <div id="inventory-content">
         <div class="loading" style="display: none;">Loading inventory data...</div>
         <div class="inventory-results"></div>
       </div>
     </div>
+
     <div id="analytics" class="tab-content">
       <div id="analytics-content"></div>
     </div>
