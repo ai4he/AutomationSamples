@@ -224,3 +224,6 @@ tr:hover td {
 .subtab-content.active {
   display: block;
 }
+.hidden {
+  display: none;
+}
