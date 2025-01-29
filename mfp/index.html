@@ -36,29 +36,31 @@
             <input type="checkbox" id="toggle-ingram" checked>
             Ingram
           </label>
-          <!--
-          <label>
-            <input type="checkbox" id="toggle-ebay">
+
+          <!-- Old eBay (hidden) -->
+          <label style="display: none;">
+            <input type="checkbox" id="toggle-ebay-connector">
             eBayConnector
           </label>
-          <label>
-            <input type="checkbox" id="toggle-amazon">
+          <!-- Old Amazon (hidden) -->
+          <label style="display: none;">
+            <input type="checkbox" id="toggle-amazon-connector">
             AmazonConnector
           </label>
-          -->
+
           <label>
             <input type="checkbox" id="toggle-lenovo" checked>
             Lenovo
           </label>
-          <!-- New AmazonScraper toggle -->
+          <!-- Renamed eBayScraper => eBay (visible) -->
           <label>
-            <input type="checkbox" id="toggle-amazon-scraper" checked>
-            Amazon
-          </label>
-          <!-- New eBayScraper toggle -->
-          <label>
-            <input type="checkbox" id="toggle-ebay-scraper" checked>
+            <input type="checkbox" id="toggle-ebay">
             eBay
+          </label>
+          <!-- Renamed AmazonScraper => Amazon (visible) -->
+          <label>
+            <input type="checkbox" id="toggle-amazon">
+            Amazon
           </label>
         </div>
       </div>
@@ -106,26 +108,29 @@
 
     <div id="marketplaces" class="tab-content">
       <div id="marketplaces-content">
+        <!-- Old eBay container renamed & hidden -->
+        <div class="ebay-connector-results" style="display:none;">
+          <h3>eBayConnector</h3>
+          <div class="loading" style="display: none;">Loading eBayConnector data...</div>
+          <div class="results-container"></div>
+        </div>
+        <!-- Old Amazon container renamed & hidden -->
+        <div class="amazon-connector-results" style="display:none;">
+          <h3>AmazonConnector</h3>
+          <div class="loading" style="display: none;">Loading AmazonConnector data...</div>
+          <div class="results-container"></div>
+        </div>
+
+        <!-- Renamed new eBayScraper => eBay (visible) -->
         <div class="ebay-results">
           <h3>eBay</h3>
           <div class="loading" style="display: none;">Loading eBay data...</div>
           <div class="results-container"></div>
         </div>
+        <!-- Renamed new AmazonScraper => Amazon (visible) -->
         <div class="amazon-results">
           <h3>Amazon</h3>
           <div class="loading" style="display: none;">Loading Amazon data...</div>
-          <div class="results-container"></div>
-        </div>
-        <!-- New AmazonScraper results section -->
-        <div class="amazon-scraper-results">
-          <h3>AmazonScraper</h3>
-          <div class="loading" style="display: none;">Loading AmazonScraper data...</div>
-          <div class="results-container"></div>
-        </div>
-        <!-- New eBayScraper results section -->
-        <div class="ebay-scraper-results">
-          <h3>eBayScraper</h3>
-          <div class="loading" style="display: none;">Loading eBayScraper data...</div>
           <div class="results-container"></div>
         </div>
       </div>
