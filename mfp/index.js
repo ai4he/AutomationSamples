@@ -1003,80 +1003,86 @@ function gatherResultsForAnalysis() {
 
 // ====================== Main Handle Search ======================
 async function handleSearch() {
+  // Get the user's part-number input
   const partNumber = document.getElementById('part-numbers').value.trim();
   if (!partNumber) {
     alert('Please enter a part number');
     return;
   }
 
-  // === SHOW the loader right away ===
+  // Show the loader/spinner
   const spinner = document.getElementById('loading-spinner');
   if (spinner) {
-    spinner.style.display = 'inline-block'; // or 'block'
+    spinner.style.display = 'inline-block';
   }
 
   try {
-    // 1) get alternative part numbers
+    // 1) Fetch alternative part numbers
     const { original, alternatives } = await getAlternativePartNumbers(partNumber);
     const partNumbers = [
       { number: original, source: original },
       ...alternatives.map(alt => ({ number: alt, source: alt }))
     ];
 
-    // 2) separate Lenovo from other calls
+    // 2) Prepare array for all the “non-Lenovo” async calls
     const nonLenovoPromises = [];
 
+    // Epicor (Inventory)
     if (document.getElementById('toggle-inventory').checked) {
       nonLenovoPromises.push(fetchInventoryData(partNumbers));
     }
+    // BrokerBin
     if (document.getElementById('toggle-brokerbin').checked) {
       nonLenovoPromises.push(fetchBrokerBinData(partNumbers));
     }
+    // TDSynnex
     if (document.getElementById('toggle-tdsynnex').checked) {
       nonLenovoPromises.push(fetchTDSynnexData(partNumbers));
     }
+    // Ingram
     if (document.getElementById('toggle-ingram').checked) {
       nonLenovoPromises.push(fetchDistributorData(partNumbers));
     }
-
-    // old amazon => AmazonConnector
+    // Old Amazon => AmazonConnector
     if (document.getElementById('toggle-amazon-connector').checked) {
       nonLenovoPromises.push(fetchAmazonConnectorData(partNumbers));
     }
-    // old eBay => eBayConnector
+    // Old eBay => eBayConnector
     if (document.getElementById('toggle-ebay-connector').checked) {
       nonLenovoPromises.push(fetchEbayConnectorData(partNumbers));
     }
-    // new Amazon
+    // New Amazon
     if (document.getElementById('toggle-amazon').checked) {
       nonLenovoPromises.push(fetchAmazonData(partNumbers));
     }
-    // new eBay
+    // New eBay
     if (document.getElementById('toggle-ebay').checked) {
       nonLenovoPromises.push(fetchEbayData(partNumbers));
     }
 
-    // Lenovo fetch if toggled
+    // 3) Fetch Lenovo data separately, if toggled
     let lenovoPromise = null;
     if (document.getElementById('toggle-lenovo').checked) {
       lenovoPromise = fetchLenovoData(partNumbers);
     }
 
-    // 3) Wait for non-Lenovo calls
+    // 4) Wait for all non-Lenovo calls in parallel
     try {
       await Promise.all(nonLenovoPromises);
     } catch (err) {
       console.error('Error in parallel execution for non-Lenovo endpoints:', err);
     }
 
-    // 4) Update summary
+    // 5) Update the summary tab with any partial results
     updateSummaryTab();
 
-    // 5) Gather results & POST to "analyze-data"
+    // 6) Gather results to POST for analysis
     const analysisData = gatherResultsForAnalysis();
+    // Also store the original part + alternatives in the payload
     analysisData.originalPartNumber = partNumber;
     analysisData.alternativePartNumbers = alternatives;
 
+    // 7) POST to the "analyze-data" endpoint
     let analyzeResultText = '';
     try {
       const response = await fetch(`https://${serverDomain}/webhook/analyze-data`, {
@@ -1084,27 +1090,27 @@ async function handleSearch() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(analysisData)
       });
-
-      // Example: if the endpoint returns JSON like [{"text":"Some message"}]
+      // Suppose the endpoint returns JSON like: [{ "text": "Some analysis..." }]
       const analyzeResult = await response.json();
 
       if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
         analyzeResultText = analyzeResult[0].text;
       } else {
+        // fallback if no recognized "text" field
         analyzeResultText = JSON.stringify(analyzeResult);
       }
 
-      // Show it at the top of summary
+      // Display the analysis text at the top of the summary
       const summaryDiv = document.getElementById('summary-content');
       if (summaryDiv) {
         const existingContent = summaryDiv.innerHTML;
         summaryDiv.innerHTML = `<div class="analyze-result-text">${analyzeResultText}</div>` + existingContent;
       }
-    } catch (error) {
-      console.error('Analyze data error:', error);
+    } catch (err) {
+      console.error('Analyze data error:', err);
     }
 
-    // 6) Optionally await Lenovo
+    // 8) Optionally wait for Lenovo data
     if (lenovoPromise) {
       try {
         await lenovoPromise;
@@ -1114,10 +1120,9 @@ async function handleSearch() {
     }
 
   } finally {
-    // === HIDE the loader once we're done (success or error) ===
+    // Hide the loader/spinner once everything is complete (success or fail)
     if (spinner) {
       spinner.style.display = 'none';
     }
   }
 }
-
