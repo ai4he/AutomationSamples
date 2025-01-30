@@ -1,6 +1,6 @@
 var serverDomain = "gpu.haielab.org";
 // var serverDomain = "n8n.haielab.org";
-var llmModel = "gemini";
+var llmModel = "ollama";
 // var llmModel = "ollama";
 
 // Master object storing each endpoint’s results
