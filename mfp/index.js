@@ -270,15 +270,18 @@ async function fetchAmazonData(partNumbers) {
           continue;
         }
         const data = await response.json();
-        // We expect data like: [ { title: [...], price: [...] } ]
-        if (Array.isArray(data) && data.length > 0 && data[0].title && data[0].price) {
-          const titleArr = data[0].title;
-          const priceArr = data[0].price;
-          for (let i = 0; i < titleArr.length; i++) {
+        
+        // We expect data like: [ { title: [...], price: [...], image: [...], link: [...] } ]
+        if (Array.isArray(data) && data.length > 0) {
+          const { title = [], price = [], image = [], link = [] } = data[0];
+          
+          for (let i = 0; i < title.length; i++) {
             allResults.push({
               sourcePartNumber: source,
-              title: titleArr[i] || '-',
-              rawPrice: priceArr[i] || '-'
+              title: title[i] || '-',
+              rawPrice: price[i] || '-',
+              image: image[i] || null,
+              link: link[i] || '#'
             });
           }
         }
@@ -295,7 +298,8 @@ async function fetchAmazonData(partNumbers) {
       <thead>
         <tr>
           <th>Source Part</th>
-          <th>Title</th>
+          <th>Image</th>
+          <th>Description</th>
           <th>Price</th>
         </tr>
       </thead>
@@ -303,7 +307,20 @@ async function fetchAmazonData(partNumbers) {
         ${allResults.map(item => `
           <tr>
             <td>${item.sourcePartNumber}</td>
-            <td>${item.title}</td>
+            <td class="image-cell">
+              ${
+                item.image
+                  ? `<img src="${item.image}" alt="Product image" class="product-image">`
+                  : '-'
+              }
+            </td>
+            <td>
+              ${
+                item.link && item.link !== '#'
+                  ? `<a href="${item.link}" target="_blank">${item.title}</a>`
+                  : item.title
+              }
+            </td>
             <td>${item.rawPrice}</td>
           </tr>
         `).join('')}
@@ -317,6 +334,7 @@ async function fetchAmazonData(partNumbers) {
     loading.style.display = 'none';
   }
 }
+
 
 // ====================== New eBay (was eBayScraper) ======================
 async function fetchEbayData(partNumbers) {
@@ -338,14 +356,18 @@ async function fetchEbayData(partNumbers) {
           continue;
         }
         const data = await response.json();
-        if (Array.isArray(data) && data.length > 0 && data[0].title && data[0].price) {
-          const titles = data[0].title;
-          const prices = data[0].price;
-          for (let i = 0; i < titles.length; i++) {
+        
+        // We expect data like: [ { title: [...], price: [...], image: [...], link: [...] } ]
+        if (Array.isArray(data) && data.length > 0) {
+          const { title = [], price = [], image = [], link = [] } = data[0];
+
+          for (let i = 0; i < title.length; i++) {
             allResults.push({
               sourcePartNumber: source,
-              title: titles[i] || '-',
-              rawPrice: prices[i] || '-'
+              title: title[i] || '-',
+              rawPrice: price[i] || '-',
+              image: image[i] || null,
+              link: link[i] || '#'
             });
           }
         }
@@ -356,12 +378,14 @@ async function fetchEbayData(partNumbers) {
 
     searchResults.ebay = allResults;
 
+    // Build table
     const table = document.createElement('table');
     table.innerHTML = `
       <thead>
         <tr>
           <th>Source Part</th>
-          <th>Title</th>
+          <th>Image</th>
+          <th>Description</th>
           <th>Price</th>
         </tr>
       </thead>
@@ -369,7 +393,20 @@ async function fetchEbayData(partNumbers) {
         ${allResults.map(item => `
           <tr>
             <td>${item.sourcePartNumber}</td>
-            <td>${item.title}</td>
+            <td class="image-cell">
+              ${
+                item.image
+                  ? `<img src="${item.image}" alt="Product image" class="product-image">`
+                  : '-'
+              }
+            </td>
+            <td>
+              ${
+                item.link && item.link !== '#'
+                  ? `<a href="${item.link}" target="_blank">${item.title}</a>`
+                  : item.title
+              }
+            </td>
             <td>${item.rawPrice}</td>
           </tr>
         `).join('')}
@@ -383,6 +420,7 @@ async function fetchEbayData(partNumbers) {
     loading.style.display = 'none';
   }
 }
+
 
 // ====================== Distributors & Inventory (unchanged) ======================
 async function fetchTDSynnexData(partNumbers) {
