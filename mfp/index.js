@@ -1141,7 +1141,7 @@ async function handleSearch() {
     
       // If the result is wrapped in markdown code block markers (```html ... ```),
       // extract only the HTML content between them.
-      const htmlBlockRegex = /^```html\s*([\s\S]*?)\s*```$/;
+      const htmlBlockRegex = /^```html([\s\S]*?)$/;
       const match = analyzeResultText.match(htmlBlockRegex);
       if (match) {
         analyzeResultText = match[1];
