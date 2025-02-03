@@ -241,3 +241,9 @@ tr:hover td {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+.table-container {
+  max-height: 400px;  /* Adjust as needed */
+  overflow-y: auto;
+  margin-bottom: 20px; /* Optional spacing */
+}
