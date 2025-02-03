@@ -1108,6 +1108,12 @@ async function handleSearch() {
     return;
   }
 
+  // Clear the previous summary content to start fresh
+  const summaryDiv = document.getElementById('summary-content');
+  if (summaryDiv) {
+    summaryDiv.innerHTML = '';
+  }
+
   // Show the loader/spinner
   const spinner = document.getElementById('loading-spinner');
   if (spinner) {
@@ -1188,34 +1194,27 @@ async function handleSearch() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(analysisData)
       });
-      // Suppose the endpoint returns JSON like: [{ "text": "Some analysis..." }]
       const analyzeResult = await response.json();
-    
+
       if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
         analyzeResultText = analyzeResult[0].text;
       } else {
-        // Fallback if no recognized "text" field
         analyzeResultText = JSON.stringify(analyzeResult);
       }
-    
-      // If the result is wrapped in markdown code block markers (```html ... ```),
-      // extract only the HTML content between them.
+
       const htmlBlockRegex = /^```html\s*([\s\S]*?)\s*```$/;
       const match = analyzeResultText.match(htmlBlockRegex);
       if (match) {
         analyzeResultText = match[1];
       }
-    
+
       // Append the analysis title and text at the end of the Summary section.
-      const summaryDiv = document.getElementById('summary-content');
       if (summaryDiv) {
         summaryDiv.innerHTML += `<h3>Analysis Summary</h3><div class="analyze-result-text">${analyzeResultText}</div>`;
       }
     } catch (err) {
       console.error('Analyze data error:', err);
     }
-
-
 
     // 8) Optionally wait for Lenovo data
     if (lenovoPromise) {
@@ -1227,12 +1226,13 @@ async function handleSearch() {
     }
 
   } finally {
-    // Hide the loader/spinner once everything is complete (success or fail)
+    // Hide the loader/spinner once everything is complete
     if (spinner) {
       spinner.style.display = 'none';
     }
   }
 }
+
 
 /**
  * Makes the given table sortable by clicking on its header cells.
