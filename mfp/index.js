@@ -159,7 +159,15 @@ async function fetchAmazonConnectorData(partNumbers) {
           `).join('')}
         </tbody>
       `;
-      resultsDiv.appendChild(table);
+      
+      // Wrap the table in a scrollable container.
+      const container = document.createElement('div');
+      container.className = 'table-container';
+      container.appendChild(table);
+      resultsDiv.appendChild(container);
+      
+      // Enable sorting on this table.
+      makeTableSortable(table);
     }
 
   } catch (error) {
@@ -238,7 +246,14 @@ async function fetchEbayConnectorData(partNumbers) {
           `).join('')}
         </tbody>
       `;
-      resultsDiv.appendChild(table);
+      // Wrap the table in a scrollable container.
+      const container = document.createElement('div');
+      container.className = 'table-container';
+      container.appendChild(table);
+      resultsDiv.appendChild(container);
+      
+      // Enable sorting on this table.
+      makeTableSortable(table);
     }
 
   } catch (error) {
@@ -326,7 +341,14 @@ async function fetchAmazonData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    resultsDiv.appendChild(table);
+    // Wrap the table in a scrollable container.
+    const container = document.createElement('div');
+    container.className = 'table-container';
+    container.appendChild(table);
+    resultsDiv.appendChild(container);
+    
+    // Enable sorting on this table.
+    makeTableSortable(table);
 
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching Amazon data: ${error.message}</div>`;
@@ -412,7 +434,14 @@ async function fetchEbayData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    resultsDiv.appendChild(table);
+    // Wrap the table in a scrollable container.
+    const container = document.createElement('div');
+    container.className = 'table-container';
+    container.appendChild(table);
+    resultsDiv.appendChild(container);
+    
+    // Enable sorting on this table.
+    makeTableSortable(table);
 
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching eBay data: ${error.message}</div>`;
@@ -503,7 +532,14 @@ async function fetchTDSynnexData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    resultsDiv.appendChild(table);
+    // Wrap the table in a scrollable container.
+    const container = document.createElement('div');
+    container.className = 'table-container';
+    container.appendChild(table);
+    resultsDiv.appendChild(container);
+    
+    // Enable sorting on this table.
+    makeTableSortable(table);
 
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching TDSynnex data: ${error.message}</div>`;
@@ -572,7 +608,14 @@ async function fetchDistributorData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    resultsDiv.appendChild(table);
+    // Wrap the table in a scrollable container.
+    const container = document.createElement('div');
+    container.className = 'table-container';
+    container.appendChild(table);
+    resultsDiv.appendChild(container);
+    
+    // Enable sorting on this table.
+    makeTableSortable(table);
 
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching distributor data: ${error.message}</div>`;
@@ -642,7 +685,14 @@ async function fetchBrokerBinData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    resultsDiv.appendChild(table);
+    // Wrap the table in a scrollable container.
+    const container = document.createElement('div');
+    container.className = 'table-container';
+    container.appendChild(table);
+    resultsDiv.appendChild(container);
+    
+    // Enable sorting on this table.
+    makeTableSortable(table);
 
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching BrokerBin data: ${error.message}</div>`;
@@ -813,7 +863,14 @@ async function fetchInventoryData(partNumbers) {
         `).join('')}
       </tbody>
     `;
-    resultsDiv.appendChild(table);
+    // Wrap the table in a scrollable container.
+    const container = document.createElement('div');
+    container.className = 'table-container';
+    container.appendChild(table);
+    resultsDiv.appendChild(container);
+    
+    // Enable sorting on this table.
+    makeTableSortable(table);
   } catch (error) {
     resultsDiv.innerHTML = `<div class="error">Error fetching inventory data: ${error.message}</div>`;
   } finally {
@@ -1172,4 +1229,49 @@ async function handleSearch() {
       spinner.style.display = 'none';
     }
   }
+}
+
+/**
+ * Makes the given table sortable by clicking on its header cells.
+ * Each header click toggles the sort order (ascending/descending).
+ */
+function makeTableSortable(table) {
+  const headers = table.querySelectorAll("th");
+  headers.forEach((header, index) => {
+    header.style.cursor = "pointer";
+    header.addEventListener("click", () => {
+      // Determine current sort order; default is ascending.
+      const currentOrder = header.getAttribute("data-sort-order") || "asc";
+      const asc = currentOrder === "asc";
+      sortTableByColumn(table, index, asc);
+      // Toggle the sort order for the next click.
+      header.setAttribute("data-sort-order", asc ? "desc" : "asc");
+    });
+  });
+}
+
+/**
+ * Sorts the table rows based on the content of the specified column.
+ * Attempts a numeric sort; if that fails, falls back to a string comparison.
+ */
+function sortTableByColumn(table, columnIndex, asc = true) {
+  const tbody = table.tBodies[0];
+  const rows = Array.from(tbody.querySelectorAll("tr"));
+  
+  rows.sort((a, b) => {
+    const aText = a.children[columnIndex].textContent.trim();
+    const bText = b.children[columnIndex].textContent.trim();
+
+    // Try numeric comparison (ignoring non-numeric characters).
+    const aNum = parseFloat(aText.replace(/[^0-9.-]/g, ""));
+    const bNum = parseFloat(bText.replace(/[^0-9.-]/g, ""));
+    if (!isNaN(aNum) && !isNaN(bNum)) {
+      return asc ? aNum - bNum : bNum - aNum;
+    }
+    // Fall back to string comparison.
+    return asc ? aText.localeCompare(bText) : bText.localeCompare(aText);
+  });
+
+  // Append the sorted rows back to the tbody.
+  rows.forEach(row => tbody.appendChild(row));
 }
