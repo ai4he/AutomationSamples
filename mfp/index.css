@@ -10,7 +10,23 @@ body {
   max-width: 1200px;
   margin: 20px auto;
   padding: 20px;
+  position: relative; /* Added to allow absolute positioning inside */
 }
+
+/* Logo container positioned at the top right */
+.logo {
+  position: absolute;
+  top: 10px;    /* Adjust spacing from the top as needed */
+  right: 10px;  /* Adjust spacing from the right as needed */
+}
+
+/* Resize the logo image */
+.logo img {
+  width: 256px;
+  height: 256px;
+  object-fit: contain; /* Ensures the image scales nicely */
+}
+
 .card {
   border: 1px solid #ddd;
   border-radius: 8px;
