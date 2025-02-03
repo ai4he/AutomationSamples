@@ -63,8 +63,10 @@ async function getAlternativePartNumbers(partNumber) {
       alternativeNumbersDiv.innerHTML = '<p>No alternative part numbers found.</p>';
     }
 
+    // Use the returned original part number if provided; otherwise, fall back to the entered part number.
+    const originalPart = data[0].ORD && data[0].ORD.trim() ? data[0].ORD : partNumber;
     return {
-      original: data[0].ORD,
+      original: originalPart,
       alternatives
     };
   } catch (error) {
