@@ -1195,19 +1195,20 @@ async function handleSearch() {
         body: JSON.stringify(analysisData)
       });
       const analyzeResult = await response.json();
-    
+
       if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
         analyzeResultText = analyzeResult[0].text;
       } else {
         analyzeResultText = JSON.stringify(analyzeResult);
       }
-    
-      // Remove any markdown code block symbols if present.
-      // This removes a starting "```html" (plus any trailing whitespace) and an ending "```" (plus any leading whitespace)
-      analyzeResultText = analyzeResultText.replace(/^```html\s*/, '').replace(/\s*```$/, '');
-    
+
+      const htmlBlockRegex = /^```html\s*([\s\S]*?)\s*```$/;
+      const match = analyzeResultText.match(htmlBlockRegex);
+      if (match) {
+        analyzeResultText = match[1];
+      }
+
       // Append the analysis title and text at the end of the Summary section.
-      const summaryDiv = document.getElementById('summary-content');
       if (summaryDiv) {
         summaryDiv.innerHTML += `<h3>Analysis Summary</h3><div class="analyze-result-text">${analyzeResultText}</div>`;
       }
@@ -1215,6 +1216,22 @@ async function handleSearch() {
       console.error('Analyze data error:', err);
     }
 
+    // 8) Optionally wait for Lenovo data
+    if (lenovoPromise) {
+      try {
+        await lenovoPromise;
+      } catch (err) {
+        console.error('Error during Lenovo data fetch:', err);
+      }
+    }
+
+  } finally {
+    // Hide the loader/spinner once everything is complete
+    if (spinner) {
+      spinner.style.display = 'none';
+    }
+  }
+}
 
 
 /**
