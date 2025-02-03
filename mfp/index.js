@@ -1130,23 +1130,31 @@ async function handleSearch() {
       });
       // Suppose the endpoint returns JSON like: [{ "text": "Some analysis..." }]
       const analyzeResult = await response.json();
-
+    
       if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
         analyzeResultText = analyzeResult[0].text;
       } else {
-        // fallback if no recognized "text" field
+        // Fallback if no recognized "text" field
         analyzeResultText = JSON.stringify(analyzeResult);
       }
-
-      // Display the analysis text at the top of the summary
+    
+      // If the result is wrapped in markdown code block markers (```html ... ```),
+      // extract only the HTML content between them.
+      const htmlBlockRegex = /^```html\s*([\s\S]*?)\s*```$/;
+      const match = analyzeResultText.match(htmlBlockRegex);
+      if (match) {
+        analyzeResultText = match[1];
+      }
+    
+      // Append the analysis text at the end of the Summary section (instead of replacing it)
       const summaryDiv = document.getElementById('summary-content');
       if (summaryDiv) {
-        const existingContent = summaryDiv.innerHTML;
-        summaryDiv.innerHTML = `<div class="analyze-result-text">${analyzeResultText}</div>` + existingContent;
+        summaryDiv.innerHTML += `<div class="analyze-result-text">${analyzeResultText}</div>`;
       }
     } catch (err) {
       console.error('Analyze data error:', err);
     }
+
 
     // 8) Optionally wait for Lenovo data
     if (lenovoPromise) {
