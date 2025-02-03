@@ -22,8 +22,8 @@ body {
 
 /* Resize the logo image */
 .logo img {
-  width: 128px;
-  height: 128px;
+  width: 64px;
+  height: 64px;
   object-fit: contain; /* Ensures the image scales nicely */
 }
 
