@@ -903,10 +903,10 @@ function updateSummaryTab() {
     let minPrice = null;
     for (const it of items) {
       let priceVal = null;
-
+  
       switch (key) {
         case 'amazonConnector':
-          // old Amazon
+          // old Amazon: use the value if available
           if (it.price && it.price.value) {
             priceVal = parseFloat(it.price.value);
           }
@@ -933,13 +933,13 @@ function updateSummaryTab() {
         case 'tdsynnex':
           priceVal = parseFloat(it.price);
           break;
-        // ingram => no price
-        // epicor => no price
+        // ingram and epicor do not provide price values
         default:
           priceVal = null;
       }
-
-      if (priceVal != null && !isNaN(priceVal)) {
+  
+      // Only consider price values that are non-null, numeric, and greater than 0
+      if (priceVal != null && !isNaN(priceVal) && priceVal > 0) {
         if (minPrice == null || priceVal < minPrice) {
           minPrice = priceVal;
         }
@@ -947,6 +947,7 @@ function updateSummaryTab() {
     }
     return minPrice;
   }
+
 
   // Build up HTML for all toggles
   let summaryHTML = '';
