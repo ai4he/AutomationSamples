@@ -16,8 +16,8 @@ body {
 /* Logo container positioned at the top right */
 .logo {
   position: absolute;
-  top: 10px;    /* Adjust spacing from the top as needed */
-  right: 10px;  /* Adjust spacing from the right as needed */
+  top: 20px;    /* Adjust spacing from the top as needed */
+  right: 20px;  /* Adjust spacing from the right as needed */
 }
 
 /* Resize the logo image */
