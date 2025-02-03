@@ -1200,20 +1200,21 @@ async function handleSearch() {
     
       // If the result is wrapped in markdown code block markers (```html ... ```),
       // extract only the HTML content between them.
-      const htmlBlockRegex = /^```html([\s\S]*?)$/;
+      const htmlBlockRegex = /^```html\s*([\s\S]*?)\s*```$/;
       const match = analyzeResultText.match(htmlBlockRegex);
       if (match) {
         analyzeResultText = match[1];
       }
     
-      // Append the analysis text at the end of the Summary section (instead of replacing it)
+      // Append the analysis title and text at the end of the Summary section.
       const summaryDiv = document.getElementById('summary-content');
       if (summaryDiv) {
-        summaryDiv.innerHTML += `<div class="analyze-result-text">${analyzeResultText}</div>`;
+        summaryDiv.innerHTML += `<h3>Analysis Summary</h3><div class="analyze-result-text">${analyzeResultText}</div>`;
       }
     } catch (err) {
       console.error('Analyze data error:', err);
     }
+
 
 
     // 8) Optionally wait for Lenovo data
