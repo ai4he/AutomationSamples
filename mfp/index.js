@@ -1204,7 +1204,7 @@ async function handleSearch() {
     
       // Remove any markdown code block symbols if present.
       // This removes a starting "```html" (plus any trailing whitespace) and an ending "```" (plus any leading whitespace)
-      analyzeResultText = analyzeResultText.replace(/^```html\s*/, '').replace(/\s*```$/, '');
+      analyzeResultText = analyzeResultText.replaceAll("```html", '').replaceAll("```", '');
     
       // Append the analysis title and text at the end of the Summary section.
       const summaryDiv = document.getElementById('summary-content');
