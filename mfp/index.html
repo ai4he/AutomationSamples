@@ -21,6 +21,14 @@
       </h2>
       <label for="part-numbers">Part Number</label>
       <input type="text" id="part-numbers" placeholder="Enter part numbers (comma-separated)" />
+      
+      <!-- New Dropdown for LLM Model Selection -->
+      <label for="llm-model">LLM Model:</label>
+      <select id="llm-model">
+        <option value="gemini" selected>Gemini Flash 2.0</option>
+        <option value="local">LLaMa 3.2 Vision</option>
+      </select>
+      
       <div id="alternative-numbers" class="alternative-numbers">
         <!-- Alternative part numbers will be displayed here -->
       </div>
