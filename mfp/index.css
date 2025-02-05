@@ -263,3 +263,31 @@ tr:hover td {
   overflow-y: auto;
   margin-bottom: 20px; /* Optional spacing */
 }
+
+.model-prompt-row {
+  display: flex;          /* put them on the same row */
+  align-items: flex-start;/* align top edges together */
+  gap: 20px;              /* spacing between the two sections */
+  margin-bottom: 16px;    /* some breathing room underneath */
+}
+
+.model-column {
+  display: flex;
+  flex-direction: column; /* label above the select */
+  width: 200px;           /* fixed or choose your own width */
+}
+
+/* Prompt column: label + textarea side by side */
+.prompt-column {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;                /* let this stretch the remaining space */
+}
+
+/* (Optional) Force the textarea to half the container width.
+   If you rely on rows/cols, you might omit the explicit width. */
+.prompt-column textarea {
+  width: 50%;
+  min-width: 200px;       /* set a min-width if you wish */
+}
