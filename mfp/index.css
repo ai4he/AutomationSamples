@@ -288,6 +288,6 @@ tr:hover td {
 /* (Optional) Force the textarea to half the container width.
    If you rely on rows/cols, you might omit the explicit width. */
 .prompt-column textarea {
-  width: 50%;
+  width: 90%;
   min-width: 200px;       /* set a min-width if you wish */
 }
