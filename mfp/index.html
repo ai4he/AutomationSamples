@@ -22,18 +22,24 @@
       <label for="part-numbers">Part Number</label>
       <input type="text" id="part-numbers" placeholder="Enter part numbers (comma-separated)" />
       
-      <!-- New Dropdown for LLM Model Selection -->
-      <label for="llm-model">LLM Model:</label>
-      <select id="llm-model">
-        <option value="gemini" selected>Gemini Flash 2.0</option>
-        <option value="local">LLaMa 3.2 Vision</option>
-      </select>
+      <!-- Keep this inside the .card, below the Part Number input -->
+      <div class="model-prompt-row">
+        <div class="model-column">
+          <label for="llm-model">LLM Model</label>
+          <select id="llm-model">
+            <option value="gemini" selected>Gemini Flash 2.0</option>
+            <option value="local">LLaMa 3.2 Vision</option>
+          </select>
+        </div>
+        
+        <div class="prompt-column">
+          <label for="prompt">Prompt</label>
+          <textarea id="prompt" rows="4" cols="25" placeholder="Enter your prompt here">
+      You are required to give a suggestion on the computer part to recommend the user based on price...
+          </textarea>
+        </div>
+      </div>
 
-        <!-- New Textarea for Prompt -->
-      <label for="prompt">Prompt</label>
-      <textarea id="prompt" placeholder="Enter your prompt here" rows="4" cols="50">
-        You are required to give a suggestion on the computer part to recommend the user based on price. You will find below, the results of the part search from multiple vendors and alternative part numbers.
-      </textarea>
       
       
       <div id="alternative-numbers" class="alternative-numbers">
