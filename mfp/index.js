@@ -1189,9 +1189,15 @@ async function handleSearch() {
     // 7) POST to the "analyze-data" endpoint
     let analyzeResultText = '';
     try {
+      // Get the model choice from the dropdown
       const selectedModel = document.getElementById('llm-model').value;
+      // Get the prompt text from the textarea
+      const promptText = document.getElementById('prompt').value;
       
-      const response = await fetch(`https://${serverDomain}/webhook/analyze-data?model=${selectedModel}`, {
+      // Build the URL with both model and prompt parameters (make sure to URL-encode the prompt)
+      const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
+      
+      const response = await fetch(analyzeUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(analysisData)
