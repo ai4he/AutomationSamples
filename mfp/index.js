@@ -43,6 +43,11 @@ async function getAlternativePartNumbers(partNumber) {
       return { original: partNumber, alternatives: [] };
     }
 
+    // Extract Description and Category from the response.
+    const description = data[0].Description || '';
+    const category = data[0].Category || '';
+
+    // Gather all alternative part numbers.
     const alternatives = [
       ...(data[0].FRU || []),
       ...(data[0].MFG || []),
@@ -51,17 +56,27 @@ async function getAlternativePartNumbers(partNumber) {
     ];
 
     const alternativeNumbersDiv = document.getElementById('alternative-numbers');
+
+    // Build the HTML content: first show the description and category.
+    let htmlContent = `
+      <p><strong>Description:</strong> ${description}</p>
+      <p><strong>Category:</strong> ${category}</p>
+    `;
+
+    // Then display the alternative part numbers if any.
     if (alternatives.length > 0) {
-      alternativeNumbersDiv.innerHTML = `
+      htmlContent += `
         <h4>Alternative Part Numbers Found:</h4>
         <ul class="alternative-numbers-list">
           ${alternatives.map(num => `<li class="alternative-number"><span>${num}</span></li>`).join('')}
         </ul>
       `;
-      alternativeNumbersDiv.classList.add('active');
     } else {
-      alternativeNumbersDiv.innerHTML = '<p>No alternative part numbers found.</p>';
+      htmlContent += `<p>No alternative part numbers found.</p>`;
     }
+
+    alternativeNumbersDiv.innerHTML = htmlContent;
+    alternativeNumbersDiv.classList.add('active');
 
     // Use the returned original part number if provided; otherwise, fall back to the entered part number.
     const originalPart = data[0].ORD && data[0].ORD.trim() ? data[0].ORD : partNumber;
