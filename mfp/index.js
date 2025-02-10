@@ -47,28 +47,37 @@ async function getAlternativePartNumbers(partNumber) {
     const description = data[0].Description || '';
     const category = data[0].Category || '';
 
-    // Gather all alternative part numbers.
-    const alternatives = [
-      ...(data[0].FRU || []),
-      ...(data[0].MFG || []),
-      ...(data[0].OEM || []),
-      ...(data[0].OPT || [])
-    ];
+    // Build a structured array of alternative parts including their type.
+    const alternativeParts = [];
+    if (data[0].FRU && data[0].FRU.length > 0) {
+      data[0].FRU.forEach(num => alternativeParts.push({ type: 'FRU', value: num }));
+    }
+    if (data[0].MFG && data[0].MFG.length > 0) {
+      data[0].MFG.forEach(num => alternativeParts.push({ type: 'MFG', value: num }));
+    }
+    if (data[0].OEM && data[0].OEM.length > 0) {
+      data[0].OEM.forEach(num => alternativeParts.push({ type: 'OEM', value: num }));
+    }
+    if (data[0].OPT && data[0].OPT.length > 0) {
+      data[0].OPT.forEach(num => alternativeParts.push({ type: 'OPT', value: num }));
+    }
 
     const alternativeNumbersDiv = document.getElementById('alternative-numbers');
 
-    // Build the HTML content: first show the description and category.
+    // Build the HTML content: first display Description and Category.
     let htmlContent = `
       <p><strong>Description:</strong> ${description}</p>
       <p><strong>Category:</strong> ${category}</p>
     `;
 
-    // Then display the alternative part numbers if any.
-    if (alternatives.length > 0) {
+    // Then display the alternative part numbers with their type.
+    if (alternativeParts.length > 0) {
       htmlContent += `
         <h4>Alternative Part Numbers Found:</h4>
         <ul class="alternative-numbers-list">
-          ${alternatives.map(num => `<li class="alternative-number"><span>${num}</span></li>`).join('')}
+          ${alternativeParts
+            .map(item => `<li class="alternative-number"><span>${item.type}: ${item.value}</span></li>`)
+            .join('')}
         </ul>
       `;
     } else {
@@ -82,13 +91,14 @@ async function getAlternativePartNumbers(partNumber) {
     const originalPart = data[0].ORD && data[0].ORD.trim() ? data[0].ORD : partNumber;
     return {
       original: originalPart,
-      alternatives
+      alternatives: alternativeParts
     };
   } catch (error) {
     console.error('Error fetching alternative part numbers:', error);
     return { original: partNumber, alternatives: [] };
   }
 }
+
 
 function switchTab(tabId) {
   document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
