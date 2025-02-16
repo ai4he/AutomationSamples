@@ -2,27 +2,56 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MINT – MFP Intelligent Neural Technology</title>
+  
+  <!-- External CSS -->
   <link rel="stylesheet" type="text/css" href="index.css">
+  
+  <!-- Inline Styles for Background and Layout -->
+  <style>
+    /* Full-page background */
+    body {
+      margin: 0;
+      padding: 0;
+      background: url('background.jpg') no-repeat center center fixed;
+      background-size: cover;
+      font-family: sans-serif;
+    }
+    /* Main container styling */
+    .container {
+      background-color: #fff;
+      margin: 20px auto;
+      max-width: 1200px;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+    }
+    /* Center the header logo */
+    .card h2 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .card h2 img {
+      max-width: 800px;
+      height: auto;
+    }
+  </style>
 </head>
 <body>
   <div class="container">
-    <!-- Logo at the top right corner -->
-    <div class="logo">
-      <img src="https://mfptech.com/wp-content/uploads/2020/02/mfp-logo@2x.png" alt="Logo">
-    </div>
-    
     <div class="card">
       <h2>
-        MINT – MFP Intelligent Neural Technology
-        <!-- Add a span for our loader; initially hidden via "display:none" -->
+        <!-- Custom logo replacing header text -->
+        <img src="MINT-LOGO.png" alt="MINT – MFP Intelligent Neural Technology">
+        <!-- Loader spinner remains if needed -->
         <span id="loading-spinner" class="spinner" style="display:none; margin-left:10px;"></span>
       </h2>
+      
       <label for="part-numbers">Part Number</label>
       <input type="text" id="part-numbers" placeholder="Enter part numbers (comma-separated)" />
       
-      <!-- Keep this inside the .card, below the Part Number input -->
+      <!-- Model and Prompt Row -->
       <div class="model-prompt-row">
         <div class="model-column">
           <label for="llm-model">Model</label>
@@ -31,7 +60,6 @@
             <option value="ollama">LLaMa 3.2 Vision (local)</option>
           </select>
         </div>
-        
         <div class="prompt-column">
           <label for="prompt">Prompt</label>
           <textarea id="prompt" rows="2" cols="25" placeholder="Enter your prompt here">
@@ -39,23 +67,18 @@ You are required to give a suggestion on the computer part to recommend the user
           </textarea>
         </div>
       </div>
-
-      
       
       <div id="alternative-numbers" class="alternative-numbers">
         <!-- Alternative part numbers will be displayed here -->
       </div>
+      
       <button onclick="handleSearch()">Search</button>
       
+      <!-- Data Sources Section -->
       <div class="endpoints-toggle">
         <h4>Data Sources:</h4>
-
-        <!-- REMOVED the "All" button -->
-        <!-- <button type="button" onclick="selectAllVisible()">All</button> -->
-
         <div class="checkbox-group">
           <label>
-            <!-- Added 'checked' so it starts checked -->
             <input type="checkbox" id="toggle-inventory" checked>
             Epicor (Inventory)
           </label>
@@ -71,28 +94,22 @@ You are required to give a suggestion on the computer part to recommend the user
             <input type="checkbox" id="toggle-ingram" checked>
             Ingram
           </label>
-
           <label>
             <input type="checkbox" id="toggle-lenovo" checked>
             Lenovo
           </label>
-          <!-- New eBay (was eBayScraper) -->
           <label>
             <input type="checkbox" id="toggle-ebay" checked>
             eBay
           </label>
-          <!-- New Amazon (was AmazonScraper) -->
           <label>
             <input type="checkbox" id="toggle-amazon" checked>
             Amazon
           </label>
-
-          <!-- Old eBay hidden -->
           <label>
             <input type="checkbox" id="toggle-ebay-connector">
             eBayConnector
           </label>
-          <!-- Old Amazon hidden -->
           <label>
             <input type="checkbox" id="toggle-amazon-connector">
             AmazonConnector
@@ -100,7 +117,8 @@ You are required to give a suggestion on the computer part to recommend the user
         </div>
       </div>
     </div>
-
+    
+    <!-- Tab Navigation -->
     <div class="tabs">
       <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
       <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
@@ -109,18 +127,19 @@ You are required to give a suggestion on the computer part to recommend the user
       <button class="tab-button" onclick="switchTab('inventory')">Inventory</button>
       <button style="display: none;" class="tab-button" onclick="switchTab('analytics')">Analytics</button>
     </div>
-
+    
+    <!-- Tab Contents -->
     <div id="summary" class="tab-content active">
       <div id="summary-content">No search results yet.</div>
     </div>
-
+    
     <div id="lenovo" class="tab-content">
       <div id="lenovo-content">
         <div class="subtabs" id="lenovo-subtabs"></div>
         <div id="lenovo-subcontent"></div>
       </div>
     </div>
-
+    
     <div id="distributors" class="tab-content">
       <div id="distributors-content">
         <div class="loading" style="display: none;">Loading distributor data...</div>
@@ -140,7 +159,7 @@ You are required to give a suggestion on the computer part to recommend the user
         </div>
       </div>
     </div>
-
+    
     <div id="marketplaces" class="tab-content">
       <div id="marketplaces-content">
         <div class="ebay-results">
@@ -153,7 +172,6 @@ You are required to give a suggestion on the computer part to recommend the user
           <div class="loading" style="display: none;">Loading Amazon data...</div>
           <div class="results-container"></div>
         </div>
-
         <div class="ebay-connector-results">
           <h3>eBayConnector</h3>
           <div class="loading" style="display: none;">Loading eBayConnector data...</div>
@@ -166,19 +184,20 @@ You are required to give a suggestion on the computer part to recommend the user
         </div>
       </div>
     </div>
-
+    
     <div id="inventory" class="tab-content">
       <div id="inventory-content">
         <div class="loading" style="display: none;">Loading inventory data...</div>
         <div class="inventory-results"></div>
       </div>
     </div>
-
+    
     <div id="analytics" class="tab-content" style="display: none;">
       <div id="analytics-content"></div>
     </div>
-
   </div>
+  
+  <!-- External JavaScript -->
   <script type="text/javascript" src="index.js"></script>
 </body>
 </html>
