@@ -1310,3 +1310,44 @@ function sortTableByColumn(table, columnIndex, asc = true) {
   // Append the sorted rows back to the tbody.
   rows.forEach(row => tbody.appendChild(row));
 }
+
+
+// --- Google Authentication ---
+document.getElementById('google-signin-btn').addEventListener('click', () => {
+  // Initialize Google Identity Services with your client ID
+  google.accounts.id.initialize({
+    client_id: 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com', // Replace with your Google Client ID
+    callback: handleGoogleCredentialResponse
+  });
+  // Display the One Tap or sign-in prompt
+  google.accounts.id.prompt();
+});
+
+function handleGoogleCredentialResponse(response) {
+  console.log('Google Credential Response:', response);
+  // In a production app you would decode and verify the token here.
+  // For demo purposes we update the UI to indicate sign in.
+  document.getElementById('user-info').textContent = 'Signed in with Google';
+}
+
+// --- Microsoft Authentication (using MSAL) ---
+const msalConfig = {
+  auth: {
+    clientId: "YOUR_MICROSOFT_CLIENT_ID", // Replace with your Microsoft Client ID
+    redirectUri: window.location.origin
+  }
+};
+
+const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+document.getElementById('microsoft-signin-btn').addEventListener('click', () => {
+  msalInstance.loginPopup({ scopes: ["User.Read"] })
+    .then(loginResponse => {
+      console.log('Microsoft Login Response:', loginResponse);
+      // Update the UI with the signed-in user's info
+      document.getElementById('user-info').textContent = 'Signed in as: ' + loginResponse.account.username;
+    })
+    .catch(error => {
+      console.error('Microsoft Login Error:', error);
+    });
+});
