@@ -18,7 +18,9 @@ let searchResults = {
   ingram: [],
   tdsynnex: [],
   brokerbin: [],
-  epicor: []
+  epicor: [],
+  sales: [],
+  purchases: []
 };
 
 // ============= New: helper to check all visible checkboxes ============
@@ -820,6 +822,209 @@ async function fetchLenovoData(partNumbers) {
   }
 }
 
+// ====================== Sales Data ======================
+async function fetchSalesData(partNumbers) {
+  // Clear any old data
+  searchResults.sales = [];
+
+  const loading = document.querySelector('#sales-content .loading');
+  const resultsDiv = document.querySelector('#sales-content .sales-results');
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+
+    for (const { number, source } of partNumbers) {
+      try {
+        const response = await fetch(`https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`);
+        if (!response.ok) {
+          console.warn(`Warning: Failed to fetch Sales data for part number ${number}`);
+          continue;
+        }
+        const data = await response.json();
+
+        // Each item in 'data' typically looks like { "returnObj": { OrderDtlPA: [ ... ] } }
+        data.forEach(entry => {
+          const details = entry?.returnObj?.OrderDtlPA || [];
+          details.forEach(line => {
+            allResults.push({
+              sourcePartNumber: source,
+              PartNum: line.PartNum,
+              LineDesc: line.LineDesc,
+              OrderNum: line.OrderNum,
+              OrderLine: line.OrderLine,
+              CustomerID: line.CustomerCustID,
+              CustomerName: line.CustomerCustName,
+              OrderDate: line.OrderHedOrderDate,
+              OrderQty: line.OrderQty,
+              UnitPrice: line.UnitPrice,
+              RequestDate: line.RequestDate,
+              NeedByDate: line.NeedByDate
+            });
+          });
+        });
+      } catch (error) {
+        console.warn(`Error in fetchSalesData for ${number}:`, error);
+      }
+    }
+
+    searchResults.sales = allResults;
+
+    // Build the table
+    if (allResults.length > 0) {
+      const table = document.createElement('table');
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Source Part</th>
+            <th>Part Number</th>
+            <th>Description</th>
+            <th>Order Num</th>
+            <th>Line</th>
+            <th>Customer ID</th>
+            <th>Customer Name</th>
+            <th>Order Date</th>
+            <th>Order Qty</th>
+            <th>Unit Price</th>
+            <th>Request Date</th>
+            <th>Need By Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${allResults.map(item => `
+            <tr>
+              <td>${item.sourcePartNumber}</td>
+              <td>${item.PartNum || '-'}</td>
+              <td>${item.LineDesc || '-'}</td>
+              <td>${item.OrderNum || '-'}</td>
+              <td>${item.OrderLine || '-'}</td>
+              <td>${item.CustomerID || '-'}</td>
+              <td>${item.CustomerName || '-'}</td>
+              <td>${item.OrderDate ? new Date(item.OrderDate).toLocaleDateString() : '-'}</td>
+              <td>${item.OrderQty || '-'}</td>
+              <td>${item.UnitPrice || '-'}</td>
+              <td>${item.RequestDate ? new Date(item.RequestDate).toLocaleDateString() : '-'}</td>
+              <td>${item.NeedByDate ? new Date(item.NeedByDate).toLocaleDateString() : '-'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      `;
+      const container = document.createElement('div');
+      container.className = 'table-container';
+      container.appendChild(table);
+      resultsDiv.appendChild(container);
+
+      // Make table sortable
+      makeTableSortable(table);
+    } else {
+      resultsDiv.innerHTML = '<div>No sales data found.</div>';
+    }
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching sales data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+
+// ====================== Purchases Data ======================
+async function fetchPurchasesData(partNumbers) {
+  // Clear any old data
+  searchResults.purchases = [];
+
+  const loading = document.querySelector('#purchases-content .loading');
+  const resultsDiv = document.querySelector('#purchases-content .purchases-results');
+  loading.style.display = 'block';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const allResults = [];
+
+    for (const { number, source } of partNumbers) {
+      try {
+        const response = await fetch(`https://${serverDomain}/webhook/epicor-purchases?item=${encodeURIComponent(number)}`);
+        if (!response.ok) {
+          console.warn(`Warning: Failed to fetch Purchases data for part number ${number}`);
+          continue;
+        }
+        const data = await response.json();
+
+        // The top-level "returnObj" often has "PAPurchasedBefore" array, etc.
+        data.forEach(entry => {
+          const purchasedItems = entry?.returnObj?.PAPurchasedBefore || [];
+          purchasedItems.forEach(line => {
+            allResults.push({
+              sourcePartNumber: source,
+              PartNum: line.PartNum,
+              VendorName: line.VendorName,
+              VendorQty: line.VendorQty,
+              VendorUnitCost: line.VendorUnitCost,
+              ReceiptDate: line.ReceiptDate,
+              OrderDate: line.OrderDate,
+              DueDate: line.DueDate,
+              PONum: line.PONum
+            });
+          });
+        });
+      } catch (error) {
+        console.warn(`Error in fetchPurchasesData for ${number}:`, error);
+      }
+    }
+
+    searchResults.purchases = allResults;
+
+    // Build the table
+    if (allResults.length > 0) {
+      const table = document.createElement('table');
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Source Part</th>
+            <th>Part Number</th>
+            <th>Vendor Name</th>
+            <th>Vendor Qty</th>
+            <th>Vendor Unit Cost</th>
+            <th>PO Number</th>
+            <th>Receipt Date</th>
+            <th>Order Date</th>
+            <th>Due Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${allResults.map(item => `
+            <tr>
+              <td>${item.sourcePartNumber}</td>
+              <td>${item.PartNum || '-'}</td>
+              <td>${item.VendorName || '-'}</td>
+              <td>${item.VendorQty || '-'}</td>
+              <td>${item.VendorUnitCost != null ? item.VendorUnitCost : '-'}</td>
+              <td>${item.PONum || '-'}</td>
+              <td>${item.ReceiptDate ? new Date(item.ReceiptDate).toLocaleDateString() : '-'}</td>
+              <td>${item.OrderDate ? new Date(item.OrderDate).toLocaleDateString() : '-'}</td>
+              <td>${item.DueDate ? new Date(item.DueDate).toLocaleDateString() : '-'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      `;
+      const container = document.createElement('div');
+      container.className = 'table-container';
+      container.appendChild(table);
+      resultsDiv.appendChild(container);
+
+      // Make table sortable
+      makeTableSortable(table);
+    } else {
+      resultsDiv.innerHTML = '<div>No purchases data found.</div>';
+    }
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="error">Error fetching purchases data: ${error.message}</div>`;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+
 function decodeUnicodeEscapes(str) {
   if (typeof str !== 'string') return '';
   return str.replace(/\\u[\dA-F]{4}/gi, match => 
@@ -1153,7 +1358,7 @@ async function handleSearch() {
       ...alternatives.map(alt => ({ number: alt, source: alt }))
     ];
 
-    // 2) Prepare array for all the “non-Lenovo” async calls
+    // 2) Prepare array for the “non-Lenovo” async calls
     const nonLenovoPromises = [];
 
     // Epicor (Inventory)
@@ -1189,6 +1394,10 @@ async function handleSearch() {
       nonLenovoPromises.push(fetchEbayData(partNumbers));
     }
 
+    // >>> ADD THESE TWO CALLS FOR SALES AND PURCHASES <<<
+    nonLenovoPromises.push(fetchSalesData(partNumbers));
+    nonLenovoPromises.push(fetchPurchasesData(partNumbers));
+
     // 3) Fetch Lenovo data separately, if toggled
     let lenovoPromise = null;
     if (document.getElementById('toggle-lenovo').checked) {
@@ -1214,14 +1423,10 @@ async function handleSearch() {
     // 7) POST to the "analyze-data" endpoint
     let analyzeResultText = '';
     try {
-      // Get the model choice from the dropdown
       const selectedModel = document.getElementById('llm-model').value;
-      // Get the prompt text from the textarea
       const promptText = document.getElementById('prompt').value;
       
-      // Build the URL with both model and prompt parameters (make sure to URL-encode the prompt)
       const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
-      
       const response = await fetch(analyzeUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1235,12 +1440,10 @@ async function handleSearch() {
         analyzeResultText = JSON.stringify(analyzeResult);
       }
     
-      // Remove any markdown code block symbols if present.
-      // This removes a starting "```html" (plus any trailing whitespace) and an ending "```" (plus any leading whitespace)
-      analyzeResultText = analyzeResultText.replaceAll("```html", '').replaceAll("```", '');
+      analyzeResultText = analyzeResultText
+        .replaceAll("```html", '')
+        .replaceAll("```", '');
     
-      // Append the analysis title and text at the end of the Summary section.
-      const summaryDiv = document.getElementById('summary-content');
       if (summaryDiv) {
         summaryDiv.innerHTML += `<h3>Analysis Summary</h3><div class="analyze-result-text">${analyzeResultText}</div>`;
       }
@@ -1264,6 +1467,7 @@ async function handleSearch() {
     }
   }
 }
+
 
 
 /**
