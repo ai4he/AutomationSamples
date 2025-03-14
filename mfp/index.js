@@ -61,7 +61,38 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, maxLevel,
     }
   }
 
-  
+  // Decide if we should recurse deeper:
+  // --------------------------------------------------
+  //  - If maxLevel === 0, then we do no recursion
+  //  - If maxLevel > 0, we keep going while currentLevel < maxLevel
+  //  - If maxLevel === -1, we keep going indefinitely (until no new parts)
+  //    but rely on 'visited' to stop cycles.
+  // --------------------------------------------------
+  let shouldGoDeeper = false;
+  if (maxLevel === -1) {
+    shouldGoDeeper = true; // infinite until no new
+  } else if (maxLevel > 0) {
+    shouldGoDeeper = currentLevel < maxLevel;
+  } else {
+    // maxLevel === 0 or negative other than -1 => no deeper recursion
+    shouldGoDeeper = false;
+  }
+
+  if (shouldGoDeeper) {
+    // Recurse for each newly discovered alternative
+    for (const alt of alternatives) {
+      await gatherCombinatoryAlternatives(
+        alt.value,
+        currentLevel + 1,
+        maxLevel,
+        visited,
+        result
+      );
+    }
+  }
+}
+
+
 async function executeEndpointSearches(partNumbers) {
   const nonLenovoPromises = [];
 
@@ -136,39 +167,6 @@ async function executeEndpointSearches(partNumbers) {
       await lenovoPromise;
     } catch (err) {
       console.error('Error during Lenovo data fetch:', err);
-    }
-  }
-}
-
-  
-
-  // Decide if we should recurse deeper:
-  // --------------------------------------------------
-  //  - If maxLevel === 0, then we do no recursion
-  //  - If maxLevel > 0, we keep going while currentLevel < maxLevel
-  //  - If maxLevel === -1, we keep going indefinitely (until no new parts)
-  //    but rely on 'visited' to stop cycles.
-  // --------------------------------------------------
-  let shouldGoDeeper = false;
-  if (maxLevel === -1) {
-    shouldGoDeeper = true; // infinite until no new
-  } else if (maxLevel > 0) {
-    shouldGoDeeper = currentLevel < maxLevel;
-  } else {
-    // maxLevel === 0 or negative other than -1 => no deeper recursion
-    shouldGoDeeper = false;
-  }
-
-  if (shouldGoDeeper) {
-    // Recurse for each newly discovered alternative
-    for (const alt of alternatives) {
-      await gatherCombinatoryAlternatives(
-        alt.value,
-        currentLevel + 1,
-        maxLevel,
-        visited,
-        result
-      );
     }
   }
 }
