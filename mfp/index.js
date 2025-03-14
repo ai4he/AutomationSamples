@@ -398,7 +398,7 @@ async function sendChatMessageToLLM() {
     const conversationJSON = encodeURIComponent(JSON.stringify(conversationHistory));
 
     // Build the endpoint (same as your 'analyze-data' but with added ?history=)
-    const url = `https://${serverDomain}/webhook-test/analyze-data?model=${selectedModel}&history=${conversationJSON}`;
+    const url = `https://${serverDomain}/webhook-test/analyze-data?model=${selectedModel}&prompt=${conversationJSON}`;
 
     // We can still pass the aggregator results if needed:
     const analysisData = gatherResultsForAnalysis();
