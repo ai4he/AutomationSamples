@@ -1353,10 +1353,16 @@ async function handleSearch() {
   try {
     // 1) Fetch alternative part numbers
     const { original, alternatives } = await getAlternativePartNumbers(partNumber);
+
+    // --- CHANGED LINES: ensure we use alt.value (string) instead of the entire object ---
     const partNumbers = [
       { number: original, source: original },
-      ...alternatives.map(alt => ({ number: alt, source: alt }))
+      ...alternatives.map(alt => ({
+        number: alt.value,
+        source: `${alt.type}: ${alt.value}`
+      }))
     ];
+    // --- END CHANGED LINES ---
 
     // 2) Prepare array for the “non-Lenovo” async calls
     const nonLenovoPromises = [];
@@ -1467,6 +1473,7 @@ async function handleSearch() {
     }
   }
 }
+
 
 
 
