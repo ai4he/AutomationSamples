@@ -769,12 +769,19 @@ async function fetchLenovoData(partNumbers) {
           continue;
         }
         const data = await response.json();
+
+        // ================================
+        // CHANGE #1: Filter out any docs that have empty content so we only push docs with real results
+        // ================================
         if (data?.[0]?.data?.length > 0) {
-          const docs = data[0].data.filter(doc => doc).map(doc => ({
-            ...doc,
-            sourcePartNumber: source
-          }));
-          allResults.push(...docs);
+          const docs = data[0].data
+            .filter(doc => doc && doc.content && doc.content.trim() !== '')
+            .map(doc => ({ ...doc, sourcePartNumber: source }));
+          
+          // Only add non-empty docs
+          if (docs.length > 0) {
+            allResults.push(...docs);
+          }
         }
       } catch (error) {
         console.warn(`Error processing Lenovo data for part number ${number}:`, error);
@@ -803,11 +810,10 @@ async function fetchLenovoData(partNumbers) {
         contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
         contentDiv.setAttribute('data-subtab-index', index);
 
-        let processedContent = doc.content
-          ? decodeUnicodeEscapes(doc.content)
-          : '<div class="error">No content available</div>';
+        let processedContent = decodeUnicodeEscapes(doc.content);
 
-        if (doc.content && !processedContent.trim().toLowerCase().startsWith('<table')) {
+        // If the raw content does not begin with <table, wrap it in a <table> for styling
+        if (!processedContent.trim().toLowerCase().startsWith('<table')) {
           processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
         }
         contentDiv.innerHTML = processedContent;
@@ -821,6 +827,7 @@ async function fetchLenovoData(partNumbers) {
     subtabs.innerHTML = `<div class="error">Error fetching Lenovo data: ${error.message}</div>`;
   }
 }
+
 
 // ====================== Sales Data ======================
 async function fetchSalesData(partNumbers) {
