@@ -257,7 +257,7 @@ async function performFinalAnalysis() {
     const promptText = document.getElementById('prompt').value;
 
     // Prepare query URL for the initial analysis, same as before
-    const analyzeUrl = `https://${serverDomain}/webhook-test/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
+    const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
 
     const response = await fetch(analyzeUrl, {
       method: 'POST',
@@ -398,7 +398,7 @@ async function sendChatMessageToLLM() {
     const conversationJSON = encodeURIComponent(JSON.stringify(conversationHistory));
 
     // Build the endpoint (same as your 'analyze-data' but with added ?history=)
-    const url = `https://${serverDomain}/webhook-test/analyze-data?model=${selectedModel}&prompt=${conversationJSON}`;
+    const url = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${conversationJSON}`;
 
     // We can still pass the aggregator results if needed:
     const analysisData = gatherResultsForAnalysis();
