@@ -292,8 +292,9 @@ async function performFinalAnalysis() {
     // We'll also include a container for continuing the conversation
     summaryDiv.innerHTML += `
       <h3>Analysis Summary</h3>
-      <div class="analyze-result-text">${analyzeResultText}</div>
+      <div class="analyze-result-text"></div>
     `;
+    // <div class="analyze-result-text">${analyzeResultText}</div>
 
     // === 2) Create the conversation interface right below the summary text ===
     initializeConversationUI(summaryDiv);
