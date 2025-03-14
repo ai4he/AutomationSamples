@@ -291,3 +291,57 @@ tr:hover td {
   width: 90%;
   min-width: 200px;       /* set a min-width if you wish */
 }
+
+#chat-container {
+  margin-top: 20px;
+  background: #fafafa;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.chat-messages {
+  max-height: 250px;  /* Scroll if chat is too long */
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+.chat-message {
+  margin: 4px 0;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+
+.chat-message.user {
+  background: #e0f1ff;  /* Light bluish background */
+  text-align: left;
+}
+
+.chat-message.assistant {
+  background: #ffe0e0;  /* Light reddish background */
+  text-align: left;
+}
+
+.chat-input-area {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input-area input[type="text"] {
+  flex: 1;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+.chat-input-area button {
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  background-color: #2563eb;
+  color: #fff;
+  cursor: pointer;
+}
+.chat-input-area button:hover {
+  background-color: #1d4ed8;
+}
