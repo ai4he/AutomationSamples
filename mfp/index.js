@@ -2,6 +2,9 @@ var serverDomain = "gpu.haielab.org";
 // var serverDomain = "n8n.haielab.org";
 var llmModel = "gemini";
 // var llmModel = "ollama";
+// Configuration Variables
+let configUseAlternatives = true;  // Default: true
+let configNestedLevel = 1;         // Default: 1
 
 // Master object storing each endpoint’s results
 let searchResults = {
@@ -31,6 +34,145 @@ function selectAllVisible() {
     chk.checked = true;
   });
 }
+
+/**
+ * Gathers all alternative parts up to a certain nested level.
+ *
+ * @param {string} baseNumber  - The part number to fetch alternatives for
+ * @param {number} currentLevel - The current recursion depth
+ * @param {number} maxLevel    - The configNestedLevel value (0, 1, -1, etc.)
+ * @param {Set} visited        - A Set of uppercase part numbers visited so far
+ * @param {Array} result       - An array to collect unique { type, value } objects
+ * @returns {Promise<void>}
+ */
+async function gatherCombinatoryAlternatives(baseNumber, currentLevel, maxLevel, visited, result) {
+  // If we've already visited this number, skip
+  const upperBase = baseNumber.trim().toUpperCase();
+  if (visited.has(upperBase)) return;
+  visited.add(upperBase);
+
+  // Fetch the alternative data
+  const { alternatives } = await getAlternativePartNumbers(baseNumber);
+  // Add all these alt objects to 'result', but only if not already present
+  for (const alt of alternatives) {
+    const altUpper = alt.value.trim().toUpperCase();
+    if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
+      result.push(alt);
+    }
+  }
+
+  
+async function executeEndpointSearches(partNumbers) {
+  const nonLenovoPromises = [];
+
+  if (document.getElementById('toggle-inventory').checked) {
+    nonLenovoPromises.push(
+      fetchInventoryData(partNumbers).finally(() => updateSummaryTab())
+    );
+  }
+  if (document.getElementById('toggle-brokerbin').checked) {
+    nonLenovoPromises.push(
+      fetchBrokerBinData(partNumbers).finally(() => updateSummaryTab())
+    );
+  }
+  if (document.getElementById('toggle-tdsynnex').checked) {
+    nonLenovoPromises.push(
+      fetchTDSynnexData(partNumbers).finally(() => updateSummaryTab())
+    );
+  }
+  if (document.getElementById('toggle-ingram').checked) {
+    nonLenovoPromises.push(
+      fetchDistributorData(partNumbers).finally(() => updateSummaryTab())
+    );
+  }
+  if (document.getElementById('toggle-amazon-connector').checked) {
+    nonLenovoPromises.push(
+      fetchAmazonConnectorData(partNumbers).finally(() => updateSummaryTab())
+    );
+  }
+  if (document.getElementById('toggle-ebay-connector').checked) {
+    nonLenovoPromises.push(
+      fetchEbayConnectorData(partNumbers).finally(() => updateSummaryTab())
+    );
+  }
+  if (document.getElementById('toggle-amazon').checked) {
+    nonLenovoPromises.push(
+      fetchAmazonData(partNumbers).finally(() => updateSummaryTab())
+    );
+  }
+  if (document.getElementById('toggle-ebay').checked) {
+    nonLenovoPromises.push(
+      fetchEbayData(partNumbers).finally(() => updateSummaryTab())
+    );
+  }
+
+  // Sales and Purchases
+  nonLenovoPromises.push(
+    fetchSalesData(partNumbers).finally(() => updateSummaryTab())
+  );
+  nonLenovoPromises.push(
+    fetchPurchasesData(partNumbers).finally(() => updateSummaryTab())
+  );
+
+  // Lenovo data if toggled (some prefer to do it separately)
+  let lenovoPromise = null;
+  if (document.getElementById('toggle-lenovo').checked) {
+    lenovoPromise = fetchLenovoData(partNumbers);
+  }
+
+  // 1) Run all non-Lenovo in parallel
+  try {
+    await Promise.all(nonLenovoPromises);
+  } catch (err) {
+    console.error('Error in parallel execution for non-Lenovo endpoints:', err);
+  }
+
+  // 2) Final summary update in case multiple fetches finished around the same time
+  updateSummaryTab();
+
+  // 3) Lenovo (if toggled)
+  if (lenovoPromise) {
+    try {
+      await lenovoPromise;
+    } catch (err) {
+      console.error('Error during Lenovo data fetch:', err);
+    }
+  }
+}
+
+  
+
+  // Decide if we should recurse deeper:
+  // --------------------------------------------------
+  //  - If maxLevel === 0, then we do no recursion
+  //  - If maxLevel > 0, we keep going while currentLevel < maxLevel
+  //  - If maxLevel === -1, we keep going indefinitely (until no new parts)
+  //    but rely on 'visited' to stop cycles.
+  // --------------------------------------------------
+  let shouldGoDeeper = false;
+  if (maxLevel === -1) {
+    shouldGoDeeper = true; // infinite until no new
+  } else if (maxLevel > 0) {
+    shouldGoDeeper = currentLevel < maxLevel;
+  } else {
+    // maxLevel === 0 or negative other than -1 => no deeper recursion
+    shouldGoDeeper = false;
+  }
+
+  if (shouldGoDeeper) {
+    // Recurse for each newly discovered alternative
+    for (const alt of alternatives) {
+      await gatherCombinatoryAlternatives(
+        alt.value,
+        currentLevel + 1,
+        maxLevel,
+        visited,
+        result
+      );
+    }
+  }
+}
+
 
 // ====================== Utility functions ======================
 
@@ -1327,7 +1469,6 @@ function gatherResultsForAnalysis() {
 
 // ====================== Main Handle Search ======================
 async function handleSearch() {
-  // Get the user's part-number input
   const partNumber = document.getElementById('part-numbers').value.trim();
   if (!partNumber) {
     alert('Please enter a part number');
@@ -1346,22 +1487,25 @@ async function handleSearch() {
     spinner.style.display = 'inline-block';
   }
 
-  //----------------------------------------------------------------------
-  // A small helper to update the "Alternative Part Numbers" UI at any time
-  //----------------------------------------------------------------------
-  function updateAlternativeNumbersUI(description, category, finalAlternatives) {
+  // We'll populate these if we do use alternatives
+  let description = '';
+  let category = '';
+  const finalAlternatives = [];
+
+  // Helper to show the alternative part numbers UI at any time
+  function updateAlternativeNumbersUI(desc, cat, altList) {
     const alternativeNumbersDiv = document.getElementById('alternative-numbers');
     if (!alternativeNumbersDiv) return;
 
     let htmlContent = `
-      <p><strong>Description:</strong> ${description}</p>
-      <p><strong>Category:</strong> ${category}</p>
+      <p><strong>Description:</strong> ${desc || ''}</p>
+      <p><strong>Category:</strong> ${cat || ''}</p>
     `;
-    if (finalAlternatives.length > 0) {
+    if (altList.length > 0) {
       htmlContent += `
-        <h4>Alternative Part Numbers Found (one-level deep):</h4>
+        <h4>Alternative Part Numbers Found (up to level ${configNestedLevel === -1 ? '∞' : configNestedLevel}):</h4>
         <ul class="alternative-numbers-list">
-          ${finalAlternatives.map(item => `
+          ${altList.map(item => `
             <li class="alternative-number">
               <span>${item.type}: ${item.value}</span>
             </li>
@@ -1377,154 +1521,67 @@ async function handleSearch() {
   }
 
   try {
-    //----------------------------------------------------------------------
-    // 1) Get top-level alternatives for the user’s entered part number
-    //----------------------------------------------------------------------
-    const {
-      original: topOriginal,
-      description,
-      category,
-      alternatives: topAlternatives
-    } = await getAlternativePartNumbers(partNumber);
+    // If we are NOT using alternatives, skip everything but the final search
+    if (!configUseAlternatives) {
+      // Just fetch the top-level data for the user’s part, to get description/category
+      // (or you can skip even that if you prefer.)
+      const { original, Description, Category } = await getAlternativePartNumbers(partNumber);
+      // Build final search list with only the original part
+      const partNumbersToSearch = [{ number: original, source: original }];
 
-    //----------------------------------------------------------------------
-    // 2) Deduplicate topAlternatives so we only call get-parts once per unique alt
-    //----------------------------------------------------------------------
-    const uniqueTopAlts = [];
-    const altSet = new Set();  // keep track of values in uppercase for dedup
+      // Minimal UI update: no alt numbers
+      document.getElementById('alternative-numbers').innerHTML = '<p>Alternative search disabled.</p>';
 
-    for (const alt of topAlternatives) {
-      const upperVal = alt.value.trim().toUpperCase();
-      if (!altSet.has(upperVal)) {
-        altSet.add(upperVal);
-        uniqueTopAlts.push(alt);
-      }
-    }
+      // Continue to the data endpoints
+      await executeEndpointSearches(partNumbersToSearch);
+    } else {
+      // ------------------------------------------------------------
+      // We DO want to gather alternatives up to configNestedLevel
+      // ------------------------------------------------------------
+      // 1) Call getAlternativePartNumbers once for the user’s input
+      const {
+        original: topOriginal,
+        description: topDesc,
+        category: topCat
+      } = await getAlternativePartNumbers(partNumber);
 
-    //----------------------------------------------------------------------
-    // 3) Prepare a final list (with dedup) that will hold top+second-level
-    //----------------------------------------------------------------------
-    const encountered = new Set();
-    const finalAlternatives = [];
+      description = topDesc; 
+      category = topCat;
 
-    function addAlternative(alt) {
-      const upperVal = alt.value.trim().toUpperCase();
-      if (!encountered.has(upperVal)) {
-        encountered.add(upperVal);
-        finalAlternatives.push(alt);
-      }
-    }
+      // 2) Recursively gather alternatives (one or more levels)
+      // We'll store them in finalAlternatives array
+      const visited = new Set();
+      await gatherCombinatoryAlternatives(
+        topOriginal,
+        0,             // current level
+        configNestedLevel,
+        visited,
+        finalAlternatives
+      );
 
-    // Populate finalAlternatives with the top-level
-    uniqueTopAlts.forEach(addAlternative);
-
-    // Show top-level alternatives right away
-    updateAlternativeNumbersUI(description, category, finalAlternatives);
-
-    //----------------------------------------------------------------------
-    // 4) For each unique top-level alternative, fetch its second-level
-    //    alternatives, then update the UI again so the user sees expansions
-    //----------------------------------------------------------------------
-    for (const alt of uniqueTopAlts) {
-      // getAlternativePartNumbers for alt.value
-      const secondLevel = await getAlternativePartNumbers(alt.value);
-
-      for (const alt2 of secondLevel.alternatives) {
-        addAlternative(alt2);
-      }
-      // Immediately re-update UI after each top-level alt is processed
+      // Update UI after all recursion done
       updateAlternativeNumbersUI(description, category, finalAlternatives);
+
+      // 3) Build final search list: original part + all unique alternatives
+      const partNumbersToSearch = [
+        { number: topOriginal, source: topOriginal },
+        ...finalAlternatives.map(a => ({
+          number: a.value,
+          source: `${a.type}: ${a.value}`
+        }))
+      ];
+
+      // Execute endpoint searches
+      await executeEndpointSearches(partNumbersToSearch);
     }
 
-    //----------------------------------------------------------------------
-    // 5) Now build the final search list: the “original” + all unique alternatives
-    //----------------------------------------------------------------------
-    const partNumbersToSearch = [
-      { number: topOriginal, source: topOriginal },
-      ...finalAlternatives.map(a => ({
-        number: a.value,
-        source: `${a.type}: ${a.value}`
-      }))
-    ];
-
-    //----------------------------------------------------------------------
-    // 6) Call the search endpoints in parallel, each .finally() => incremental summary
-    //----------------------------------------------------------------------
-    const nonLenovoPromises = [];
-
-    if (document.getElementById('toggle-inventory').checked) {
-      nonLenovoPromises.push(
-        fetchInventoryData(partNumbersToSearch).finally(() => updateSummaryTab())
-      );
-    }
-    if (document.getElementById('toggle-brokerbin').checked) {
-      nonLenovoPromises.push(
-        fetchBrokerBinData(partNumbersToSearch).finally(() => updateSummaryTab())
-      );
-    }
-    if (document.getElementById('toggle-tdsynnex').checked) {
-      nonLenovoPromises.push(
-        fetchTDSynnexData(partNumbersToSearch).finally(() => updateSummaryTab())
-      );
-    }
-    if (document.getElementById('toggle-ingram').checked) {
-      nonLenovoPromises.push(
-        fetchDistributorData(partNumbersToSearch).finally(() => updateSummaryTab())
-      );
-    }
-    if (document.getElementById('toggle-amazon-connector').checked) {
-      nonLenovoPromises.push(
-        fetchAmazonConnectorData(partNumbersToSearch).finally(() => updateSummaryTab())
-      );
-    }
-    if (document.getElementById('toggle-ebay-connector').checked) {
-      nonLenovoPromises.push(
-        fetchEbayConnectorData(partNumbersToSearch).finally(() => updateSummaryTab())
-      );
-    }
-    if (document.getElementById('toggle-amazon').checked) {
-      nonLenovoPromises.push(
-        fetchAmazonData(partNumbersToSearch).finally(() => updateSummaryTab())
-      );
-    }
-    if (document.getElementById('toggle-ebay').checked) {
-      nonLenovoPromises.push(
-        fetchEbayData(partNumbersToSearch).finally(() => updateSummaryTab())
-      );
-    }
-
-    // Sales and Purchases
-    nonLenovoPromises.push(
-      fetchSalesData(partNumbersToSearch).finally(() => updateSummaryTab())
-    );
-    nonLenovoPromises.push(
-      fetchPurchasesData(partNumbersToSearch).finally(() => updateSummaryTab())
-    );
-
-    // Lenovo data (separate) if toggled
-    let lenovoPromise = null;
-    if (document.getElementById('toggle-lenovo').checked) {
-      lenovoPromise = fetchLenovoData(partNumbersToSearch);
-    }
-
-    // Run all non-Lenovo in parallel
-    try {
-      await Promise.all(nonLenovoPromises);
-    } catch (err) {
-      console.error('Error in parallel execution for non-Lenovo endpoints:', err);
-    }
-
-    // Final summary update in case multiple completions overlapped
-    updateSummaryTab();
-
-    //----------------------------------------------------------------------
-    // 7) Gather everything to POST for analysis
-    //----------------------------------------------------------------------
+    // 4) Gather results for LLM analysis
     const analysisData = gatherResultsForAnalysis();
     analysisData.originalPartNumber = partNumber;
-    analysisData.alternativePartNumbers = finalAlternatives;
+    analysisData.alternativePartNumbers = finalAlternatives; // could be empty if disabled
 
-    // 8) Send data for LLM analysis
+    // 5) POST to analyze-data endpoint
+    let analyzeResultText = '';
     try {
       const selectedModel = document.getElementById('llm-model').value;
       const promptText = document.getElementById('prompt').value;
@@ -1537,7 +1594,6 @@ async function handleSearch() {
       });
       const analyzeResult = await response.json();
 
-      let analyzeResultText = '';
       if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
         analyzeResultText = analyzeResult[0].text;
       } else {
@@ -1555,15 +1611,6 @@ async function handleSearch() {
       console.error('Analyze data error:', err);
     }
 
-    // 9) Wait for Lenovo, if toggled
-    if (lenovoPromise) {
-      try {
-        await lenovoPromise;
-      } catch (err) {
-        console.error('Error during Lenovo data fetch:', err);
-      }
-    }
-
   } finally {
     // Hide the spinner
     if (spinner) {
@@ -1571,7 +1618,6 @@ async function handleSearch() {
     }
   }
 }
-
 
 
 
