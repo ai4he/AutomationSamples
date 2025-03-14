@@ -46,65 +46,61 @@ function selectAllVisible() {
 }
 
 /**
- * Recursively gathers all alternative parts for a given part number, 
- * up to the configured nested depth (configNestedLevel). Shows partial
- * progress in the UI each time new alternatives are discovered.
+ * Recursively gathers all alternative parts for a given part number, up to a 
+ * configurable nested depth (configNestedLevel), and shows partial progress 
+ * each time new parts are found.
  *
- * @param {string} baseNumber - The part number to look up
- * @param {number} currentLevel - How deep we are currently
- * @param {Set<string>} visited - Already-visited part numbers (uppercase)
- * @param {Array} result - array of { type, value } for all discovered alts
- * @param {Function} onUpdateCallback - a function(resultSoFar) => void
- * @returns {Promise<void>}
+ * @param {string} baseNumber        The part number to look up
+ * @param {number} currentLevel      The current recursion depth
+ * @param {Set<string>} visited      Already visited part numbers (uppercase)
+ * @param {Array} result             An array of { type, value } discovered so far
+ * @param {Function} onUpdateCallback A function(newlyAddedAlts) => void
+ *        Called whenever we discover new alt(s) for 'baseNumber'.
  */
 async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, result, onUpdateCallback) {
-  // If we've already visited this number, skip
+  // 1) Prevent repeated lookups for the same part
   const upperBase = baseNumber.trim().toUpperCase();
   if (visited.has(upperBase)) return;
   visited.add(upperBase);
 
-  // 1) Fetch the alternative data for this part
+  // 2) Fetch the alternatives for this part
   const { alternatives } = await getAlternativePartNumbers(baseNumber);
+  let newlyAdded = [];
 
-  // 2) Add each newly found alternative to `result` if not already present.
-  //    We'll track if we actually added anything new, so we can re-update the UI if needed.
-  let newFound = false;
+  // 3) Add each newly discovered alt to 'result' if not already present
   for (const alt of alternatives) {
     const altUpper = alt.value.trim().toUpperCase();
-    // Check if the alt is already in `result`
+    // Check if it's already in 'result'
     if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
       result.push(alt);
-      newFound = true;
+      newlyAdded.push(alt);
     }
   }
 
-  // 3) If something new was added, call the update callback so the user sees partial expansions
-  if (newFound && onUpdateCallback) {
-    onUpdateCallback(result);
+  // 4) If we found anything new, let the outside world know (incremental updates)
+  if (newlyAdded.length > 0 && onUpdateCallback) {
+    onUpdateCallback(newlyAdded);
   }
 
-  // 4) Decide if we should recurse deeper:
-  //    - If configNestedLevel == 0, do not go deeper at all.
-  //    - If configNestedLevel > 0, go deeper while currentLevel < configNestedLevel
-  //    - If configNestedLevel == -1, we go on until no new parts are discovered 
-  //      (visited set prevents infinite loops).
+  // 5) Decide if we should recurse deeper
   let shouldGoDeeper = false;
   if (configNestedLevel === -1) {
-    shouldGoDeeper = true;
+    shouldGoDeeper = true; // infinite until no new
   } else if (configNestedLevel > 0) {
     shouldGoDeeper = currentLevel < configNestedLevel;
   } else {
+    // configNestedLevel === 0 => no deeper recursion
     shouldGoDeeper = false;
   }
 
   if (shouldGoDeeper) {
-    // Recurse for each newly discovered alternative from this part
+    // For each newly discovered alt, gather their alts
     for (const alt of alternatives) {
       await gatherCombinatoryAlternatives(
-        alt.value,
-        currentLevel + 1,
-        visited,
-        result,
+        alt.value, 
+        currentLevel + 1, 
+        visited, 
+        result, 
         onUpdateCallback
       );
     }
@@ -164,23 +160,22 @@ async function executeEndpointSearches(partNumbers) {
     fetchPurchasesData(partNumbers).finally(() => updateSummaryTab())
   );
 
-  // (Optionally) Lenovo data
+  // Optionally call Lenovo separately
   let lenovoPromise = null;
   if (document.getElementById('toggle-lenovo').checked) {
     lenovoPromise = fetchLenovoData(partNumbers);
   }
 
   try {
-    // 1) Run all non-Lenovo in parallel
     await Promise.all(nonLenovoPromises);
   } catch (err) {
     console.error('Error in parallel execution for non-Lenovo endpoints:', err);
   }
 
-  // 2) Final summary update in case multiple calls finished around the same time
+  // Final summary update
   updateSummaryTab();
 
-  // 3) Wait for Lenovo
+  // Lenovo
   if (lenovoPromise) {
     try {
       await lenovoPromise;
@@ -1484,148 +1479,157 @@ function gatherResultsForAnalysis() {
   return results;
 }
 
-// ====================== Main Handle Search ======================
+// Global toggles
+let configUseAlternatives = true;  // (default) 
+let configNestedLevel = 1;         // 0, 1, 2..., or -1
+
+// A set to track which alt part numbers have been searched
+const alreadySearched = new Set();
+
+// The main search function
 async function handleSearch() {
-  // 1) Get the user's part-number input
   const partNumber = document.getElementById('part-numbers').value.trim();
   if (!partNumber) {
     alert('Please enter a part number');
     return;
   }
 
-  // 2) Clear previous summary content
+  // Clear the summary
   const summaryDiv = document.getElementById('summary-content');
-  if (summaryDiv) {
-    summaryDiv.innerHTML = '';
-  }
+  if (summaryDiv) summaryDiv.innerHTML = '';
 
-  // 3) Show the spinner
+  // Show the spinner
   const spinner = document.getElementById('loading-spinner');
-  if (spinner) {
-    spinner.style.display = 'inline-block';
-  }
+  if (spinner) spinner.style.display = 'inline-block';
 
-  // 4) We'll store top-level Description & Category for display.
-  let description = '';
-  let category = '';
-  const finalAlternatives = []; // array of { type, value }
+  // We also store top-level description/category
+  let topDesc = '';
+  let topCat = '';
 
-  // 5) A helper to re-render the "Alternative Part Numbers" UI
-  //    with the currently discovered alt numbers
+  // finalAlternatives is the single array that accumulates all discovered alt
+  const finalAlternatives = [];
+
+  // A small helper that updates the alternative numbers UI
   function updateAlternativeNumbersUI() {
     const altDiv = document.getElementById('alternative-numbers');
     if (!altDiv) return;
 
-    let htmlContent = `
-      <p><strong>Description:</strong> ${description}</p>
-      <p><strong>Category:</strong> ${category}</p>
+    let html = `
+      <p><strong>Description:</strong> ${topDesc}</p>
+      <p><strong>Category:</strong> ${topCat}</p>
     `;
 
     if (finalAlternatives.length > 0) {
-      htmlContent += `
-        <h4>Alternative Part Numbers Found (up to level ${configNestedLevel === -1 ? '∞' : configNestedLevel}):</h4>
+      html += `
+        <h4>Alternative Part Numbers Found (up to level ${
+          configNestedLevel === -1 ? '∞' : configNestedLevel
+        }):</h4>
         <ul class="alternative-numbers-list">
-          ${finalAlternatives.map(item => `
-            <li class="alternative-number">
-              <span>${item.type}: ${item.value}</span>
-            </li>
-          `).join('')}
+          ${finalAlternatives
+            .map(alt => `<li class="alternative-number"><span>${alt.type}: ${alt.value}</span></li>`)
+            .join('')}
         </ul>
       `;
     } else {
-      htmlContent += `<p>No alternative part numbers found.</p>`;
+      html += `<p>No alternative part numbers found.</p>`;
     }
 
-    altDiv.innerHTML = htmlContent;
+    altDiv.innerHTML = html;
     altDiv.classList.add('active');
   }
 
-  try {
-    if (!configUseAlternatives) {
-      //------------------------------------------------------------------
-      // ALTERNATIVES DISABLED: Just fetch the part's data once (optional)
-      //------------------------------------------------------------------
-      const { original } = await getAlternativePartNumbers(partNumber);
-      // (We won't attempt to show alt numbers, just show "disabled".)
-      const altDiv = document.getElementById('alternative-numbers');
-      if (altDiv) {
-        altDiv.innerHTML = `<p>Alternative numbers search is disabled.</p>`;
-      }
+  // A helper to handle searching for newly discovered alt part numbers
+  // so the user sees partial results in the summary for them.
+  async function searchNewAlts(newAlts) {
+    // Filter out any that were already searched
+    const notSearchedYet = newAlts.filter(alt => {
+      const key = alt.value.trim().toUpperCase();
+      return !alreadySearched.has(key);
+    });
+    if (notSearchedYet.length === 0) return; // no new ones to do
 
-      // Build final search list with only the original part
-      const partNumbersToSearch = [
-        { number: original, source: original }
-      ];
-
-      // Then run the usual endpoint searches
-      await executeEndpointSearches(partNumbersToSearch);
-
-    } else {
-      //------------------------------------------------------------------
-      // ALTERNATIVES ENABLED: 
-      // 1) get top-level info 
-      // 2) recursively gather alt parts 
-      // 3) show partial expansions 
-      // 4) then do endpoint searches
-      //------------------------------------------------------------------
-      const { original: topOriginal, description: topDesc, category: topCat } 
-        = await getAlternativePartNumbers(partNumber);
-
-      description = topDesc;
-      category = topCat;
-
-      // Because we also want to see partial expansions, we define a 
-      // small callback that updates finalAlternatives as we discover new items,
-      // then calls updateAlternativeNumbersUI().
-      const visited = new Set();
-
-      // We'll pass a callback to gatherCombinatoryAlternatives:
-      const onUpdate = (currentResult) => {
-        // currentResult is the entire array of discovered alt objects
-        // We want finalAlternatives to match that.
-        // Typically we pass the same array reference to gatherCombinatoryAlternatives,
-        // so we can do finalAlternatives.length = 0 and re-push, or 
-        // we just keep them in sync if it's the same array reference.
-
-        // In our code, 'finalAlternatives' is the same array 'result', so:
-        // Just call our UI update method.
-        updateAlternativeNumbersUI();
-      };
-
-      // gather 0+ levels of alternatives for topOriginal
-      await gatherCombinatoryAlternatives(
-        topOriginal,
-        0,              // current recursion depth
-        visited,
-        finalAlternatives,
-        onUpdate
-      );
-
-      // After recursion is complete, finalAlternatives is fully populated
-      // Update once more in case we haven't updated after the last additions
-      updateAlternativeNumbersUI();
-
-      // Build final search list: original + all discovered alternatives
-      const partNumbersToSearch = [
-        { number: topOriginal, source: topOriginal },
-        ...finalAlternatives.map(a => ({
-          number: a.value,
-          source: `${a.type}: ${a.value}`
-        }))
-      ];
-
-      // Run your usual endpoint searches in parallel
-      await executeEndpointSearches(partNumbersToSearch);
+    // Mark them as searched
+    for (const alt of notSearchedYet) {
+      alreadySearched.add(alt.value.trim().toUpperCase());
     }
 
-    // ==================
-    // 6) Analysis stage
-    // ==================
+    // Convert them to the { number, source } format
+    const arr = notSearchedYet.map(alt => ({
+      number: alt.value,
+      source: `${alt.type}: ${alt.value}`
+    }));
+
+    // Trigger the standard endpoint searches for these new parts
+    await executeEndpointSearches(arr);
+  }
+
+  try {
+    // If we do NOT use alternatives, just skip all alt logic
+    if (!configUseAlternatives) {
+      const { original } = await getAlternativePartNumbers(partNumber);
+      // We won't display any alt. Just say "disabled."
+      const altDiv = document.getElementById('alternative-numbers');
+      if (altDiv) {
+        altDiv.innerHTML = '<p>Alternative search is disabled.</p>';
+        altDiv.classList.add('active');
+      }
+
+      // Only search for the original part
+      const arr = [{ number: original, source: original }];
+      // Mark it as "searched"
+      alreadySearched.add(original.trim().toUpperCase());
+      // Go do the normal searches
+      await executeEndpointSearches(arr);
+
+    } else {
+      // 1) Get the top-level data for the user’s input 
+      //    (which also has direct alt if configNestedLevel >= 0)
+      const { original, description, category } = await getAlternativePartNumbers(partNumber);
+      topDesc = description;
+      topCat = category;
+
+      // The user’s original part also needs to be searched immediately
+      // (before or in parallel with alt part expansions).
+      alreadySearched.add(original.trim().toUpperCase());
+      await executeEndpointSearches([{ number: original, source: original }]);
+
+      // 2) Now we recursively gather alternatives
+      //    We define a visited set so we only fetch each part number once
+      const visited = new Set();
+
+      // We'll define a callback that increments the alt list & triggers partial searches
+      const onUpdateCallback = async (newlyAddedAlts) => {
+        // newlyAddedAlts are the new items discovered in that step
+        // finalAlternatives is the overall array we keep building
+        //  => but gatherCombinatoryAlternatives is pushing them 
+        //     so finalAlternatives already has them.
+        
+        // First, re-draw the alt UI
+        updateAlternativeNumbersUI();
+
+        // Then, immediately search these new alt parts
+        await searchNewAlts(newlyAddedAlts);
+      };
+
+      // Actually gather them
+      await gatherCombinatoryAlternatives(
+        original,     // baseNumber
+        0,            // currentLevel
+        visited, 
+        finalAlternatives,
+        onUpdateCallback
+      );
+
+      // Once recursion is finished, we do a final UI update in case no new 
+      // alt arrived after the last call
+      updateAlternativeNumbersUI();
+    }
+
+    // Finally, do the analysis stage:
     const analysisData = gatherResultsForAnalysis();
     analysisData.originalPartNumber = partNumber;
     analysisData.alternativePartNumbers = finalAlternatives;
 
-    let analyzeResultText = '';
     try {
       const selectedModel = document.getElementById('llm-model').value;
       const promptText = document.getElementById('prompt').value;
@@ -1638,6 +1642,7 @@ async function handleSearch() {
       });
       const analyzeResult = await response.json();
 
+      let analyzeResultText = '';
       if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
         analyzeResultText = analyzeResult[0].text;
       } else {
@@ -1645,8 +1650,8 @@ async function handleSearch() {
       }
 
       analyzeResultText = analyzeResultText
-        .replaceAll("```html", '')
-        .replaceAll("```", '');
+        .replaceAll('```html', '')
+        .replaceAll('```', '');
 
       if (summaryDiv) {
         summaryDiv.innerHTML += `<h3>Analysis Summary</h3><div class="analyze-result-text">${analyzeResultText}</div>`;
@@ -1656,12 +1661,11 @@ async function handleSearch() {
     }
 
   } finally {
-    // 7) Hide the spinner
-    if (spinner) {
-      spinner.style.display = 'none';
-    }
+    // Hide spinner
+    if (spinner) spinner.style.display = 'none';
   }
 }
+
 
 
 
