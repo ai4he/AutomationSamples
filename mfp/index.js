@@ -1354,7 +1354,7 @@ async function handleSearch() {
     // 1) Fetch alternative part numbers
     const { original, alternatives } = await getAlternativePartNumbers(partNumber);
 
-    // --- CHANGED LINES: ensure we use alt.value (string) instead of the entire object ---
+    // UPDATED: Ensure we use alt.value (string) instead of entire object
     const partNumbers = [
       { number: original, source: original },
       ...alternatives.map(alt => ({
@@ -1362,7 +1362,6 @@ async function handleSearch() {
         source: `${alt.type}: ${alt.value}`
       }))
     ];
-    // --- END CHANGED LINES ---
 
     // 2) Prepare array for the “non-Lenovo” async calls
     const nonLenovoPromises = [];
@@ -1400,7 +1399,7 @@ async function handleSearch() {
       nonLenovoPromises.push(fetchEbayData(partNumbers));
     }
 
-    // >>> ADD THESE TWO CALLS FOR SALES AND PURCHASES <<<
+    // Sales & Purchases (always fetched, per your code)
     nonLenovoPromises.push(fetchSalesData(partNumbers));
     nonLenovoPromises.push(fetchPurchasesData(partNumbers));
 
@@ -1446,12 +1445,14 @@ async function handleSearch() {
         analyzeResultText = JSON.stringify(analyzeResult);
       }
     
+      // Remove any backticks or code-block formatting
       analyzeResultText = analyzeResultText
         .replaceAll("```html", '')
         .replaceAll("```", '');
     
       if (summaryDiv) {
-        summaryDiv.innerHTML += `<h3>Analysis Summary</h3><div class="analyze-result-text">${analyzeResultText}</div>`;
+        summaryDiv.innerHTML += `<h3>Analysis Summary</h3>
+                                 <div class="analyze-result-text">${analyzeResultText}</div>`;
       }
     } catch (err) {
       console.error('Analyze data error:', err);
@@ -1473,6 +1474,7 @@ async function handleSearch() {
     }
   }
 }
+
 
 
 
