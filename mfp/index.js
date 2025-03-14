@@ -3,8 +3,18 @@ var serverDomain = "gpu.haielab.org";
 var llmModel = "gemini";
 // var llmModel = "ollama";
 // Configuration Variables
-let configUseAlternatives = true;  // Default: true
-let configNestedLevel = 1;         // Default: 1
+// Configuration Variables
+let configUseAlternatives = true;  // default: true
+let configNestedLevel = 1;         // default: 1
+/* 
+Possible values of configNestedLevel:
+  0   => Only get direct alternatives of the initial item (no recursion).
+  1   => (default) Also get alternatives of each direct alternative (1 level deep).
+  >1  => Go that many levels deep.
+  -1  => Unlimited depth until no new parts are discovered 
+         (guarded by a visited set to avoid infinite loops).
+*/
+
 
 // Master object storing each endpoint’s results
 let searchResults = {
@@ -36,57 +46,66 @@ function selectAllVisible() {
 }
 
 /**
- * Gathers all alternative parts up to a certain nested level.
+ * Recursively gathers all alternative parts for a given part number, 
+ * up to the configured nested depth (configNestedLevel). Shows partial
+ * progress in the UI each time new alternatives are discovered.
  *
- * @param {string} baseNumber  - The part number to fetch alternatives for
- * @param {number} currentLevel - The current recursion depth
- * @param {number} maxLevel    - The configNestedLevel value (0, 1, -1, etc.)
- * @param {Set} visited        - A Set of uppercase part numbers visited so far
- * @param {Array} result       - An array to collect unique { type, value } objects
+ * @param {string} baseNumber - The part number to look up
+ * @param {number} currentLevel - How deep we are currently
+ * @param {Set<string>} visited - Already-visited part numbers (uppercase)
+ * @param {Array} result - array of { type, value } for all discovered alts
+ * @param {Function} onUpdateCallback - a function(resultSoFar) => void
  * @returns {Promise<void>}
  */
-async function gatherCombinatoryAlternatives(baseNumber, currentLevel, maxLevel, visited, result) {
+async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, result, onUpdateCallback) {
   // If we've already visited this number, skip
   const upperBase = baseNumber.trim().toUpperCase();
   if (visited.has(upperBase)) return;
   visited.add(upperBase);
 
-  // Fetch the alternative data
+  // 1) Fetch the alternative data for this part
   const { alternatives } = await getAlternativePartNumbers(baseNumber);
-  // Add all these alt objects to 'result', but only if not already present
+
+  // 2) Add each newly found alternative to `result` if not already present.
+  //    We'll track if we actually added anything new, so we can re-update the UI if needed.
+  let newFound = false;
   for (const alt of alternatives) {
     const altUpper = alt.value.trim().toUpperCase();
+    // Check if the alt is already in `result`
     if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
       result.push(alt);
+      newFound = true;
     }
   }
 
-  // Decide if we should recurse deeper:
-  // --------------------------------------------------
-  //  - If maxLevel === 0, then we do no recursion
-  //  - If maxLevel > 0, we keep going while currentLevel < maxLevel
-  //  - If maxLevel === -1, we keep going indefinitely (until no new parts)
-  //    but rely on 'visited' to stop cycles.
-  // --------------------------------------------------
+  // 3) If something new was added, call the update callback so the user sees partial expansions
+  if (newFound && onUpdateCallback) {
+    onUpdateCallback(result);
+  }
+
+  // 4) Decide if we should recurse deeper:
+  //    - If configNestedLevel == 0, do not go deeper at all.
+  //    - If configNestedLevel > 0, go deeper while currentLevel < configNestedLevel
+  //    - If configNestedLevel == -1, we go on until no new parts are discovered 
+  //      (visited set prevents infinite loops).
   let shouldGoDeeper = false;
-  if (maxLevel === -1) {
-    shouldGoDeeper = true; // infinite until no new
-  } else if (maxLevel > 0) {
-    shouldGoDeeper = currentLevel < maxLevel;
+  if (configNestedLevel === -1) {
+    shouldGoDeeper = true;
+  } else if (configNestedLevel > 0) {
+    shouldGoDeeper = currentLevel < configNestedLevel;
   } else {
-    // maxLevel === 0 or negative other than -1 => no deeper recursion
     shouldGoDeeper = false;
   }
 
   if (shouldGoDeeper) {
-    // Recurse for each newly discovered alternative
+    // Recurse for each newly discovered alternative from this part
     for (const alt of alternatives) {
       await gatherCombinatoryAlternatives(
         alt.value,
         currentLevel + 1,
-        maxLevel,
         visited,
-        result
+        result,
+        onUpdateCallback
       );
     }
   }
@@ -145,23 +164,23 @@ async function executeEndpointSearches(partNumbers) {
     fetchPurchasesData(partNumbers).finally(() => updateSummaryTab())
   );
 
-  // Lenovo data if toggled (some prefer to do it separately)
+  // (Optionally) Lenovo data
   let lenovoPromise = null;
   if (document.getElementById('toggle-lenovo').checked) {
     lenovoPromise = fetchLenovoData(partNumbers);
   }
 
-  // 1) Run all non-Lenovo in parallel
   try {
+    // 1) Run all non-Lenovo in parallel
     await Promise.all(nonLenovoPromises);
   } catch (err) {
     console.error('Error in parallel execution for non-Lenovo endpoints:', err);
   }
 
-  // 2) Final summary update in case multiple fetches finished around the same time
+  // 2) Final summary update in case multiple calls finished around the same time
   updateSummaryTab();
 
-  // 3) Lenovo (if toggled)
+  // 3) Wait for Lenovo
   if (lenovoPromise) {
     try {
       await lenovoPromise;
@@ -1467,43 +1486,46 @@ function gatherResultsForAnalysis() {
 
 // ====================== Main Handle Search ======================
 async function handleSearch() {
+  // 1) Get the user's part-number input
   const partNumber = document.getElementById('part-numbers').value.trim();
   if (!partNumber) {
     alert('Please enter a part number');
     return;
   }
 
-  // Clear previous summary content
+  // 2) Clear previous summary content
   const summaryDiv = document.getElementById('summary-content');
   if (summaryDiv) {
     summaryDiv.innerHTML = '';
   }
 
-  // Show the spinner
+  // 3) Show the spinner
   const spinner = document.getElementById('loading-spinner');
   if (spinner) {
     spinner.style.display = 'inline-block';
   }
 
-  // We'll populate these if we do use alternatives
+  // 4) We'll store top-level Description & Category for display.
   let description = '';
   let category = '';
-  const finalAlternatives = [];
+  const finalAlternatives = []; // array of { type, value }
 
-  // Helper to show the alternative part numbers UI at any time
-  function updateAlternativeNumbersUI(desc, cat, altList) {
-    const alternativeNumbersDiv = document.getElementById('alternative-numbers');
-    if (!alternativeNumbersDiv) return;
+  // 5) A helper to re-render the "Alternative Part Numbers" UI
+  //    with the currently discovered alt numbers
+  function updateAlternativeNumbersUI() {
+    const altDiv = document.getElementById('alternative-numbers');
+    if (!altDiv) return;
 
     let htmlContent = `
-      <p><strong>Description:</strong> ${desc || ''}</p>
-      <p><strong>Category:</strong> ${cat || ''}</p>
+      <p><strong>Description:</strong> ${description}</p>
+      <p><strong>Category:</strong> ${category}</p>
     `;
-    if (altList.length > 0) {
+
+    if (finalAlternatives.length > 0) {
       htmlContent += `
         <h4>Alternative Part Numbers Found (up to level ${configNestedLevel === -1 ? '∞' : configNestedLevel}):</h4>
         <ul class="alternative-numbers-list">
-          ${altList.map(item => `
+          ${finalAlternatives.map(item => `
             <li class="alternative-number">
               <span>${item.type}: ${item.value}</span>
             </li>
@@ -1514,53 +1536,76 @@ async function handleSearch() {
       htmlContent += `<p>No alternative part numbers found.</p>`;
     }
 
-    alternativeNumbersDiv.innerHTML = htmlContent;
-    alternativeNumbersDiv.classList.add('active');
+    altDiv.innerHTML = htmlContent;
+    altDiv.classList.add('active');
   }
 
   try {
-    // If we are NOT using alternatives, skip everything but the final search
     if (!configUseAlternatives) {
-      // Just fetch the top-level data for the user’s part, to get description/category
-      // (or you can skip even that if you prefer.)
-      const { original, Description, Category } = await getAlternativePartNumbers(partNumber);
+      //------------------------------------------------------------------
+      // ALTERNATIVES DISABLED: Just fetch the part's data once (optional)
+      //------------------------------------------------------------------
+      const { original } = await getAlternativePartNumbers(partNumber);
+      // (We won't attempt to show alt numbers, just show "disabled".)
+      const altDiv = document.getElementById('alternative-numbers');
+      if (altDiv) {
+        altDiv.innerHTML = `<p>Alternative numbers search is disabled.</p>`;
+      }
+
       // Build final search list with only the original part
-      const partNumbersToSearch = [{ number: original, source: original }];
+      const partNumbersToSearch = [
+        { number: original, source: original }
+      ];
 
-      // Minimal UI update: no alt numbers
-      document.getElementById('alternative-numbers').innerHTML = '<p>Alternative search disabled.</p>';
-
-      // Continue to the data endpoints
+      // Then run the usual endpoint searches
       await executeEndpointSearches(partNumbersToSearch);
-    } else {
-      // ------------------------------------------------------------
-      // We DO want to gather alternatives up to configNestedLevel
-      // ------------------------------------------------------------
-      // 1) Call getAlternativePartNumbers once for the user’s input
-      const {
-        original: topOriginal,
-        description: topDesc,
-        category: topCat
-      } = await getAlternativePartNumbers(partNumber);
 
-      description = topDesc; 
+    } else {
+      //------------------------------------------------------------------
+      // ALTERNATIVES ENABLED: 
+      // 1) get top-level info 
+      // 2) recursively gather alt parts 
+      // 3) show partial expansions 
+      // 4) then do endpoint searches
+      //------------------------------------------------------------------
+      const { original: topOriginal, description: topDesc, category: topCat } 
+        = await getAlternativePartNumbers(partNumber);
+
+      description = topDesc;
       category = topCat;
 
-      // 2) Recursively gather alternatives (one or more levels)
-      // We'll store them in finalAlternatives array
+      // Because we also want to see partial expansions, we define a 
+      // small callback that updates finalAlternatives as we discover new items,
+      // then calls updateAlternativeNumbersUI().
       const visited = new Set();
+
+      // We'll pass a callback to gatherCombinatoryAlternatives:
+      const onUpdate = (currentResult) => {
+        // currentResult is the entire array of discovered alt objects
+        // We want finalAlternatives to match that.
+        // Typically we pass the same array reference to gatherCombinatoryAlternatives,
+        // so we can do finalAlternatives.length = 0 and re-push, or 
+        // we just keep them in sync if it's the same array reference.
+
+        // In our code, 'finalAlternatives' is the same array 'result', so:
+        // Just call our UI update method.
+        updateAlternativeNumbersUI();
+      };
+
+      // gather 0+ levels of alternatives for topOriginal
       await gatherCombinatoryAlternatives(
         topOriginal,
-        0,             // current level
-        configNestedLevel,
+        0,              // current recursion depth
         visited,
-        finalAlternatives
+        finalAlternatives,
+        onUpdate
       );
 
-      // Update UI after all recursion done
-      updateAlternativeNumbersUI(description, category, finalAlternatives);
+      // After recursion is complete, finalAlternatives is fully populated
+      // Update once more in case we haven't updated after the last additions
+      updateAlternativeNumbersUI();
 
-      // 3) Build final search list: original part + all unique alternatives
+      // Build final search list: original + all discovered alternatives
       const partNumbersToSearch = [
         { number: topOriginal, source: topOriginal },
         ...finalAlternatives.map(a => ({
@@ -1569,16 +1614,17 @@ async function handleSearch() {
         }))
       ];
 
-      // Execute endpoint searches
+      // Run your usual endpoint searches in parallel
       await executeEndpointSearches(partNumbersToSearch);
     }
 
-    // 4) Gather results for LLM analysis
+    // ==================
+    // 6) Analysis stage
+    // ==================
     const analysisData = gatherResultsForAnalysis();
     analysisData.originalPartNumber = partNumber;
-    analysisData.alternativePartNumbers = finalAlternatives; // could be empty if disabled
+    analysisData.alternativePartNumbers = finalAlternatives;
 
-    // 5) POST to analyze-data endpoint
     let analyzeResultText = '';
     try {
       const selectedModel = document.getElementById('llm-model').value;
@@ -1610,7 +1656,7 @@ async function handleSearch() {
     }
 
   } finally {
-    // Hide the spinner
+    // 7) Hide the spinner
     if (spinner) {
       spinner.style.display = 'none';
     }
