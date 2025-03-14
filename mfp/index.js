@@ -1346,6 +1346,36 @@ async function handleSearch() {
     spinner.style.display = 'inline-block';
   }
 
+  //----------------------------------------------------------------------
+  // A small helper to update the "Alternative Part Numbers" UI at any time
+  //----------------------------------------------------------------------
+  function updateAlternativeNumbersUI(description, category, finalAlternatives) {
+    const alternativeNumbersDiv = document.getElementById('alternative-numbers');
+    if (!alternativeNumbersDiv) return;
+
+    let htmlContent = `
+      <p><strong>Description:</strong> ${description}</p>
+      <p><strong>Category:</strong> ${category}</p>
+    `;
+    if (finalAlternatives.length > 0) {
+      htmlContent += `
+        <h4>Alternative Part Numbers Found (one-level deep):</h4>
+        <ul class="alternative-numbers-list">
+          ${finalAlternatives.map(item => `
+            <li class="alternative-number">
+              <span>${item.type}: ${item.value}</span>
+            </li>
+          `).join('')}
+        </ul>
+      `;
+    } else {
+      htmlContent += `<p>No alternative part numbers found.</p>`;
+    }
+
+    alternativeNumbersDiv.innerHTML = htmlContent;
+    alternativeNumbersDiv.classList.add('active');
+  }
+
   try {
     //----------------------------------------------------------------------
     // 1) Get top-level alternatives for the user’s entered part number
@@ -1361,7 +1391,7 @@ async function handleSearch() {
     // 2) Deduplicate topAlternatives so we only call get-parts once per unique alt
     //----------------------------------------------------------------------
     const uniqueTopAlts = [];
-    const altSet = new Set();
+    const altSet = new Set();  // keep track of values in uppercase for dedup
 
     for (const alt of topAlternatives) {
       const upperVal = alt.value.trim().toUpperCase();
@@ -1372,9 +1402,9 @@ async function handleSearch() {
     }
 
     //----------------------------------------------------------------------
-    // 3) For each unique top-level alternative, fetch its alternatives (ONE level)
+    // 3) Prepare a final list (with dedup) that will hold top+second-level
     //----------------------------------------------------------------------
-    const encountered = new Set(); // for final deduping across all
+    const encountered = new Set();
     const finalAlternatives = [];
 
     function addAlternative(alt) {
@@ -1385,48 +1415,29 @@ async function handleSearch() {
       }
     }
 
-    // First, add all top-level alternatives from the original
+    // Populate finalAlternatives with the top-level
     uniqueTopAlts.forEach(addAlternative);
 
-    // Next, fetch sub-level alternatives for each unique top-level alt
+    // Show top-level alternatives right away
+    updateAlternativeNumbersUI(description, category, finalAlternatives);
+
+    //----------------------------------------------------------------------
+    // 4) For each unique top-level alternative, fetch its second-level
+    //    alternatives, then update the UI again so the user sees expansions
+    //----------------------------------------------------------------------
     for (const alt of uniqueTopAlts) {
+      // getAlternativePartNumbers for alt.value
       const secondLevel = await getAlternativePartNumbers(alt.value);
+
       for (const alt2 of secondLevel.alternatives) {
         addAlternative(alt2);
       }
+      // Immediately re-update UI after each top-level alt is processed
+      updateAlternativeNumbersUI(description, category, finalAlternatives);
     }
 
     //----------------------------------------------------------------------
-    // 4) Build the "alternative numbers" UI for the original item 
-    //    + the aggregated one-level-deep alternatives
-    //----------------------------------------------------------------------
-    const alternativeNumbersDiv = document.getElementById('alternative-numbers');
-    if (alternativeNumbersDiv) {
-      let htmlContent = `
-        <p><strong>Description:</strong> ${description}</p>
-        <p><strong>Category:</strong> ${category}</p>
-      `;
-      if (finalAlternatives.length > 0) {
-        htmlContent += `
-          <h4>Alternative Part Numbers Found (one-level deep):</h4>
-          <ul class="alternative-numbers-list">
-            ${finalAlternatives.map(item => `
-              <li class="alternative-number">
-                <span>${item.type}: ${item.value}</span>
-              </li>
-            `).join('')}
-          </ul>
-        `;
-      } else {
-        htmlContent += `<p>No alternative part numbers found.</p>`;
-      }
-
-      alternativeNumbersDiv.innerHTML = htmlContent;
-      alternativeNumbersDiv.classList.add('active');
-    }
-
-    //----------------------------------------------------------------------
-    // 5) Build the final search list: the “original” + all unique alternatives
+    // 5) Now build the final search list: the “original” + all unique alternatives
     //----------------------------------------------------------------------
     const partNumbersToSearch = [
       { number: topOriginal, source: topOriginal },
@@ -1560,6 +1571,7 @@ async function handleSearch() {
     }
   }
 }
+
 
 
 
