@@ -42,62 +42,51 @@ async function getAlternativePartNumbers(partNumber) {
     }
     const data = await response.json();
     if (!data || !data[0]) {
-      return { original: partNumber, alternatives: [] };
+      return {
+        original: partNumber,
+        description: '',
+        category: '',
+        alternatives: []
+      };
     }
 
-    // Extract Description and Category from the response.
-    const description = data[0].Description || '';
-    const category = data[0].Category || '';
+    const record = data[0];
+    const description = record.Description || '';
+    const category = record.Category || '';
 
-    // Build a structured array of alternative parts including their type.
-    const alternativeParts = [];
-    if (data[0].FRU && data[0].FRU.length > 0) {
-      data[0].FRU.forEach(num => alternativeParts.push({ type: 'FRU', value: num }));
+    // Build a structured array of alternative parts (type + value).
+    const alternatives = [];
+    if (record.FRU && record.FRU.length > 0) {
+      record.FRU.forEach(num => alternatives.push({ type: 'FRU', value: num }));
     }
-    if (data[0].MFG && data[0].MFG.length > 0) {
-      data[0].MFG.forEach(num => alternativeParts.push({ type: 'MFG', value: num }));
+    if (record.MFG && record.MFG.length > 0) {
+      record.MFG.forEach(num => alternatives.push({ type: 'MFG', value: num }));
     }
-    if (data[0].OEM && data[0].OEM.length > 0) {
-      data[0].OEM.forEach(num => alternativeParts.push({ type: 'OEM', value: num }));
+    if (record.OEM && record.OEM.length > 0) {
+      record.OEM.forEach(num => alternatives.push({ type: 'OEM', value: num }));
     }
-    if (data[0].OPT && data[0].OPT.length > 0) {
-      data[0].OPT.forEach(num => alternativeParts.push({ type: 'OPT', value: num }));
-    }
-
-    const alternativeNumbersDiv = document.getElementById('alternative-numbers');
-
-    // Build the HTML content: first display Description and Category.
-    let htmlContent = `
-      <p><strong>Description:</strong> ${description}</p>
-      <p><strong>Category:</strong> ${category}</p>
-    `;
-
-    // Then display the alternative part numbers with their type.
-    if (alternativeParts.length > 0) {
-      htmlContent += `
-        <h4>Alternative Part Numbers Found:</h4>
-        <ul class="alternative-numbers-list">
-          ${alternativeParts
-            .map(item => `<li class="alternative-number"><span>${item.type}: ${item.value}</span></li>`)
-            .join('')}
-        </ul>
-      `;
-    } else {
-      htmlContent += `<p>No alternative part numbers found.</p>`;
+    if (record.OPT && record.OPT.length > 0) {
+      record.OPT.forEach(num => alternatives.push({ type: 'OPT', value: num }));
     }
 
-    alternativeNumbersDiv.innerHTML = htmlContent;
-    alternativeNumbersDiv.classList.add('active');
+    // Use the returned original part if provided; otherwise fallback to user input
+    const originalPart = record.ORD && record.ORD.trim() ? record.ORD : partNumber;
 
-    // Use the returned original part number if provided; otherwise, fall back to the entered part number.
-    const originalPart = data[0].ORD && data[0].ORD.trim() ? data[0].ORD : partNumber;
     return {
       original: originalPart,
-      alternatives: alternativeParts
+      description,
+      category,
+      alternatives
     };
+
   } catch (error) {
     console.error('Error fetching alternative part numbers:', error);
-    return { original: partNumber, alternatives: [] };
+    return {
+      original: partNumber,
+      description: '',
+      category: '',
+      alternatives: []
+    };
   }
 }
 
@@ -1345,107 +1334,177 @@ async function handleSearch() {
     return;
   }
 
-  // Clear the previous summary content to start fresh
+  // Clear previous summary content
   const summaryDiv = document.getElementById('summary-content');
   if (summaryDiv) {
     summaryDiv.innerHTML = '';
   }
 
-  // Show the loader/spinner
+  // Show the spinner
   const spinner = document.getElementById('loading-spinner');
   if (spinner) {
     spinner.style.display = 'inline-block';
   }
 
   try {
-    // 1) Fetch alternative part numbers
-    const { original, alternatives } = await getAlternativePartNumbers(partNumber);
+    //----------------------------------------------------------------------
+    // 1) Get top-level alternatives for the user’s entered part number
+    //----------------------------------------------------------------------
+    const {
+      original: topOriginal,
+      description,
+      category,
+      alternatives: topAlternatives
+    } = await getAlternativePartNumbers(partNumber);
 
-    // Use alt.value for 'number' and `${alt.type}: ${alt.value}` for 'source'
-    const partNumbers = [
-      { number: original, source: original },
-      ...alternatives.map(alt => ({
-        number: alt.value,
-        source: `${alt.type}: ${alt.value}`
+    //----------------------------------------------------------------------
+    // 2) For each top-level alternative, fetch its alternatives (ONE level)
+    //----------------------------------------------------------------------
+    // We'll store everything in a Set for deduplication, plus keep an array 
+    // to preserve insertion order and the "type" from the first appearance.
+    const encountered = new Set();
+    // We’ll keep a final array with objects { type, value } in first-seen order.
+    const finalAlternatives = [];
+
+    // Helper to add an alternative if it's not already in the set
+    function addAlternative(alt) {
+      const upperVal = alt.value.trim().toUpperCase();
+      if (!encountered.has(upperVal)) {
+        encountered.add(upperVal);
+        finalAlternatives.push(alt);
+      }
+    }
+
+    // First, add all top-level alt from the original
+    topAlternatives.forEach(addAlternative);
+
+    // Next, fetch sub-level alternatives for each top-level alt
+    for (const alt of topAlternatives) {
+      const secondLevel = await getAlternativePartNumbers(alt.value);
+      for (const alt2 of secondLevel.alternatives) {
+        addAlternative(alt2);
+      }
+    }
+
+    //----------------------------------------------------------------------
+    // 3) Build the "alternative numbers" UI for the original item 
+    //    + the aggregated one-level-deep alternatives
+    //----------------------------------------------------------------------
+    const alternativeNumbersDiv = document.getElementById('alternative-numbers');
+    if (alternativeNumbersDiv) {
+      let htmlContent = `
+        <p><strong>Description:</strong> ${description}</p>
+        <p><strong>Category:</strong> ${category}</p>
+      `;
+      if (finalAlternatives.length > 0) {
+        htmlContent += `
+          <h4>Alternative Part Numbers Found (one-level deep):</h4>
+          <ul class="alternative-numbers-list">
+            ${finalAlternatives.map(item => `
+              <li class="alternative-number">
+                <span>${item.type}: ${item.value}</span>
+              </li>
+            `).join('')}
+          </ul>
+        `;
+      } else {
+        htmlContent += `<p>No alternative part numbers found.</p>`;
+      }
+
+      alternativeNumbersDiv.innerHTML = htmlContent;
+      alternativeNumbersDiv.classList.add('active');
+    }
+
+    //----------------------------------------------------------------------
+    // 4) Build the final search list: the “original” + all unique alternatives
+    //----------------------------------------------------------------------
+    // The original part is always first
+    const partNumbersToSearch = [
+      { number: topOriginal, source: topOriginal },
+      ...finalAlternatives.map(a => ({
+        number: a.value,
+        source: `${a.type}: ${a.value}`
       }))
     ];
 
-    // 2) Prepare array for the “non-Lenovo” async calls,
-    //    each wrapped in a .finally() that updates the summary immediately
+    //----------------------------------------------------------------------
+    // 5) Call the search endpoints in parallel, with .finally() calls 
+    //    so each partial result updates the summary. 
+    //----------------------------------------------------------------------
     const nonLenovoPromises = [];
 
     if (document.getElementById('toggle-inventory').checked) {
       nonLenovoPromises.push(
-        fetchInventoryData(partNumbers).finally(() => updateSummaryTab())
+        fetchInventoryData(partNumbersToSearch).finally(() => updateSummaryTab())
       );
     }
     if (document.getElementById('toggle-brokerbin').checked) {
       nonLenovoPromises.push(
-        fetchBrokerBinData(partNumbers).finally(() => updateSummaryTab())
+        fetchBrokerBinData(partNumbersToSearch).finally(() => updateSummaryTab())
       );
     }
     if (document.getElementById('toggle-tdsynnex').checked) {
       nonLenovoPromises.push(
-        fetchTDSynnexData(partNumbers).finally(() => updateSummaryTab())
+        fetchTDSynnexData(partNumbersToSearch).finally(() => updateSummaryTab())
       );
     }
     if (document.getElementById('toggle-ingram').checked) {
       nonLenovoPromises.push(
-        fetchDistributorData(partNumbers).finally(() => updateSummaryTab())
+        fetchDistributorData(partNumbersToSearch).finally(() => updateSummaryTab())
       );
     }
     if (document.getElementById('toggle-amazon-connector').checked) {
       nonLenovoPromises.push(
-        fetchAmazonConnectorData(partNumbers).finally(() => updateSummaryTab())
+        fetchAmazonConnectorData(partNumbersToSearch).finally(() => updateSummaryTab())
       );
     }
     if (document.getElementById('toggle-ebay-connector').checked) {
       nonLenovoPromises.push(
-        fetchEbayConnectorData(partNumbers).finally(() => updateSummaryTab())
+        fetchEbayConnectorData(partNumbersToSearch).finally(() => updateSummaryTab())
       );
     }
     if (document.getElementById('toggle-amazon').checked) {
       nonLenovoPromises.push(
-        fetchAmazonData(partNumbers).finally(() => updateSummaryTab())
+        fetchAmazonData(partNumbersToSearch).finally(() => updateSummaryTab())
       );
     }
     if (document.getElementById('toggle-ebay').checked) {
       nonLenovoPromises.push(
-        fetchEbayData(partNumbers).finally(() => updateSummaryTab())
+        fetchEbayData(partNumbersToSearch).finally(() => updateSummaryTab())
       );
     }
 
     // Sales and Purchases
     nonLenovoPromises.push(
-      fetchSalesData(partNumbers).finally(() => updateSummaryTab())
+      fetchSalesData(partNumbersToSearch).finally(() => updateSummaryTab())
     );
     nonLenovoPromises.push(
-      fetchPurchasesData(partNumbers).finally(() => updateSummaryTab())
+      fetchPurchasesData(partNumbersToSearch).finally(() => updateSummaryTab())
     );
 
-    // 3) Fetch Lenovo data separately, if toggled (Lenovo is not shown in summary)
+    // Lenovo (not shown in summary, but we do it if checked)
     let lenovoPromise = null;
     if (document.getElementById('toggle-lenovo').checked) {
-      lenovoPromise = fetchLenovoData(partNumbers);
+      lenovoPromise = fetchLenovoData(partNumbersToSearch);
     }
 
-    // 4) Wait for all non-Lenovo calls in parallel
+    // Run all non-Lenovo in parallel
     try {
       await Promise.all(nonLenovoPromises);
     } catch (err) {
       console.error('Error in parallel execution for non-Lenovo endpoints:', err);
     }
 
-    // (Optional) One final summary update, in case any concurrency changes
+    // Final summary update (in case multiple completions overlapped)
     updateSummaryTab();
 
-    // 5) Gather results to POST for analysis
+    // 6) Gather everything to POST for analysis
     const analysisData = gatherResultsForAnalysis();
     analysisData.originalPartNumber = partNumber;
-    analysisData.alternativePartNumbers = alternatives;
+    // Note: We can store finalAlternatives directly, or we can store the "raw" arrays:
+    analysisData.alternativePartNumbers = finalAlternatives;
 
-    // 6) POST to the "analyze-data" endpoint
-    let analyzeResultText = '';
+    // 7) Send data for LLM analysis
     try {
       const selectedModel = document.getElementById('llm-model').value;
       const promptText = document.getElementById('prompt').value;
@@ -1458,6 +1517,7 @@ async function handleSearch() {
       });
       const analyzeResult = await response.json();
 
+      let analyzeResultText = '';
       if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
         analyzeResultText = analyzeResult[0].text;
       } else {
@@ -1475,7 +1535,7 @@ async function handleSearch() {
       console.error('Analyze data error:', err);
     }
 
-    // 7) Optionally wait for Lenovo data (Lenovo results are shown in the Lenovo tab)
+    // 8) Wait for Lenovo, if toggled
     if (lenovoPromise) {
       try {
         await lenovoPromise;
@@ -1485,12 +1545,13 @@ async function handleSearch() {
     }
 
   } finally {
-    // Hide the loader/spinner once everything is complete
+    // Hide the spinner
     if (spinner) {
       spinner.style.display = 'none';
     }
   }
 }
+
 
 
 
