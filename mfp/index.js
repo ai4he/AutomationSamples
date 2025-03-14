@@ -158,6 +158,36 @@ async function getAlternativePartNumbers(partNumber) {
   }
 }
 
+/**
+ * Launches alternative expansions in the background, 
+ * so we can do them in parallel with the main search.
+ *
+ * @param {string} baseNumber - The initial part number to expand
+ * @param {Array} finalAlts   - The shared array where discovered alt objects go
+ * @param {Function} onNewAlts - Callback invoked whenever new alt(s) appear
+ */
+function startExpansions(baseNumber, finalAlts, onNewAlts) {
+  // Mark expansions as in progress
+  expansionsInProgress = true;
+
+  // We'll track visited parts
+  const visited = new Set();
+
+  // Run gatherCombinatoryAlternatives in the background
+  gatherCombinatoryAlternatives(baseNumber, 0, visited, finalAlts, onNewAlts)
+    .then(() => {
+      // Once recursion completes, expansions are done
+      expansionsInProgress = false;
+      checkIfAllDone();  // might hide spinner + call analysis if activeRequests=0
+    })
+    .catch(err => {
+      console.error('Expansion error:', err);
+      expansionsInProgress = false;
+      checkIfAllDone();
+    });
+}
+
+
 /***************************************************
  * Recursive Gathering of Alt Parts to configNestedLevel
  ***************************************************/
@@ -197,11 +227,10 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
  * Spinner, expansions, and final analysis
  ***************************************************/
 function checkIfAllDone() {
-  // If expansions are still in progress, or we have non-zero requests => not done
   if (expansionsInProgress) return;
   if (activeRequestsCount > 0) return;
 
-  // Otherwise, everything is done => hide spinner and run final analysis
+  // if we reach here => expansions done + no fetch requests => finalize
   const spinner = document.getElementById('loading-spinner');
   if (spinner) spinner.style.display = 'none';
 
@@ -248,7 +277,7 @@ async function performFinalAnalysis() {
  * The main handleSearch
  ***************************************************/
 async function handleSearch() {
-  // 1) Get the user's part-number input
+  // 1) Get part number
   const partNumberInput = document.getElementById('part-numbers');
   if (!partNumberInput) {
     alert('part number input not found');
@@ -260,30 +289,30 @@ async function handleSearch() {
     return;
   }
 
-  // 2) Clear the previous summary content
+  // 2) Clear summary
   const summaryDiv = document.getElementById('summary-content');
   if (summaryDiv) summaryDiv.innerHTML = '';
 
-  // 3) Reset global aggregator + counters
+  // 3) Reset aggregator and counters
   Object.keys(searchResults).forEach(k => {
     searchResults[k] = [];
   });
   activeRequestsCount = 0;
-  expansionsInProgress = false;
+  expansionsInProgress = false;  // Will set to 'true' if we do expansions
 
-  // 4) Show the spinner
+  // 4) Show spinner
   const spinner = document.getElementById('loading-spinner');
   if (spinner) spinner.style.display = 'inline-block';
 
-  // This will hold all discovered alternative parts
+  // We'll store discovered alternative parts
   const finalAlternatives = [];
 
-  // We'll track top-level info for the original
+  // For partial UI updates
   let topDescription = '';
   let topCategory = '';
   let topOriginal = partNumber;
 
-  // Helper to update the <div id="alternative-numbers"> UI
+  // Helper that re-renders <div id="alternative-numbers"> 
   function updateAlternativeNumbersUI() {
     const altDiv = document.getElementById('alternative-numbers');
     if (!altDiv) return;
@@ -308,15 +337,15 @@ async function handleSearch() {
     altDiv.classList.add('active');
   }
 
-  // Keep track of which alt parts have already been searched (so we don't re-search duplicates)
+  // Tracks which alt part numbers we've already "searched"
   const alreadySearched = new Set();
 
-  // Callback invoked whenever new alt numbers are discovered
+  // Callback for newly discovered alt parts.  
   async function onNewAlts(newlyAdded) {
-    // 1) Rebuild alternative UI
+    // 1) Update the alt UI
     updateAlternativeNumbersUI();
 
-    // 2) Immediately search these newly found parts
+    // 2) For each new alt, if not searched yet, do so
     const freshParts = [];
     for (const alt of newlyAdded) {
       const altUpper = alt.value.trim().toUpperCase();
@@ -326,64 +355,46 @@ async function handleSearch() {
       }
     }
     if (freshParts.length > 0) {
+      // Launch endpoint searches for these new parts
       await executeEndpointSearches(freshParts);
     }
   }
 
   try {
-    // If alt logic is disabled, skip expansions entirely
-    if (!configUseAlternatives) {
-      const { original } = await getAlternativePartNumbers(partNumber);
-      topOriginal = original;
+    // 1) Fetch top-level data (to get Description/Category, etc.)
+    const topData = await getAlternativePartNumbers(partNumber);
+    topOriginal = topData.original;
+    topDescription = topData.description;
+    topCategory = topData.category;
 
+    // 2) If we want alternative expansions, start them in parallel
+    if (configUseAlternatives) {
+      // Kick off expansions in the background (no await)
+      startExpansions(topOriginal, finalAlternatives, onNewAlts);
+    } else {
+      // If alt is disabled, just mention it in the UI
       const altDiv = document.getElementById('alternative-numbers');
       if (altDiv) {
         altDiv.innerHTML = '<p>Alternative search is disabled.</p>';
         altDiv.classList.add('active');
       }
-
-      // Search only for the original part
-      alreadySearched.add(original.trim().toUpperCase());
-      await executeEndpointSearches([{ number: original, source: original }]);
-
-    } else {
-      // 1) Fetch top-level info for the user’s original part
-      const topData = await getAlternativePartNumbers(partNumber);
-      topOriginal = topData.original;
-      topDescription = topData.description;
-      topCategory = topData.category;
-
-      // 2) Immediately search the user's typed part
-      alreadySearched.add(topOriginal.trim().toUpperCase());
-      await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
-
-      // 3) Now do the full recursion for alt expansions
-      expansionsInProgress = true;  // <--- Mark expansions as running
-      const visited = new Set();
-
-      // gatherCombinatoryAlternatives(...) might discover multiple levels
-      await gatherCombinatoryAlternatives(
-        topOriginal,
-        0,
-        visited,
-        finalAlternatives,
-        onNewAlts
-      );
-
-      // Once recursion is done, set expansionsInProgress = false
-      expansionsInProgress = false;
-
-      // Do a final update of alt UI
-      updateAlternativeNumbersUI();
-
-      // We do a final check if no fetches are still pending
-      checkIfAllDone();
     }
+
+    // 3) Immediately search the user’s original part
+    alreadySearched.add(topOriginal.trim().toUpperCase());
+    // We do NOT wait for expansions to finish
+    await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
+
+    // 4) Possibly do a final check if expansions might be done immediately
+    // Typically expansions are still in progress if configUseAlternatives, 
+    // so we call checkIfAllDone() which won't finalize until expansionsInProgress = false
+    checkIfAllDone();
 
   } catch (err) {
     console.error('handleSearch error:', err);
   }
 }
+
 
 
 /***************************************************
