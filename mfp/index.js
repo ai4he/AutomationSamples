@@ -16,6 +16,12 @@ let configUseAlternatives = true;
 // -1 => infinite expansions until no new parts discovered
 let configNestedLevel = 1;
 
+// Stores the entire conversation as an array of message objects:
+// e.g. [ { role: "user", content: "Hello" }, { role: "assistant", content: "Hi!" }, ... ]
+let conversationHistory = [];
+
+// We’ll also store a reference to the chat container so we can re-render the conversation easily
+let chatContainer = null;
 
 /***************************************************
  * Global aggregator for endpoint results
@@ -238,18 +244,21 @@ function checkIfAllDone() {
 }
 
 async function performFinalAnalysis() {
-  // One last summary update
+  // One last summary update before analysis
   updateSummaryTab();
 
   const summaryDiv = document.getElementById('summary-content');
   if (!summaryDiv) return;
 
   try {
+    // Gather results from your existing aggregator logic
     const analysisData = gatherResultsForAnalysis();
     const selectedModel = document.getElementById('llm-model').value;
     const promptText = document.getElementById('prompt').value;
 
+    // Prepare query URL for the initial analysis, same as before
     const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
+
     const response = await fetch(analyzeUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -267,11 +276,163 @@ async function performFinalAnalysis() {
       .replaceAll("```html", '')
       .replaceAll("```", '');
 
-    summaryDiv.innerHTML += `<h3>Analysis Summary</h3><div class="analyze-result-text">${analyzeResultText}</div>`;
+    // === NEW: store the user prompt and the LLM’s reply in our conversation array. ===
+    // The user’s initial prompt:
+    conversationHistory.push({
+      role: 'user',
+      content: promptText || '(No prompt provided)'
+    });
+    // The model’s first reply:
+    conversationHistory.push({
+      role: 'assistant',
+      content: analyzeResultText
+    });
+
+    // === 1) Display the final initial suggestion as before ===
+    // We'll also include a container for continuing the conversation
+    summaryDiv.innerHTML += `
+      <h3>Analysis Summary</h3>
+      <div class="analyze-result-text">${analyzeResultText}</div>
+    `;
+
+    // === 2) Create the conversation interface right below the summary text ===
+    initializeConversationUI(summaryDiv);
+
   } catch (err) {
     console.error('Analyze data error:', err);
   }
 }
+
+function initializeConversationUI(summaryDiv) {
+  // 1) Create a container for the conversation if not already created
+  chatContainer = document.createElement('div');
+  chatContainer.id = 'chat-container';
+  chatContainer.style.marginTop = '20px';
+
+  // 2) Insert it into the summary div
+  summaryDiv.appendChild(chatContainer);
+
+  // 3) Render the conversation so far + input
+  renderConversationUI();
+}
+
+function renderConversationUI() {
+  if (!chatContainer) return;
+
+  // 1) Build the HTML for current messages
+  let chatHTML = '<div class="chat-messages">';
+  conversationHistory.forEach(msg => {
+    if (msg.role === 'assistant') {
+      // model's reply
+      chatHTML += `
+        <div class="chat-message assistant">
+          <strong>Assistant:</strong> ${msg.content}
+        </div>
+      `;
+    } else {
+      // user
+      chatHTML += `
+        <div class="chat-message user">
+          <strong>You:</strong> ${msg.content}
+        </div>
+      `;
+    }
+  });
+  chatHTML += '</div>';
+
+  // 2) Add an input area to continue the conversation
+  chatHTML += `
+    <div class="chat-input-area" style="margin-top: 10px;">
+      <input type="text" id="chat-input" placeholder="Type your question..." style="width:80%;">
+      <button id="chat-send-btn" style="width:18%;">Send</button>
+    </div>
+  `;
+
+  chatContainer.innerHTML = chatHTML;
+
+  // 3) Add an event listener for the "Send" button
+  const sendBtn = document.getElementById('chat-send-btn');
+  if (sendBtn) {
+    sendBtn.addEventListener('click', handleUserChatSubmit);
+  }
+  // Also handle "Enter" key in the input
+  const inputField = document.getElementById('chat-input');
+  if (inputField) {
+    inputField.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        handleUserChatSubmit();
+      }
+    });
+  }
+}
+
+function handleUserChatSubmit() {
+  const inputField = document.getElementById('chat-input');
+  if (!inputField) return;
+
+  const userMessage = inputField.value.trim();
+  if (!userMessage) return;
+
+  // Add the user's new message to the conversation
+  conversationHistory.push({
+    role: 'user',
+    content: userMessage
+  });
+
+  // Clear the input
+  inputField.value = '';
+
+  // Re-render so the user sees their message
+  renderConversationUI();
+
+  // Send the entire conversation to the endpoint for the next assistant reply
+  sendChatMessageToLLM();
+}
+
+async function sendChatMessageToLLM() {
+  try {
+    // We'll reuse the same model param from the UI
+    const selectedModel = document.getElementById('llm-model').value;
+
+    // Convert the entire conversation array to JSON
+    const conversationJSON = encodeURIComponent(JSON.stringify(conversationHistory));
+
+    // Build the endpoint (same as your 'analyze-data' but with added ?history=)
+    const url = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&history=${conversationJSON}`;
+
+    // We can still pass the aggregator results if needed:
+    const analysisData = gatherResultsForAnalysis();
+
+    // POST the aggregator data as before, but rely on `history` to pass conversation
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(analysisData)
+    });
+    const result = await response.json();
+
+    let assistantReply = '';
+    if (Array.isArray(result) && result.length > 0 && result[0].text) {
+      assistantReply = result[0].text;
+    } else {
+      assistantReply = JSON.stringify(result);
+    }
+
+    // Add the new assistant reply to the conversation
+    conversationHistory.push({
+      role: 'assistant',
+      content: assistantReply
+        .replaceAll("```html", '')
+        .replaceAll("```", '')
+    });
+
+    // Re-render the chat
+    renderConversationUI();
+  } catch (err) {
+    console.error('sendChatMessageToLLM error:', err);
+  }
+}
+
 
 /***************************************************
  * The main handleSearch
