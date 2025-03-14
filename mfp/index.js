@@ -1358,15 +1358,25 @@ async function handleSearch() {
     } = await getAlternativePartNumbers(partNumber);
 
     //----------------------------------------------------------------------
-    // 2) For each top-level alternative, fetch its alternatives (ONE level)
+    // 2) Deduplicate topAlternatives so we only call get-parts once per unique alt
     //----------------------------------------------------------------------
-    // We'll store everything in a Set for deduplication, plus keep an array 
-    // to preserve insertion order and the "type" from the first appearance.
-    const encountered = new Set();
-    // We’ll keep a final array with objects { type, value } in first-seen order.
+    const uniqueTopAlts = [];
+    const altSet = new Set();
+
+    for (const alt of topAlternatives) {
+      const upperVal = alt.value.trim().toUpperCase();
+      if (!altSet.has(upperVal)) {
+        altSet.add(upperVal);
+        uniqueTopAlts.push(alt);
+      }
+    }
+
+    //----------------------------------------------------------------------
+    // 3) For each unique top-level alternative, fetch its alternatives (ONE level)
+    //----------------------------------------------------------------------
+    const encountered = new Set(); // for final deduping across all
     const finalAlternatives = [];
 
-    // Helper to add an alternative if it's not already in the set
     function addAlternative(alt) {
       const upperVal = alt.value.trim().toUpperCase();
       if (!encountered.has(upperVal)) {
@@ -1375,11 +1385,11 @@ async function handleSearch() {
       }
     }
 
-    // First, add all top-level alt from the original
-    topAlternatives.forEach(addAlternative);
+    // First, add all top-level alternatives from the original
+    uniqueTopAlts.forEach(addAlternative);
 
-    // Next, fetch sub-level alternatives for each top-level alt
-    for (const alt of topAlternatives) {
+    // Next, fetch sub-level alternatives for each unique top-level alt
+    for (const alt of uniqueTopAlts) {
       const secondLevel = await getAlternativePartNumbers(alt.value);
       for (const alt2 of secondLevel.alternatives) {
         addAlternative(alt2);
@@ -1387,7 +1397,7 @@ async function handleSearch() {
     }
 
     //----------------------------------------------------------------------
-    // 3) Build the "alternative numbers" UI for the original item 
+    // 4) Build the "alternative numbers" UI for the original item 
     //    + the aggregated one-level-deep alternatives
     //----------------------------------------------------------------------
     const alternativeNumbersDiv = document.getElementById('alternative-numbers');
@@ -1416,9 +1426,8 @@ async function handleSearch() {
     }
 
     //----------------------------------------------------------------------
-    // 4) Build the final search list: the “original” + all unique alternatives
+    // 5) Build the final search list: the “original” + all unique alternatives
     //----------------------------------------------------------------------
-    // The original part is always first
     const partNumbersToSearch = [
       { number: topOriginal, source: topOriginal },
       ...finalAlternatives.map(a => ({
@@ -1428,8 +1437,7 @@ async function handleSearch() {
     ];
 
     //----------------------------------------------------------------------
-    // 5) Call the search endpoints in parallel, with .finally() calls 
-    //    so each partial result updates the summary. 
+    // 6) Call the search endpoints in parallel, each .finally() => incremental summary
     //----------------------------------------------------------------------
     const nonLenovoPromises = [];
 
@@ -1482,7 +1490,7 @@ async function handleSearch() {
       fetchPurchasesData(partNumbersToSearch).finally(() => updateSummaryTab())
     );
 
-    // Lenovo (not shown in summary, but we do it if checked)
+    // Lenovo data (separate) if toggled
     let lenovoPromise = null;
     if (document.getElementById('toggle-lenovo').checked) {
       lenovoPromise = fetchLenovoData(partNumbersToSearch);
@@ -1495,16 +1503,17 @@ async function handleSearch() {
       console.error('Error in parallel execution for non-Lenovo endpoints:', err);
     }
 
-    // Final summary update (in case multiple completions overlapped)
+    // Final summary update in case multiple completions overlapped
     updateSummaryTab();
 
-    // 6) Gather everything to POST for analysis
+    //----------------------------------------------------------------------
+    // 7) Gather everything to POST for analysis
+    //----------------------------------------------------------------------
     const analysisData = gatherResultsForAnalysis();
     analysisData.originalPartNumber = partNumber;
-    // Note: We can store finalAlternatives directly, or we can store the "raw" arrays:
     analysisData.alternativePartNumbers = finalAlternatives;
 
-    // 7) Send data for LLM analysis
+    // 8) Send data for LLM analysis
     try {
       const selectedModel = document.getElementById('llm-model').value;
       const promptText = document.getElementById('prompt').value;
@@ -1535,7 +1544,7 @@ async function handleSearch() {
       console.error('Analyze data error:', err);
     }
 
-    // 8) Wait for Lenovo, if toggled
+    // 9) Wait for Lenovo, if toggled
     if (lenovoPromise) {
       try {
         await lenovoPromise;
@@ -1551,9 +1560,6 @@ async function handleSearch() {
     }
   }
 }
-
-
-
 
 
 
