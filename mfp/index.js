@@ -1,13 +1,25 @@
-/*****************************************************
+/***************************************************
  * Configuration Variables
- *****************************************************/
-var serverDomain = "gpu.haielab.org"; // or your actual domain
+ ***************************************************/
+var serverDomain = "gpu.haielab.org";
+// You can override the domain or keep the same 
+// let serverDomain = "n8n.haielab.org";
 
-// Master toggles for alternative logic
-let configUseAlternatives = true; // if false => skip alt logic entirely
-let configNestedLevel = 1;        // 0, 1, 2... or -1 for unlimited
+// Master toggles for LLM model (if you want to set a default)
+var llmModel = "gemini";
 
-// Aggregator object for each endpoint's results
+// If false => skip alt part number logic entirely
+let configUseAlternatives = true;
+
+// 0 => only direct alternatives of the typed part
+// 1 => (default) one level deeper expansions
+// -1 => infinite expansions until no new parts discovered
+let configNestedLevel = 1;
+
+
+/***************************************************
+ * Global aggregator for endpoint results
+ ***************************************************/
 let searchResults = {
   amazonConnector: [],
   ebayConnector: [],
@@ -21,93 +33,32 @@ let searchResults = {
   purchases: []
 };
 
-// A global count of active fetch requests
+// Keep track of how many endpoint requests are currently active
 let activeRequestsCount = 0;
 
-// Whether alternative expansions (recursion) are still in progress
+// Flag for whether alternative expansions are still in progress
 let expansionsInProgress = false;
 
-// We'll store top-level info from the user’s original part
-let topDescription = '';
-let topCategory = '';
-
-/*****************************************************
- * Helper: show/hide spinner AFTER everything is done
- * and call final LLM analysis once expansions + fetches are done
- *****************************************************/
-function checkIfAllDone() {
-  // If expansions are still ongoing or we have non-zero requests, we wait
-  if (expansionsInProgress) return;
-  if (activeRequestsCount > 0) return;
-
-  // Otherwise, everything is done => hide spinner and run final analysis
-  const spinner = document.getElementById('loading-spinner');
-  if (spinner) spinner.style.display = 'none';
-
-  performFinalAnalysis();
-}
-
-/*****************************************************
- * Final LLM Analysis once everything is done
- *****************************************************/
-async function performFinalAnalysis() {
-  const summaryDiv = document.getElementById('summary-content');
-  // We can do a final summary update here, just to be safe:
-  updateSummaryTab();
-
-  try {
-    const analysisData = gatherResultsForAnalysis();
-    // (Optional) store original part number, or any alt array:
-    // analysisData.originalPartNumber = ...
-    // analysisData.alternativePartNumbers = ...
-
-    const selectedModel = document.getElementById('llm-model').value;
-    const promptText = document.getElementById('prompt').value;
-
-    const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
-    const response = await fetch(analyzeUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(analysisData)
-    });
-    const analyzeResult = await response.json();
-
-    let text = '';
-    if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
-      text = analyzeResult[0].text;
-    } else {
-      text = JSON.stringify(analyzeResult);
-    }
-    text = text.replaceAll('```html', '').replaceAll('```', '');
-
-    if (summaryDiv) {
-      summaryDiv.innerHTML += `<h3>Analysis Summary</h3><div class="analyze-result-text">${text}</div>`;
-    }
-  } catch (err) {
-    console.error('Analyze data error:', err);
-  }
-}
-
-/*****************************************************
- * Helper to parse XML
- *****************************************************/
+/***************************************************
+ * Utility: parse XML
+ ***************************************************/
 function parseXML(xmlString) {
   const parser = new DOMParser();
   return parser.parseFromString(xmlString, "text/xml");
 }
 
-/*****************************************************
- * Price parser (for eBay, Amazon, etc.)
- *****************************************************/
+/***************************************************
+ * Utility: parse Price (for $ strings, etc.)
+ ***************************************************/
 function parsePrice(str) {
   if (!str) return null;
   const numeric = parseFloat(str.replace(/[^\d.]/g, ''));
   return isNaN(numeric) ? null : numeric;
 }
 
-/*****************************************************
+/***************************************************
  * Table Sorting
- *****************************************************/
+ ***************************************************/
 function makeTableSortable(table) {
   const headers = table.querySelectorAll("th");
   headers.forEach((header, index) => {
@@ -129,19 +80,32 @@ function sortTableByColumn(table, columnIndex, asc = true) {
     const aText = a.children[columnIndex].textContent.trim();
     const bText = b.children[columnIndex].textContent.trim();
 
+    // Try numeric comparison
     const aNum = parseFloat(aText.replace(/[^0-9.-]/g, ""));
     const bNum = parseFloat(bText.replace(/[^0-9.-]/g, ""));
     if (!isNaN(aNum) && !isNaN(bNum)) {
       return asc ? aNum - bNum : bNum - aNum;
     }
+    // fallback to string
     return asc ? aText.localeCompare(bText) : bText.localeCompare(aText);
   });
+
   rows.forEach(row => tbody.appendChild(row));
 }
 
-/*****************************************************
- * getAlternativePartNumbers - single-level fetch
- *****************************************************/
+/***************************************************
+ * Switch Tab
+ ***************************************************/
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+  document.querySelectorAll('.tab-button').forEach(button => button.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  document.querySelector(`button[onclick="switchTab('${tabId}')"]`).classList.add('active');
+}
+
+/***************************************************
+ * getAlternativePartNumbers: obtains direct alt parts (1 level).
+ ***************************************************/
 async function getAlternativePartNumbers(partNumber) {
   try {
     const response = await fetch(`https://${serverDomain}/webhook/get-parts?item=${encodeURIComponent(partNumber)}`);
@@ -157,12 +121,12 @@ async function getAlternativePartNumbers(partNumber) {
         alternatives: []
       };
     }
-
     const record = data[0];
     const description = record.Description || '';
     const category = record.Category || '';
     const originalPart = record.ORD && record.ORD.trim() ? record.ORD : partNumber;
 
+    // Build structured alt array
     const alternatives = [];
     if (record.FRU && record.FRU.length > 0) {
       record.FRU.forEach(num => alternatives.push({ type: 'FRU', value: num }));
@@ -177,16 +141,15 @@ async function getAlternativePartNumbers(partNumber) {
       record.OPT.forEach(num => alternatives.push({ type: 'OPT', value: num }));
     }
 
-    return { 
-      original: originalPart, 
-      description, 
-      category, 
-      alternatives 
+    return {
+      original: originalPart,
+      description,
+      category,
+      alternatives
     };
-
-  } catch (error) {
-    console.error('Error fetching alternative part numbers:', error);
-    return { 
+  } catch (err) {
+    console.error('Error fetching alternative part numbers:', err);
+    return {
       original: partNumber,
       description: '',
       category: '',
@@ -195,41 +158,40 @@ async function getAlternativePartNumbers(partNumber) {
   }
 }
 
-/*****************************************************
- * Recursively gather alt part numbers up to configNestedLevel
- * onNewAlts(newlyAddedAlts) => partial expansions
- *****************************************************/
+/***************************************************
+ * Recursive Gathering of Alt Parts to configNestedLevel
+ ***************************************************/
 async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, result, onNewAlts) {
-  // If visited, skip
-  const upper = baseNumber.trim().toUpperCase();
-  if (visited.has(upper)) return;
-  visited.add(upper);
+  // If we have visited, skip
+  const upperBase = baseNumber.trim().toUpperCase();
+  if (visited.has(upperBase)) return;
+  visited.add(upperBase);
 
-  // fetch single-level
+  // Single-level fetch
   const { alternatives } = await getAlternativePartNumbers(baseNumber);
 
-  // add new results
+  // Add newly discovered
   let newlyAdded = [];
   for (const alt of alternatives) {
     const altUpper = alt.value.trim().toUpperCase();
-    if (!result.some(x => x.value.trim().toUpperCase() === altUpper)) {
+    if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
       result.push(alt);
       newlyAdded.push(alt);
     }
   }
 
+  // Notify callback if new found
   if (newlyAdded.length > 0 && onNewAlts) {
     await onNewAlts(newlyAdded);
   }
 
-  // decide if we go deeper
+  // Should we go deeper?
   let goDeeper = false;
   if (configNestedLevel === -1) {
-    goDeeper = true;
+    goDeeper = true; // infinite
   } else if (configNestedLevel > 0) {
     goDeeper = currentLevel < configNestedLevel;
   }
-
   if (goDeeper) {
     for (const alt of alternatives) {
       await gatherCombinatoryAlternatives(
@@ -243,42 +205,97 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
   }
 }
 
-/*****************************************************
- * The big handleSearch function
- *****************************************************/
+/***************************************************
+ * Spinner, expansions, and final analysis
+ ***************************************************/
+function checkIfAllDone() {
+  // If expansions still in progress or active requests > 0 => not done
+  if (expansionsInProgress) return;
+  if (activeRequestsCount > 0) return;
+
+  // Everything is done => hide spinner, call analysis
+  const spinner = document.getElementById('loading-spinner');
+  if (spinner) spinner.style.display = 'none';
+
+  performFinalAnalysis();
+}
+
+async function performFinalAnalysis() {
+  // One last summary update
+  updateSummaryTab();
+
+  const summaryDiv = document.getElementById('summary-content');
+  if (!summaryDiv) return;
+
+  try {
+    const analysisData = gatherResultsForAnalysis();
+    const selectedModel = document.getElementById('llm-model').value;
+    const promptText = document.getElementById('prompt').value;
+
+    const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
+    const response = await fetch(analyzeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(analysisData)
+    });
+    const analyzeResult = await response.json();
+
+    let analyzeResultText = '';
+    if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
+      analyzeResultText = analyzeResult[0].text;
+    } else {
+      analyzeResultText = JSON.stringify(analyzeResult);
+    }
+    analyzeResultText = analyzeResultText
+      .replaceAll("```html", '')
+      .replaceAll("```", '');
+
+    summaryDiv.innerHTML += `<h3>Analysis Summary</h3><div class="analyze-result-text">${analyzeResultText}</div>`;
+  } catch (err) {
+    console.error('Analyze data error:', err);
+  }
+}
+
+/***************************************************
+ * The main handleSearch
+ ***************************************************/
 async function handleSearch() {
-  const partNumber = document.getElementById('part-numbers').value.trim();
+  // 1) get the user's part number
+  const partNumberInput = document.getElementById('part-numbers');
+  if (!partNumberInput) {
+    alert('part number input not found');
+    return;
+  }
+  const partNumber = partNumberInput.value.trim();
   if (!partNumber) {
     alert('Please enter a part number');
     return;
   }
 
-  // Clear out old summary, aggregator, counters
+  // 2) clear summary
   const summaryDiv = document.getElementById('summary-content');
   if (summaryDiv) summaryDiv.innerHTML = '';
 
-  topDescription = '';
-  topCategory = '';
-
-  // reset aggregator
+  // 3) reset aggregator + counters
   Object.keys(searchResults).forEach(k => {
     searchResults[k] = [];
   });
-
   activeRequestsCount = 0;
   expansionsInProgress = false;
 
-  // Show spinner
+  // 4) show spinner
   const spinner = document.getElementById('loading-spinner');
   if (spinner) spinner.style.display = 'inline-block';
 
-  // This array will store the final alt objects {type, value}
+  // We'll gather the final discovered alt array
   const finalAlternatives = [];
 
-  // We'll store the top-level original from the user’s part
-  let topOriginal = partNumber; // fallback if we can't fetch anything
+  // We'll track top-level description/category in UI
+  let topDescription = '';
+  let topCategory = '';
+  let topOriginal = partNumber;
 
-  // A helper to re-render the alternative-numbers UI
+  // For UI partial updates
   function updateAlternativeNumbersUI() {
     const altDiv = document.getElementById('alternative-numbers');
     if (!altDiv) return;
@@ -289,14 +306,10 @@ async function handleSearch() {
     `;
     if (finalAlternatives.length > 0) {
       html += `
-        <h4>Alternative Part Numbers Found (up to level ${
-          configNestedLevel === -1 ? '∞' : configNestedLevel
-        }):</h4>
+        <h4>Alternative Part Numbers Found (up to level ${configNestedLevel === -1 ? '∞' : configNestedLevel}):</h4>
         <ul class="alternative-numbers-list">
           ${finalAlternatives.map(a => `
-            <li class="alternative-number">
-              <span>${a.type}: ${a.value}</span>
-            </li>
+            <li class="alternative-number"><span>${a.type}: ${a.value}</span></li>
           `).join('')}
         </ul>
       `;
@@ -307,17 +320,15 @@ async function handleSearch() {
     altDiv.classList.add('active');
   }
 
-  // We also track which alt parts we have "sent" to the endpoint searches
+  // We'll keep track of which alt parts have been "searched"
   const alreadySearched = new Set();
 
-  // This callback is used inside gatherCombinatoryAlternatives
-  // to handle newly discovered alt parts
+  // This callback is used by the recursion to do partial expansions
   async function onNewAlts(newlyAdded) {
-    // 1) Update alt array UI
+    // update UI
     updateAlternativeNumbersUI();
 
-    // 2) Kick off searches for the newly added alts
-    //    but only for those we haven't searched yet
+    // search them
     const freshParts = [];
     for (const alt of newlyAdded) {
       const altUpper = alt.value.trim().toUpperCase();
@@ -333,49 +344,41 @@ async function handleSearch() {
 
   try {
     if (!configUseAlternatives) {
-      // If alt logic is disabled, we only search for the original part
+      // skip alt logic
       const { original } = await getAlternativePartNumbers(partNumber);
       topOriginal = original;
 
       const altDiv = document.getElementById('alternative-numbers');
       if (altDiv) {
         altDiv.innerHTML = '<p>Alternative search is disabled.</p>';
+        altDiv.classList.add('active');
       }
 
-      // Now search for the user’s typed part
+      // search only the original part
       alreadySearched.add(original.trim().toUpperCase());
       await executeEndpointSearches([{ number: original, source: original }]);
     } else {
-      // If alt logic is enabled, fetch top-level for user’s input
+      // alt logic is enabled
+      // first, get top-level
       const topData = await getAlternativePartNumbers(partNumber);
       topOriginal = topData.original;
       topDescription = topData.description;
       topCategory = topData.category;
 
-      // Start expansions
-      expansionsInProgress = true;
-
-      // We also want to search the user’s part right away
+      // We want to search the user’s part right away
       alreadySearched.add(topOriginal.trim().toUpperCase());
       await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
 
-      // gather alt parts up to configNestedLevel
+      // expansions
+      expansionsInProgress = true;
       const visited = new Set();
-      await gatherCombinatoryAlternatives(
-        topOriginal, 
-        0, 
-        visited, 
-        finalAlternatives, 
-        onNewAlts
-      );
-
-      // done expansions
+      await gatherCombinatoryAlternatives(topOriginal, 0, visited, finalAlternatives, onNewAlts);
       expansionsInProgress = false;
-      // update UI one last time
+
+      // final UI update
       updateAlternativeNumbersUI();
 
-      // we might do checkIfAllDone here in case expansions finished 
-      // but no new requests are pending
+      // check if we can finalize
       checkIfAllDone();
     }
   } catch (err) {
@@ -383,65 +386,62 @@ async function handleSearch() {
   }
 }
 
-/*****************************************************
- * The function that runs parallel searches for arrays 
- * of part numbers in each endpoint
- *****************************************************/
+/***************************************************
+ * A helper to do parallel endpoint searches for a 
+ * given array of {number, source}
+ ***************************************************/
 async function executeEndpointSearches(partNumbers) {
   if (!partNumbers || partNumbers.length === 0) return;
-  
-  // We'll run them in parallel
+
   const tasks = [];
 
   if (document.getElementById('toggle-inventory').checked) {
-    tasks.push(fetchInventoryData(partNumbers));
+    tasks.push(fetchInventoryData(partNumbers).finally(() => updateSummaryTab()));
   }
   if (document.getElementById('toggle-brokerbin').checked) {
-    tasks.push(fetchBrokerBinData(partNumbers));
+    tasks.push(fetchBrokerBinData(partNumbers).finally(() => updateSummaryTab()));
   }
   if (document.getElementById('toggle-tdsynnex').checked) {
-    tasks.push(fetchTDSynnexData(partNumbers));
+    tasks.push(fetchTDSynnexData(partNumbers).finally(() => updateSummaryTab()));
   }
   if (document.getElementById('toggle-ingram').checked) {
-    tasks.push(fetchDistributorData(partNumbers));
+    tasks.push(fetchDistributorData(partNumbers).finally(() => updateSummaryTab()));
   }
   if (document.getElementById('toggle-amazon-connector').checked) {
-    tasks.push(fetchAmazonConnectorData(partNumbers));
+    tasks.push(fetchAmazonConnectorData(partNumbers).finally(() => updateSummaryTab()));
   }
   if (document.getElementById('toggle-ebay-connector').checked) {
-    tasks.push(fetchEbayConnectorData(partNumbers));
+    tasks.push(fetchEbayConnectorData(partNumbers).finally(() => updateSummaryTab()));
   }
   if (document.getElementById('toggle-amazon').checked) {
-    tasks.push(fetchAmazonData(partNumbers));
+    tasks.push(fetchAmazonData(partNumbers).finally(() => updateSummaryTab()));
   }
   if (document.getElementById('toggle-ebay').checked) {
-    tasks.push(fetchEbayData(partNumbers));
+    tasks.push(fetchEbayData(partNumbers).finally(() => updateSummaryTab()));
   }
-  // Sales, Purchases
-  tasks.push(fetchSalesData(partNumbers));
-  tasks.push(fetchPurchasesData(partNumbers));
 
-  // We'll just await them all
-  await Promise.all(tasks);
+  // Sales and Purchases
+  tasks.push(fetchSalesData(partNumbers).finally(() => updateSummaryTab()));
+  tasks.push(fetchPurchasesData(partNumbers).finally(() => updateSummaryTab()));
 
-  // (Lenovo can be called separately, or you can do it here.)
+  // We do not always put Lenovo in here, but let's add it too if needed:
   if (document.getElementById('toggle-lenovo').checked) {
-    tasks.length = 0; // re-use array
+    // We'll call it once after the others
+    // or you can put it directly in the tasks
     tasks.push(fetchLenovoData(partNumbers));
-    await Promise.all(tasks);
   }
+
+  await Promise.all(tasks);
 }
 
-/*****************************************************
- * Each endpoint fetch function merges new data 
- * into searchResults[...] and rebuilds the entire table
- *****************************************************/
+/***************************************************
+ * Now define each fetch function, aggregator style
+ * then rebuild the entire table from aggregator
+ ***************************************************/
 
 // 1) TDSynnex
 async function fetchTDSynnexData(partNumbers) {
-  if (!partNumbers || partNumbers.length === 0) return;
   activeRequestsCount++;
-
   const loading = document.querySelector('.tdsynnex-results .loading');
   if (loading) loading.style.display = 'block';
 
@@ -449,9 +449,9 @@ async function fetchTDSynnexData(partNumbers) {
     const newItems = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const xmlText = await response.text();
+        const res = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
+        if (!res.ok) continue;
+        const xmlText = await res.text();
         const xmlDoc = parseXML(xmlText);
         const priceList = xmlDoc.getElementsByTagName('PriceAvailabilityList')[0];
         if (!priceList) continue;
@@ -471,11 +471,11 @@ async function fetchTDSynnexData(partNumbers) {
             }))
         };
         newItems.push(result);
-      } catch (e) {
-        console.warn('TDSynnex error:', e);
+      } catch (err) {
+        console.warn('TDSynnex fetch error for', number, err);
       }
     }
-    // Merge
+    // aggregator
     searchResults.tdsynnex.push(...newItems);
     buildTDSynnexTable();
   } catch (err) {
@@ -492,8 +492,8 @@ function buildTDSynnexTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  const items = searchResults.tdsynnex;
-  if (items.length === 0) return;
+  const allItems = searchResults.tdsynnex;
+  if (allItems.length === 0) return;
 
   const table = document.createElement('table');
   table.innerHTML = `
@@ -510,7 +510,7 @@ function buildTDSynnexTable() {
       </tr>
     </thead>
     <tbody>
-      ${items.map(item => `
+      ${allItems.map(item => `
         <tr>
           <td>${item.sourcePartNumber}</td>
           <td>${item.synnexSKU}</td>
@@ -519,9 +519,7 @@ function buildTDSynnexTable() {
           <td>${item.status}</td>
           <td>${item.price}</td>
           <td>${item.totalQuantity}</td>
-          <td>
-            ${item.warehouses.map(w => `${w.city}: ${w.qty}`).join('<br>')}
-          </td>
+          <td>${item.warehouses.map(wh => `${wh.city}: ${wh.qty}`).join('<br>')}</td>
         </tr>
       `).join('')}
     </tbody>
@@ -536,9 +534,7 @@ function buildTDSynnexTable() {
 
 // 2) Ingram
 async function fetchDistributorData(partNumbers) {
-  if (!partNumbers || partNumbers.length === 0) return;
   activeRequestsCount++;
-
   const loading = document.querySelector('#distributors-content .loading');
   const resultsDiv = document.querySelector('#distributors-content .ingram-results .results-container');
   if (loading) loading.style.display = 'block';
@@ -547,21 +543,21 @@ async function fetchDistributorData(partNumbers) {
     const newItems = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook/ingram-search?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const data = await response.json();
-        const resultsWithSource = data.map(d => ({ ...d, sourcePartNumber: source }));
+        const res = await fetch(`https://${serverDomain}/webhook/ingram-search?item=${encodeURIComponent(number)}`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const resultsWithSource = data.map(obj => ({ ...obj, sourcePartNumber: source }));
         newItems.push(...resultsWithSource);
       } catch (err) {
-        console.warn('Ingram error:', err);
+        console.warn('Ingram error for', number, err);
       }
     }
     searchResults.ingram.push(...newItems);
     buildIngramTable();
-  } catch (error) {
-    console.error('fetchDistributorData error:', error);
+  } catch (err) {
+    console.error('fetchDistributorData error:', err);
     if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
     }
   } finally {
     if (loading) loading.style.display = 'none';
@@ -593,18 +589,18 @@ function buildIngramTable() {
       </tr>
     </thead>
     <tbody>
-      ${items.map(item => `
+      ${items.map(it => `
         <tr>
-          <td>${item.sourcePartNumber}</td>
-          <td>${item.description || '-'}</td>
-          <td>${item.category || '-'}</td>
-          <td>${item.vendorName || '-'}</td>
-          <td>${item.vendorPartNumber || '-'}</td>
-          <td>${item.upcCode || '-'}</td>
-          <td>${item.productType || '-'}</td>
+          <td>${it.sourcePartNumber}</td>
+          <td>${it.description || '-'}</td>
+          <td>${it.category || '-'}</td>
+          <td>${it.vendorName || '-'}</td>
+          <td>${it.vendorPartNumber || '-'}</td>
+          <td>${it.upcCode || '-'}</td>
+          <td>${it.productType || '-'}</td>
           <td>
-            ${item.discontinued === 'True' ? '<span class="text-error">Discontinued</span>' : ''}
-            ${item.newProduct === 'True' ? '<span class="text-success">New</span>' : ''}
+            ${it.discontinued === 'True' ? '<span class="text-error">Discontinued</span>' : ''}
+            ${it.newProduct === 'True' ? '<span class="text-success">New</span>' : ''}
           </td>
         </tr>
       `).join('')}
@@ -620,9 +616,7 @@ function buildIngramTable() {
 
 // 3) BrokerBin
 async function fetchBrokerBinData(partNumbers) {
-  if (!partNumbers || partNumbers.length === 0) return;
   activeRequestsCount++;
-
   const loading = document.querySelector('.brokerbin-results .loading');
   const resultsDiv = document.querySelector('.brokerbin-results .results-container');
   if (loading) loading.style.display = 'block';
@@ -631,13 +625,13 @@ async function fetchBrokerBinData(partNumbers) {
     const newItems = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook/brokerbin-search?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const data = await response.json();
-        const resultsWithSource = data.map(d => ({ ...d, sourcePartNumber: source }));
-        newItems.push(...resultsWithSource);
+        const res = await fetch(`https://${serverDomain}/webhook/brokerbin-search?item=${encodeURIComponent(number)}`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const withSrc = data.map(obj => ({ ...obj, sourcePartNumber: source }));
+        newItems.push(...withSrc);
       } catch (err) {
-        console.warn('BrokerBin error:', err);
+        console.warn('BrokerBin error for', number, err);
       }
     }
     searchResults.brokerbin.push(...newItems);
@@ -679,18 +673,18 @@ function buildBrokerBinTable() {
       </tr>
     </thead>
     <tbody>
-      ${items.map(item => `
+      ${items.map(it => `
         <tr>
-          <td>${item.sourcePartNumber}</td>
-          <td>${item.company || '-'}</td>
-          <td>${item.country || '-'}</td>
-          <td>${item.part || '-'}</td>
-          <td>${item.mfg || '-'}</td>
-          <td>${item.cond || '-'}</td>
-          <td>${item.description || '-'}</td>
-          <td>${item.price ? '$' + parseFloat(item.price).toFixed(2) : '-'}</td>
-          <td>${item.qty || '0'}</td>
-          <td>${item.age_in_days || '-'}</td>
+          <td>${it.sourcePartNumber}</td>
+          <td>${it.company || '-'}</td>
+          <td>${it.country || '-'}</td>
+          <td>${it.part || '-'}</td>
+          <td>${it.mfg || '-'}</td>
+          <td>${it.cond || '-'}</td>
+          <td>${it.description || '-'}</td>
+          <td>${it.price ? '$' + parseFloat(it.price).toFixed(2) : '-'}</td>
+          <td>${it.qty || '0'}</td>
+          <td>${it.age_in_days || '-'}</td>
         </tr>
       `).join('')}
     </tbody>
@@ -699,15 +693,13 @@ function buildBrokerBinTable() {
   container.className = 'table-container';
   container.appendChild(table);
   resultsDiv.appendChild(container);
-  
+
   makeTableSortable(table);
 }
 
-// 4) Inventory (Epicor)
+// 4) Epicor Inventory
 async function fetchInventoryData(partNumbers) {
-  if (!partNumbers || partNumbers.length === 0) return;
   activeRequestsCount++;
-
   const loading = document.querySelector('#inventory-content .loading');
   const resultsDiv = document.querySelector('#inventory-content .inventory-results');
   if (loading) loading.style.display = 'block';
@@ -716,21 +708,21 @@ async function fetchInventoryData(partNumbers) {
     const newItems = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook/epicor-search?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const data = await response.json();
-        const resultsWithSource = data.map(d => ({ ...d, sourcePartNumber: source }));
-        newItems.push(...resultsWithSource);
+        const res = await fetch(`https://${serverDomain}/webhook/epicor-search?item=${encodeURIComponent(number)}`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const withSrc = data.map(obj => ({ ...obj, sourcePartNumber: source }));
+        newItems.push(...withSrc);
       } catch (err) {
-        console.warn('Epicor inventory error:', err);
+        console.warn('Epicor inventory error for', number, err);
       }
     }
     searchResults.epicor.push(...newItems);
     buildEpicorInventoryTable();
-  } catch (error) {
-    console.error('fetchInventoryData error:', error);
+  } catch (err) {
+    console.error('fetchInventoryData error:', err);
     if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
     }
   } finally {
     if (loading) loading.style.display = 'none';
@@ -761,15 +753,15 @@ function buildEpicorInventoryTable() {
       </tr>
     </thead>
     <tbody>
-      ${items.map(item => `
+      ${items.map(it => `
         <tr>
-          <td>${item.sourcePartNumber}</td>
-          <td>${item.Company || '-'}</td>
-          <td>${item.PartNum?.trim() || '-'}</td>
-          <td>${item.PartDescription || '-'}</td>
-          <td>${item.ClassDescription || '-'}</td>
-          <td>${item.ProdCodeDescription || '-'}</td>
-          <td>${item.InActive ? '<span class="text-error">Inactive</span>' : '<span class="text-success">Active</span>'}</td>
+          <td>${it.sourcePartNumber}</td>
+          <td>${it.Company || '-'}</td>
+          <td>${it.PartNum?.trim() || '-'}</td>
+          <td>${it.PartDescription || '-'}</td>
+          <td>${it.ClassDescription || '-'}</td>
+          <td>${it.ProdCodeDescription || '-'}</td>
+          <td>${it.InActive ? '<span class="text-error">Inactive</span>' : '<span class="text-success">Active</span>'}</td>
         </tr>
       `).join('')}
     </tbody>
@@ -784,9 +776,7 @@ function buildEpicorInventoryTable() {
 
 // 5) Sales
 async function fetchSalesData(partNumbers) {
-  if (!partNumbers || partNumbers.length === 0) return;
   activeRequestsCount++;
-
   const loading = document.querySelector('#sales-content .loading');
   const resultsDiv = document.querySelector('#sales-content .sales-results');
   if (loading) loading.style.display = 'block';
@@ -795,9 +785,9 @@ async function fetchSalesData(partNumbers) {
     const newItems = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const data = await response.json();
+        const res = await fetch(`https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`);
+        if (!res.ok) continue;
+        const data = await res.json();
         data.forEach(entry => {
           const details = entry?.returnObj?.OrderDtlPA || [];
           details.forEach(line => {
@@ -818,15 +808,15 @@ async function fetchSalesData(partNumbers) {
           });
         });
       } catch (err) {
-        console.warn('Sales error:', err);
+        console.warn('Sales fetch error for', number, err);
       }
     }
     searchResults.sales.push(...newItems);
     buildSalesTable();
-  } catch (error) {
-    console.error('fetchSalesData error:', error);
+  } catch (err) {
+    console.error('fetchSalesData error:', err);
     if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
     }
   } finally {
     if (loading) loading.style.display = 'none';
@@ -862,20 +852,20 @@ function buildSalesTable() {
       </tr>
     </thead>
     <tbody>
-      ${items.map(item => `
+      ${items.map(it => `
         <tr>
-          <td>${item.sourcePartNumber}</td>
-          <td>${item.PartNum || '-'}</td>
-          <td>${item.LineDesc || '-'}</td>
-          <td>${item.OrderNum || '-'}</td>
-          <td>${item.OrderLine || '-'}</td>
-          <td>${item.CustomerID || '-'}</td>
-          <td>${item.CustomerName || '-'}</td>
-          <td>${item.OrderDate ? new Date(item.OrderDate).toLocaleDateString() : '-'}</td>
-          <td>${item.OrderQty || '-'}</td>
-          <td>${item.UnitPrice || '-'}</td>
-          <td>${item.RequestDate ? new Date(item.RequestDate).toLocaleDateString() : '-'}</td>
-          <td>${item.NeedByDate ? new Date(item.NeedByDate).toLocaleDateString() : '-'}</td>
+          <td>${it.sourcePartNumber}</td>
+          <td>${it.PartNum || '-'}</td>
+          <td>${it.LineDesc || '-'}</td>
+          <td>${it.OrderNum || '-'}</td>
+          <td>${it.OrderLine || '-'}</td>
+          <td>${it.CustomerID || '-'}</td>
+          <td>${it.CustomerName || '-'}</td>
+          <td>${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
+          <td>${it.OrderQty || '-'}</td>
+          <td>${it.UnitPrice || '-'}</td>
+          <td>${it.RequestDate ? new Date(it.RequestDate).toLocaleDateString() : '-'}</td>
+          <td>${it.NeedByDate ? new Date(it.NeedByDate).toLocaleDateString() : '-'}</td>
         </tr>
       `).join('')}
     </tbody>
@@ -890,9 +880,7 @@ function buildSalesTable() {
 
 // 6) Purchases
 async function fetchPurchasesData(partNumbers) {
-  if (!partNumbers || partNumbers.length === 0) return;
   activeRequestsCount++;
-
   const loading = document.querySelector('#purchases-content .loading');
   const resultsDiv = document.querySelector('#purchases-content .purchases-results');
   if (loading) loading.style.display = 'block';
@@ -901,9 +889,9 @@ async function fetchPurchasesData(partNumbers) {
     const newItems = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook/epicor-purchases?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const data = await response.json();
+        const res = await fetch(`https://${serverDomain}/webhook/epicor-purchases?item=${encodeURIComponent(number)}`);
+        if (!res.ok) continue;
+        const data = await res.json();
         data.forEach(entry => {
           const purchasedItems = entry?.returnObj?.PAPurchasedBefore || [];
           purchasedItems.forEach(line => {
@@ -921,15 +909,15 @@ async function fetchPurchasesData(partNumbers) {
           });
         });
       } catch (err) {
-        console.warn('Purchases error:', err);
+        console.warn('Purchases fetch error for', number, err);
       }
     }
     searchResults.purchases.push(...newItems);
     buildPurchasesTable();
-  } catch (error) {
-    console.error('fetchPurchasesData error:', error);
+  } catch (err) {
+    console.error('fetchPurchasesData error:', err);
     if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
     }
   } finally {
     if (loading) loading.style.display = 'none';
@@ -962,17 +950,17 @@ function buildPurchasesTable() {
       </tr>
     </thead>
     <tbody>
-      ${items.map(item => `
+      ${items.map(it => `
         <tr>
-          <td>${item.sourcePartNumber}</td>
-          <td>${item.PartNum || '-'}</td>
-          <td>${item.VendorName || '-'}</td>
-          <td>${item.VendorQty || '-'}</td>
-          <td>${item.VendorUnitCost != null ? item.VendorUnitCost : '-'}</td>
-          <td>${item.PONum || '-'}</td>
-          <td>${item.ReceiptDate ? new Date(item.ReceiptDate).toLocaleDateString() : '-'}</td>
-          <td>${item.OrderDate ? new Date(item.OrderDate).toLocaleDateString() : '-'}</td>
-          <td>${item.DueDate ? new Date(item.DueDate).toLocaleDateString() : '-'}</td>
+          <td>${it.sourcePartNumber}</td>
+          <td>${it.PartNum || '-'}</td>
+          <td>${it.VendorName || '-'}</td>
+          <td>${it.VendorQty || '-'}</td>
+          <td>${it.VendorUnitCost != null ? it.VendorUnitCost : '-'}</td>
+          <td>${it.PONum || '-'}</td>
+          <td>${it.ReceiptDate ? new Date(it.ReceiptDate).toLocaleDateString() : '-'}</td>
+          <td>${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
+          <td>${it.DueDate ? new Date(it.DueDate).toLocaleDateString() : '-'}</td>
         </tr>
       `).join('')}
     </tbody>
@@ -988,9 +976,7 @@ function buildPurchasesTable() {
 // 7) AmazonConnector
 async function fetchAmazonConnectorData(partNumbers) {
   if (!document.getElementById('toggle-amazon-connector').checked) return;
-  if (!partNumbers || partNumbers.length === 0) return;
   activeRequestsCount++;
-
   const loading = document.querySelector('.amazon-connector-results .loading');
   const resultsDiv = document.querySelector('.amazon-connector-results .results-container');
   if (loading) loading.style.display = 'block';
@@ -999,22 +985,20 @@ async function fetchAmazonConnectorData(partNumbers) {
     const newItems = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook/amazon-search?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const data = await response.json();
-        data.forEach(item => {
-          newItems.push({ ...item, sourcePartNumber: source });
-        });
+        const resp = await fetch(`https://${serverDomain}/webhook/amazon-search?item=${encodeURIComponent(number)}`);
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        data.forEach(obj => newItems.push({ ...obj, sourcePartNumber: source }));
       } catch (err) {
-        console.warn('AmazonConnector error:', err);
+        console.warn('AmazonConnector error', err);
       }
     }
     searchResults.amazonConnector.push(...newItems);
     buildAmazonConnectorTable();
-  } catch (error) {
-    console.error('fetchAmazonConnectorData error:', error);
+  } catch (err) {
+    console.error('fetchAmazonConnectorData error:', err);
     if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
     }
   } finally {
     if (loading) loading.style.display = 'none';
@@ -1051,14 +1035,12 @@ function buildAmazonConnectorTable() {
         <tr>
           <td>${it.sourcePartNumber}</td>
           <td class="image-cell">
-            <img src="${it.thumbnailImage || '-'}" alt="${it.title}" class="product-image">
+            <img src="${it.thumbnailImage || '-'}" alt="${it.title || ''}" class="product-image">
           </td>
-          <td>
-            <a href="${it.url}" target="_blank">${it.title || '-'}</a>
-          </td>
+          <td><a href="${it.url}" target="_blank">${it.title || '-'}</a></td>
           <td>${it.price ? (it.price.currency + it.price.value) : '-'}</td>
           <td>${it.listPrice ? (it.listPrice.currency + it.listPrice.value) : '-'}</td>
-          <td>${it.stars ? `${it.stars}/5` : '-'}</td>
+          <td>${it.stars ? it.stars + '/5' : '-'}</td>
           <td>${it.reviewsCount || '0'}</td>
           <td>${it.inStockText || '-'}</td>
           <td>${(it.seller && it.seller.name) ? it.seller.name : '-'}</td>
@@ -1077,9 +1059,7 @@ function buildAmazonConnectorTable() {
 // 8) eBayConnector
 async function fetchEbayConnectorData(partNumbers) {
   if (!document.getElementById('toggle-ebay-connector').checked) return;
-  if (!partNumbers || partNumbers.length === 0) return;
   activeRequestsCount++;
-
   const loading = document.querySelector('.ebay-connector-results .loading');
   const resultsDiv = document.querySelector('.ebay-connector-results .results-container');
   if (loading) loading.style.display = 'block';
@@ -1088,22 +1068,20 @@ async function fetchEbayConnectorData(partNumbers) {
     const newItems = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const data = await response.json();
-        data.forEach(item => {
-          newItems.push({ ...item, sourcePartNumber: source });
-        });
+        const resp = await fetch(`https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`);
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        data.forEach(obj => newItems.push({ ...obj, sourcePartNumber: source }));
       } catch (err) {
-        console.warn('eBayConnector error:', err);
+        console.warn('eBayConnector error', err);
       }
     }
     searchResults.ebayConnector.push(...newItems);
     buildEbayConnectorTable();
-  } catch (error) {
-    console.error('fetchEbayConnectorData error:', error);
+  } catch (err) {
+    console.error('fetchEbayConnectorData error:', err);
     if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
     }
   } finally {
     if (loading) loading.style.display = 'none';
@@ -1143,9 +1121,7 @@ function buildEbayConnectorTable() {
               ? `<img src="${it.images[0]}" alt="${it.title}" class="product-image">` 
               : '-'}
           </td>
-          <td>
-            <a href="${it.url}" target="_blank">${it.title}</a>
-          </td>
+          <td><a href="${it.url}" target="_blank">${it.title}</a></td>
           <td>${it.priceWithCurrency || '-'}</td>
           <td>${it.condition || '-'}</td>
           <td><a href="${it.sellerUrl}" target="_blank">${it.sellerName}</a></td>
@@ -1166,9 +1142,7 @@ function buildEbayConnectorTable() {
 // 9) AmazonScraper
 async function fetchAmazonData(partNumbers) {
   if (!document.getElementById('toggle-amazon').checked) return;
-  if (!partNumbers || partNumbers.length === 0) return;
   activeRequestsCount++;
-
   const loading = document.querySelector('.amazon-results .loading');
   const resultsDiv = document.querySelector('.amazon-results .results-container');
   if (loading) loading.style.display = 'block';
@@ -1177,9 +1151,9 @@ async function fetchAmazonData(partNumbers) {
     const newItems = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook/amazon-scraper?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const data = await response.json();
+        const resp = await fetch(`https://${serverDomain}/webhook/amazon-scraper?item=${encodeURIComponent(number)}`);
+        if (!resp.ok) continue;
+        const data = await resp.json();
         if (Array.isArray(data) && data.length > 0) {
           const { title = [], price = [], image = [], link = [] } = data[0];
           for (let i = 0; i < title.length; i++) {
@@ -1193,15 +1167,15 @@ async function fetchAmazonData(partNumbers) {
           }
         }
       } catch (err) {
-        console.warn('AmazonScraper error:', err);
+        console.warn('AmazonScraper error', err);
       }
     }
     searchResults.amazon.push(...newItems);
     buildAmazonScraperTable();
-  } catch (error) {
-    console.error('fetchAmazonData error:', error);
+  } catch (err) {
+    console.error('fetchAmazonData error:', err);
     if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
     }
   } finally {
     if (loading) loading.style.display = 'none';
@@ -1256,9 +1230,7 @@ function buildAmazonScraperTable() {
 // 10) eBayScraper
 async function fetchEbayData(partNumbers) {
   if (!document.getElementById('toggle-ebay').checked) return;
-  if (!partNumbers || partNumbers.length === 0) return;
   activeRequestsCount++;
-
   const loading = document.querySelector('.ebay-results .loading');
   const resultsDiv = document.querySelector('.ebay-results .results-container');
   if (loading) loading.style.display = 'block';
@@ -1267,9 +1239,9 @@ async function fetchEbayData(partNumbers) {
     const newItems = [];
     for (const { number, source } of partNumbers) {
       try {
-        const response = await fetch(`https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const data = await response.json();
+        const resp = await fetch(`https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`);
+        if (!resp.ok) continue;
+        const data = await resp.json();
         if (Array.isArray(data) && data.length > 0) {
           const { title = [], price = [], image = [], link = [] } = data[0];
           for (let i = 0; i < title.length; i++) {
@@ -1283,15 +1255,15 @@ async function fetchEbayData(partNumbers) {
           }
         }
       } catch (err) {
-        console.warn('EbayScraper error:', err);
+        console.warn('ebayScraper error', err);
       }
     }
     searchResults.ebay.push(...newItems);
     buildEbayScraperTable();
-  } catch (error) {
-    console.error('fetchEbayData error:', error);
+  } catch (err) {
+    console.error('fetchEbayData error:', err);
     if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
     }
   } finally {
     if (loading) loading.style.display = 'none';
@@ -1343,13 +1315,11 @@ function buildEbayScraperTable() {
   makeTableSortable(table);
 }
 
-/*****************************************************
- * Lenovo (if toggled) 
- *****************************************************/
+/***************************************************
+ * Lenovo
+ ***************************************************/
 async function fetchLenovoData(partNumbers) {
   if (!document.getElementById('toggle-lenovo').checked) return;
-  if (!partNumbers || partNumbers.length === 0) return;
-  // We do not necessarily increment activeRequestsCount if Lenovo is separate
   activeRequestsCount++;
 
   const lenovoContentDiv = document.getElementById('lenovo-content');
@@ -1384,7 +1354,7 @@ async function fetchLenovoData(partNumbers) {
         if (!response.ok) continue;
         const data = await response.json();
         if (data?.[0]?.data?.length > 0) {
-          // Filter out empty docs
+          // Filter out empty content docs
           const docs = data[0].data
             .filter(doc => doc && doc.content && doc.content.trim() !== '')
             .map(doc => ({ ...doc, sourcePartNumber: source }));
@@ -1393,7 +1363,7 @@ async function fetchLenovoData(partNumbers) {
           }
         }
       } catch (error) {
-        console.warn('Lenovo error for', number, error);
+        console.warn(`Lenovo error for ${number}:`, error);
       }
     }
 
@@ -1408,6 +1378,7 @@ async function fetchLenovoData(partNumbers) {
         const cleanTitle = typeof title === 'string'
           ? title.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
           : 'Untitled Document';
+
         subtabButton.textContent = `${doc.sourcePartNumber} - ${cleanTitle}`;
         subtabButton.title = cleanTitle;
         subtabButton.onclick = () => switchLenovoSubtab(index);
@@ -1438,37 +1409,32 @@ async function fetchLenovoData(partNumbers) {
 }
 
 function switchLenovoSubtab(index) {
-  document.querySelectorAll('.subtab-button').forEach(button => button.classList.remove('active'));
-  document.querySelectorAll('.subtab-content').forEach(content => content.classList.remove('active'));
-  const btns = document.querySelectorAll('.subtab-button');
-  if (btns[index]) btns[index].classList.add('active');
-  const contentDiv = document.querySelector(`.subtab-content[data-subtab-index="${index}"]`);
-  if (contentDiv) contentDiv.classList.add('active');
+  document.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.subtab-button')[index].classList.add('active');
+  document.querySelector(`.subtab-content[data-subtab-index="${index}"]`).classList.add('active');
 }
 
 function decodeUnicodeEscapes(str) {
   if (typeof str !== 'string') return '';
-  return str.replace(/\\u[\dA-F]{4}/gi, match => 
+  return str.replace(/\\u[\dA-F]{4}/gi, match =>
     String.fromCharCode(parseInt(match.replace(/\\u/g, ''), 16))
   );
 }
 
-/*****************************************************
+/***************************************************
  * Summary Tab
- *****************************************************/
+ ***************************************************/
 function updateSummaryTab() {
   const summaryDiv = document.getElementById('summary-content');
   if (!summaryDiv) return;
 
-  // preserve any existing top text with .analyze-result-text, if needed
+  // preserve existing top message if present
   const existingAnalyzeMessage = summaryDiv.querySelector('.analyze-result-text');
-  let topMessageHTML = '';
-  if (existingAnalyzeMessage) {
-    topMessageHTML = existingAnalyzeMessage.outerHTML;
-  }
-  summaryDiv.innerHTML = topMessageHTML; 
+  let topMessageHTML = existingAnalyzeMessage ? existingAnalyzeMessage.outerHTML : '';
+  summaryDiv.innerHTML = topMessageHTML;
 
-  // If no toggles are on, just show "No search results yet."
+  // check toggles
   const anyEnabled = (
     document.getElementById('toggle-inventory').checked ||
     document.getElementById('toggle-brokerbin').checked ||
@@ -1484,12 +1450,11 @@ function updateSummaryTab() {
     return;
   }
 
-  // Helper to create summary blocks
   function createSummaryTable(key, label) {
     const dataArray = searchResults[key] || [];
     if (!dataArray.length) return '';
 
-    // Group by sourcePartNumber
+    // group by sourcePartNumber
     const grouped = {};
     dataArray.forEach(item => {
       const pnum = item.sourcePartNumber || 'Unknown';
@@ -1497,16 +1462,13 @@ function updateSummaryTab() {
       grouped[pnum].push(item);
     });
 
-    // find best price
-    function findBestPrice(itemList) {
+    function findBestPrice(items) {
       let minPrice = null;
-      itemList.forEach(it => {
+      items.forEach(it => {
         let priceVal = null;
         switch (key) {
           case 'amazonConnector':
-            if (it.price && it.price.value) {
-              priceVal = parseFloat(it.price.value);
-            }
+            if (it.price && it.price.value) priceVal = parseFloat(it.price.value);
             break;
           case 'ebayConnector':
             priceVal = parsePrice(it.priceWithCurrency);
@@ -1518,11 +1480,8 @@ function updateSummaryTab() {
             priceVal = parsePrice(it.rawPrice);
             break;
           case 'brokerbin':
-            if (typeof it.price === 'number') {
-              priceVal = it.price;
-            } else if (typeof it.price === 'string') {
-              priceVal = parseFloat(it.price);
-            }
+            if (typeof it.price === 'number') priceVal = it.price;
+            else if (typeof it.price === 'string') priceVal = parseFloat(it.price);
             break;
           case 'tdsynnex':
             priceVal = parseFloat(it.price);
@@ -1600,13 +1559,11 @@ function updateSummaryTab() {
   }
 }
 
-/*****************************************************
- * gatherResultsForAnalysis
- * Gathers the final HTML from each container for LLM analysis
- *****************************************************/
+/***************************************************
+ * Gathers final results for LLM analysis
+ ***************************************************/
 function gatherResultsForAnalysis() {
   const results = {};
-
   if (document.getElementById('toggle-inventory').checked) {
     const invElem = document.querySelector('#inventory-content .inventory-results');
     results['epicor-search'] = invElem ? invElem.innerHTML : "";
@@ -1632,8 +1589,8 @@ function gatherResultsForAnalysis() {
     results['ebay-connector'] = ecElem ? ecElem.innerHTML : "";
   }
   if (document.getElementById('toggle-amazon').checked) {
-    const amzElem = document.querySelector('.amazon-results .results-container');
-    results['amazon-scraper'] = amzElem ? amzElem.innerHTML : "";
+    const amzScrElem = document.querySelector('.amazon-results .results-container');
+    results['amazon-scraper'] = amzScrElem ? amzScrElem.innerHTML : "";
   }
   if (document.getElementById('toggle-ebay').checked) {
     const eScrElem = document.querySelector('.ebay-results .results-container');
@@ -1643,9 +1600,9 @@ function gatherResultsForAnalysis() {
   return results;
 }
 
-/*****************************************************
- * Google/MS sign-in from your existing code
- *****************************************************/
+/***************************************************
+ * Google / MS sign-in from original snippet
+ ***************************************************/
 document.getElementById('google-signin-btn').addEventListener('click', () => {
   google.accounts.id.initialize({
     client_id: 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com',
