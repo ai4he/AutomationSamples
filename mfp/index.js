@@ -1479,10 +1479,6 @@ function gatherResultsForAnalysis() {
   return results;
 }
 
-// Global toggles
-let configUseAlternatives = true;  // (default) 
-let configNestedLevel = 1;         // 0, 1, 2..., or -1
-
 // A set to track which alt part numbers have been searched
 const alreadySearched = new Set();
 
