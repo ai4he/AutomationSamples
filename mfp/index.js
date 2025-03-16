@@ -290,10 +290,13 @@ async function performFinalAnalysis() {
 
     // === 1) Display the final initial suggestion as before ===
     // We'll also include a container for continuing the conversation
-    summaryDiv.innerHTML += `
-      <h3>Analysis Summary</h3>
-      <div class="analyze-result-text"></div>
-    `;
+    const existingAnalyzeSection = summaryDiv.querySelector('.analyze-result-text');
+    if (!existingAnalyzeSection) {
+      summaryDiv.innerHTML += `
+        <h3>Analysis Summary</h3>
+        <div class="analyze-result-text"></div>
+      `; 
+    }
     // <div class="analyze-result-text">${analyzeResultText}</div>
 
     // === 2) Create the conversation interface right below the summary text ===
