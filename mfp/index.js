@@ -23,6 +23,9 @@ let conversationHistory = [];
 // We’ll also store a reference to the chat container so we can re-render the conversation easily
 let chatContainer = null;
 
+// Prevents repeated calls to performFinalAnalysis
+let analysisAlreadyCalled = false;
+
 /***************************************************
  * Global aggregator for endpoint results
  ***************************************************/
@@ -235,8 +238,11 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
 function checkIfAllDone() {
   if (expansionsInProgress) return;
   if (activeRequestsCount > 0) return;
+  if (analysisAlreadyCalled) return;
 
-  // if we reach here => expansions done + no fetch requests => finalize
+  analysisAlreadyCalled = true;
+
+  // if we reach here => expansions done + no active requests => finalize
   const spinner = document.getElementById('loading-spinner');
   if (spinner) spinner.style.display = 'none';
 
