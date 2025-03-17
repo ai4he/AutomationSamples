@@ -1071,28 +1071,64 @@ async function fetchPurchasesData(partNumbers) {
         const res = await fetch(`https://${serverDomain}/webhook/epicor-purchases?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
         const data = await res.json();
+
         data.forEach(entry => {
+          // First check PAPurchasedBefore, as the original code did
           const purchasedItems = entry?.returnObj?.PAPurchasedBefore || [];
-          purchasedItems.forEach(line => {
-            newItems.push({
-              sourcePartNumber: source,
-              PartNum: line.PartNum,
-              VendorName: line.VendorName,
-              VendorQty: line.VendorQty,
-              VendorUnitCost: line.VendorUnitCost,
-              ReceiptDate: line.ReceiptDate,
-              OrderDate: line.OrderDate,
-              DueDate: line.DueDate,
-              PONum: line.PONum
+
+          if (purchasedItems.length > 0) {
+            // If PAPurchasedBefore has lines, parse them
+            purchasedItems.forEach(line => {
+              newItems.push({
+                sourcePartNumber: source,
+                PartNum: line.PartNum,
+                VendorName: line.VendorName,
+                VendorQty: line.VendorQty,
+                VendorUnitCost: line.VendorUnitCost,
+                PONum: line.PONum,
+                ReceiptDate: line.ReceiptDate,
+                OrderDate: line.OrderDate,
+                DueDate: line.DueDate,
+                // Extra fields for clarity
+                IsAdvisor: false,
+                PartDescription: line.PartDescription || '',
+                PurchasedBefore: true
+              });
             });
-          });
+          } else {
+            // If PAPurchasedBefore is empty, fall back to PurchaseAdvisor
+            const advisorItems = entry?.returnObj?.PurchaseAdvisor || [];
+            advisorItems.forEach(line => {
+              newItems.push({
+                sourcePartNumber: source,
+                PartNum: line.PartNum || '',
+                // The PurchaseAdvisor array doesn’t provide vendor/cost/dates
+                VendorName: '',
+                VendorQty: '',
+                VendorUnitCost: '',
+                PONum: line.PONum || 0,
+                ReceiptDate: '',
+                OrderDate: '',
+                DueDate: '',
+                IsAdvisor: true,
+                PartDescription: line.PartDescription || '',
+                // The array has a boolean for PurchasedBefore
+                PurchasedBefore: !!line.PurchasedBefore
+              });
+            });
+          }
         });
       } catch (err) {
         console.warn('Purchases fetch error for', number, err);
       }
     }
+
+    // Merge into the global aggregator
     searchResults.purchases.push(...newItems);
+
+    // Build the table
     buildPurchasesTable();
+
   } catch (err) {
     console.error('fetchPurchasesData error:', err);
     if (resultsDiv) {
@@ -1126,6 +1162,10 @@ function buildPurchasesTable() {
         <th>Receipt Date</th>
         <th>Order Date</th>
         <th>Due Date</th>
+        <!-- Additional columns to show if row came from PurchaseAdvisor or PAPurchasedBefore -->
+        <th>Advisor</th>
+        <th>Description</th>
+        <th>Purchased Before</th>
       </tr>
     </thead>
     <tbody>
@@ -1140,6 +1180,9 @@ function buildPurchasesTable() {
           <td>${it.ReceiptDate ? new Date(it.ReceiptDate).toLocaleDateString() : '-'}</td>
           <td>${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
           <td>${it.DueDate ? new Date(it.DueDate).toLocaleDateString() : '-'}</td>
+          <td>${it.IsAdvisor ? 'Yes' : 'No'}</td>
+          <td>${it.PartDescription || '-'}</td>
+          <td>${typeof it.PurchasedBefore === 'boolean' ? (it.PurchasedBefore ? 'Yes' : 'No') : '-'}</td>
         </tr>
       `).join('')}
     </tbody>
@@ -1151,6 +1194,7 @@ function buildPurchasesTable() {
 
   makeTableSortable(table);
 }
+
 
 // 7) AmazonConnector
 async function fetchAmazonConnectorData(partNumbers) {
