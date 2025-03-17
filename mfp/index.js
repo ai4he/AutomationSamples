@@ -447,6 +447,7 @@ async function sendChatMessageToLLM() {
 async function handleSearch() {
   // Ensure that final analysis can happen again for each fresh search
   analysisAlreadyCalled = false;
+  conversationHistory = [];
 
   // 1) Get part number
   const partNumberInput = document.getElementById('part-numbers');
