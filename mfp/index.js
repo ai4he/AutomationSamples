@@ -445,6 +445,9 @@ async function sendChatMessageToLLM() {
  * The main handleSearch
  ***************************************************/
 async function handleSearch() {
+  // Ensure that final analysis can happen again for each fresh search
+  analysisAlreadyCalled = false;
+
   // 1) Get part number
   const partNumberInput = document.getElementById('part-numbers');
   if (!partNumberInput) {
@@ -554,15 +557,12 @@ async function handleSearch() {
     await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
 
     // 4) Possibly do a final check if expansions might be done immediately
-    // Typically expansions are still in progress if configUseAlternatives, 
-    // so we call checkIfAllDone() which won't finalize until expansionsInProgress = false
     checkIfAllDone();
 
   } catch (err) {
     console.error('handleSearch error:', err);
   }
 }
-
 
 
 /***************************************************
