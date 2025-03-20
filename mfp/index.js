@@ -343,7 +343,7 @@ try {
     // Update the analysis tab with the result
     const analyzeResultTextDiv = document.querySelector('#analysis-content .analyze-result-text');
     if (analyzeResultTextDiv) {
-      analyzeResultTextDiv.innerHTML = analyzeResultText;
+      analyzeResultTextDiv.innerHTML = '';
     }
 
     // Initialize the conversation UI in the analysis tab
