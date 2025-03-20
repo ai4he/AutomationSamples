@@ -64,7 +64,10 @@ You are required to give a suggestion on the computer part to recommend the user
         <!-- Alternative part numbers will be displayed here -->
       </div>
       
-      <button onclick="handleSearch()">Search</button>
+      <div class="button-group">
+        <button onclick="handleSearch()">Search</button>
+        <button id="stop-search-btn" onclick="stopSearch()">Stop</button>
+      </div>
       
       <!-- Data Sources Section -->
       <div class="endpoints-toggle">
@@ -95,7 +98,7 @@ You are required to give a suggestion on the computer part to recommend the user
             eBay
           </label>
           <label>
-            <input type="checkbox" id="toggle-amazon" checked>
+            <input type="checkbox" id="toggle-amazon">
             Amazon
           </label>
           <label>
@@ -119,7 +122,7 @@ You are required to give a suggestion on the computer part to recommend the user
       <button class="tab-button" onclick="switchTab('inventory')">Inventory</button>
       <button class="tab-button" onclick="switchTab('sales')">Sales</button>
       <button class="tab-button" onclick="switchTab('purchases')">Purchases</button>
-      <button style="display: none;" class="tab-button" onclick="switchTab('analytics')">Analytics</button>
+      <button class="tab-button" onclick="switchTab('analysis')">Analysis</button>
     </div>
     
     <!-- Tab Contents -->
@@ -200,8 +203,12 @@ You are required to give a suggestion on the computer part to recommend the user
       </div>
     </div>
     
-    <div id="analytics" class="tab-content" style="display: none;">
-      <div id="analytics-content"></div>
+    <div id="analysis" class="tab-content">
+      <div id="analysis-content">
+        <h3>Analysis Summary</h3>
+        <div class="analyze-result-text"></div>
+        <div id="chat-container-analysis"></div>
+      </div>
     </div>
   </div>
   
