@@ -20,11 +20,14 @@ let configNestedLevel = 1;
 // e.g. [ { role: "user", content: "Hello" }, { role: "assistant", content: "Hi!" }, ... ]
 let conversationHistory = [];
 
-// We’ll also store a reference to the chat container so we can re-render the conversation easily
+// We'll also store a reference to the chat container so we can re-render the conversation easily
 let chatContainer = null;
 
 // Prevents repeated calls to performFinalAnalysis
 let analysisAlreadyCalled = false;
+
+// Flag to indicate if search should be stopped
+let stopSearchRequested = false;
 
 /***************************************************
  * Global aggregator for endpoint results
@@ -47,6 +50,35 @@ let activeRequestsCount = 0;
 
 // Flag for whether alternative expansions are still in progress
 let expansionsInProgress = false;
+
+/***************************************************
+ * Stop Search Function
+ ***************************************************/
+function stopSearch() {
+  stopSearchRequested = true;
+  console.log("Search stopping requested");
+  
+  // Hide spinner
+  const spinner = document.getElementById('loading-spinner');
+  if (spinner) spinner.style.display = 'none';
+  
+  // Show a message in the summary tab
+  const summaryDiv = document.getElementById('summary-content');
+  if (summaryDiv && !summaryDiv.querySelector('.search-stopped-message')) {
+    const stoppedMessage = document.createElement('div');
+    stoppedMessage.className = 'search-stopped-message';
+    stoppedMessage.innerHTML = '<p><strong>Search was stopped by user.</strong> Partial results are displayed.</p>';
+    stoppedMessage.style.padding = '10px';
+    stoppedMessage.style.backgroundColor = '#ffecec';
+    stoppedMessage.style.border = '1px solid #f5c6cb';
+    stoppedMessage.style.borderRadius = '4px';
+    stoppedMessage.style.marginBottom = '15px';
+    summaryDiv.prepend(stoppedMessage);
+  }
+  
+  // Update the summary with current partial results
+  updateSummaryTab();
+}
 
 /***************************************************
  * Utility: parse XML
@@ -201,6 +233,11 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
  * Recursive Gathering of Alt Parts to configNestedLevel
  ***************************************************/
 async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, result, onNewAlts) {
+  // Check if search should be stopped
+  if (stopSearchRequested) {
+    return;
+  }
+
   const upperBase = baseNumber.trim().toUpperCase();
   if (visited.has(upperBase)) return;
   visited.add(upperBase);
@@ -226,6 +263,7 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
   }
   if (goDeeper) {
     for (const alt of alternatives) {
+      if (stopSearchRequested) return; // Check before each recursive call
       await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
     }
   }
@@ -253,9 +291,6 @@ async function performFinalAnalysis() {
   // One last summary update before analysis
   updateSummaryTab();
 
-  const summaryDiv = document.getElementById('summary-content');
-  if (!summaryDiv) return;
-
   try {
     // Gather results from your existing aggregator logic
     const analysisData = gatherResultsForAnalysis();
@@ -282,44 +317,44 @@ async function performFinalAnalysis() {
       .replaceAll("```html", '')
       .replaceAll("```", '');
 
-    // === NEW: store the user prompt and the LLM’s reply in our conversation array. ===
-    // The user’s initial prompt:
+    // Store the user prompt and the LLM's reply in our conversation array
+    // The user's initial prompt:
     conversationHistory.push({
       role: 'user',
       content: promptText || '(No prompt provided)'
     });
-    // The model’s first reply:
+    // The model's first reply:
     conversationHistory.push({
       role: 'assistant',
       content: analyzeResultText
     });
 
-    // === 1) Display the final initial suggestion as before ===
-    // We'll also include a container for continuing the conversation
-    summaryDiv.innerHTML += `
-      <h3>Analysis Summary</h3>
-      <div class="analyze-result-text"></div>
-    `;
-    // <div class="analyze-result-text">${analyzeResultText}</div>
+    // Update the analysis tab with the result
+    const analyzeResultTextDiv = document.querySelector('#analysis-content .analyze-result-text');
+    if (analyzeResultTextDiv) {
+      analyzeResultTextDiv.textContent = analyzeResultText;
+    }
 
-    // === 2) Create the conversation interface right below the summary text ===
-    initializeConversationUI(summaryDiv);
+    // Initialize the conversation UI in the analysis tab
+    initializeConversationUI();
+
+    // Switch to the analysis tab to show the results
+    switchTab('analysis');
 
   } catch (err) {
     console.error('Analyze data error:', err);
   }
 }
 
-function initializeConversationUI(summaryDiv) {
-  // 1) Create a container for the conversation if not already created
-  chatContainer = document.createElement('div');
-  chatContainer.id = 'chat-container';
-  chatContainer.style.marginTop = '20px';
+function initializeConversationUI() {
+  // Create a container for the conversation if not already created
+  chatContainer = document.getElementById('chat-container-analysis');
+  if (!chatContainer) {
+    console.error('Chat container element not found in analysis tab');
+    return;
+  }
 
-  // 2) Insert it into the summary div
-  summaryDiv.appendChild(chatContainer);
-
-  // 3) Render the conversation so far + input
+  // Render the conversation so far + input
   renderConversationUI();
 }
 
@@ -445,6 +480,9 @@ async function sendChatMessageToLLM() {
  * The main handleSearch
  ***************************************************/
 async function handleSearch() {
+  // Reset the stop search flag
+  stopSearchRequested = false;
+  
   // Ensure that final analysis can happen again for each fresh search
   analysisAlreadyCalled = false;
   conversationHistory = [];
@@ -464,6 +502,15 @@ async function handleSearch() {
   // 2) Clear summary
   const summaryDiv = document.getElementById('summary-content');
   if (summaryDiv) summaryDiv.innerHTML = '';
+  
+  // Clear analysis tab
+  const analysisDiv = document.getElementById('analysis-content');
+  if (analysisDiv) {
+    const analyzeResultTextDiv = analysisDiv.querySelector('.analyze-result-text');
+    if (analyzeResultTextDiv) analyzeResultTextDiv.textContent = '';
+    const chatContainer = document.getElementById('chat-container-analysis');
+    if (chatContainer) chatContainer.innerHTML = '';
+  }
 
   // 3) Reset aggregator and counters
   Object.keys(searchResults).forEach(k => {
@@ -514,6 +561,9 @@ async function handleSearch() {
 
   // Callback for newly discovered alt parts.  
   async function onNewAlts(newlyAdded) {
+    // Check if search should be stopped
+    if (stopSearchRequested) return;
+    
     // 1) Update the alt UI
     updateAlternativeNumbersUI();
 
@@ -552,7 +602,7 @@ async function handleSearch() {
       }
     }
 
-    // 3) Immediately search the user’s original part
+    // 3) Immediately search the user's original part
     alreadySearched.add(topOriginal.trim().toUpperCase());
     // We do NOT wait for expansions to finish
     await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
@@ -571,7 +621,7 @@ async function handleSearch() {
  * given array of {number, source}
  ***************************************************/
 async function executeEndpointSearches(partNumbers) {
-  if (!partNumbers || partNumbers.length === 0) return;
+  if (!partNumbers || partNumbers.length === 0 || stopSearchRequested) return;
 
   const tasks = [];
 
@@ -621,6 +671,7 @@ async function executeEndpointSearches(partNumbers) {
 
 // 1) TDSynnex
 async function fetchTDSynnexData(partNumbers) {
+  if (stopSearchRequested) return;
   activeRequestsCount++;
   const loading = document.querySelector('.tdsynnex-results .loading');
   if (loading) loading.style.display = 'block';
@@ -628,6 +679,7 @@ async function fetchTDSynnexData(partNumbers) {
   try {
     const newItems = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const res = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
@@ -714,6 +766,7 @@ function buildTDSynnexTable() {
 
 // 2) Ingram
 async function fetchDistributorData(partNumbers) {
+  if (stopSearchRequested) return;
   activeRequestsCount++;
   const loading = document.querySelector('#distributors-content .loading');
   const resultsDiv = document.querySelector('#distributors-content .ingram-results .results-container');
@@ -722,6 +775,7 @@ async function fetchDistributorData(partNumbers) {
   try {
     const newItems = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const res = await fetch(`https://${serverDomain}/webhook/ingram-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
@@ -796,6 +850,7 @@ function buildIngramTable() {
 
 // 3) BrokerBin
 async function fetchBrokerBinData(partNumbers) {
+  if (stopSearchRequested) return;
   activeRequestsCount++;
   const loading = document.querySelector('.brokerbin-results .loading');
   const resultsDiv = document.querySelector('.brokerbin-results .results-container');
@@ -804,6 +859,7 @@ async function fetchBrokerBinData(partNumbers) {
   try {
     const newItems = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const res = await fetch(`https://${serverDomain}/webhook/brokerbin-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
@@ -879,6 +935,7 @@ function buildBrokerBinTable() {
 
 // 4) Epicor Inventory
 async function fetchInventoryData(partNumbers) {
+  if (stopSearchRequested) return;
   activeRequestsCount++;
   const loading = document.querySelector('#inventory-content .loading');
   const resultsDiv = document.querySelector('#inventory-content .inventory-results');
@@ -887,6 +944,7 @@ async function fetchInventoryData(partNumbers) {
   try {
     const newItems = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const res = await fetch(`https://${serverDomain}/webhook/epicor-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
@@ -956,6 +1014,7 @@ function buildEpicorInventoryTable() {
 
 // 5) Sales
 async function fetchSalesData(partNumbers) {
+  if (stopSearchRequested) return;
   activeRequestsCount++;
   const loading = document.querySelector('#sales-content .loading');
   const resultsDiv = document.querySelector('#sales-content .sales-results');
@@ -964,6 +1023,7 @@ async function fetchSalesData(partNumbers) {
   try {
     const newItems = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const res = await fetch(`https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
@@ -1060,6 +1120,7 @@ function buildSalesTable() {
 
 // 6) Purchases
 async function fetchPurchasesData(partNumbers) {
+  if (stopSearchRequested) return;
   activeRequestsCount++;
   const loading = document.querySelector('#purchases-content .loading');
   const resultsDiv = document.querySelector('#purchases-content .purchases-results');
@@ -1068,6 +1129,7 @@ async function fetchPurchasesData(partNumbers) {
   try {
     const newItems = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const res = await fetch(`https://${serverDomain}/webhook/epicor-purchases?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
@@ -1103,7 +1165,7 @@ async function fetchPurchasesData(partNumbers) {
               newItems.push({
                 sourcePartNumber: source,
                 PartNum: line.PartNum || '',
-                // The PurchaseAdvisor array doesn’t provide vendor/cost/dates
+                // The PurchaseAdvisor array doesn't provide vendor/cost/dates
                 VendorName: '',
                 VendorQty: '',
                 VendorUnitCost: '',
@@ -1199,6 +1261,7 @@ function buildPurchasesTable() {
 
 // 7) AmazonConnector
 async function fetchAmazonConnectorData(partNumbers) {
+  if (stopSearchRequested) return;
   if (!document.getElementById('toggle-amazon-connector').checked) return;
   activeRequestsCount++;
   const loading = document.querySelector('.amazon-connector-results .loading');
@@ -1208,6 +1271,7 @@ async function fetchAmazonConnectorData(partNumbers) {
   try {
     const newItems = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const resp = await fetch(`https://${serverDomain}/webhook/amazon-search?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
@@ -1282,6 +1346,7 @@ function buildAmazonConnectorTable() {
 
 // 8) eBayConnector
 async function fetchEbayConnectorData(partNumbers) {
+  if (stopSearchRequested) return;
   if (!document.getElementById('toggle-ebay-connector').checked) return;
   activeRequestsCount++;
   const loading = document.querySelector('.ebay-connector-results .loading');
@@ -1291,6 +1356,7 @@ async function fetchEbayConnectorData(partNumbers) {
   try {
     const newItems = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const resp = await fetch(`https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
@@ -1365,6 +1431,7 @@ function buildEbayConnectorTable() {
 
 // 9) AmazonScraper
 async function fetchAmazonData(partNumbers) {
+  if (stopSearchRequested) return;
   if (!document.getElementById('toggle-amazon').checked) return;
   activeRequestsCount++;
   const loading = document.querySelector('.amazon-results .loading');
@@ -1374,6 +1441,7 @@ async function fetchAmazonData(partNumbers) {
   try {
     const newItems = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const resp = await fetch(`https://${serverDomain}/webhook/amazon-scraper?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
@@ -1453,6 +1521,7 @@ function buildAmazonScraperTable() {
 
 // 10) eBayScraper
 async function fetchEbayData(partNumbers) {
+  if (stopSearchRequested) return;
   if (!document.getElementById('toggle-ebay').checked) return;
   activeRequestsCount++;
   const loading = document.querySelector('.ebay-results .loading');
@@ -1462,6 +1531,7 @@ async function fetchEbayData(partNumbers) {
   try {
     const newItems = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const resp = await fetch(`https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
@@ -1543,6 +1613,7 @@ function buildEbayScraperTable() {
  * Lenovo
  ***************************************************/
 async function fetchLenovoData(partNumbers) {
+  if (stopSearchRequested) return;
   if (!document.getElementById('toggle-lenovo').checked) return;
   activeRequestsCount++;
 
@@ -1573,6 +1644,7 @@ async function fetchLenovoData(partNumbers) {
   try {
     const allResults = [];
     for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
       try {
         const response = await fetch(`https://${serverDomain}/webhook/lenovo-scraper?item=${encodeURIComponent(number)}`);
         if (!response.ok) continue;
@@ -1653,10 +1725,25 @@ function updateSummaryTab() {
   const summaryDiv = document.getElementById('summary-content');
   if (!summaryDiv) return;
 
-  // preserve existing top message if present
-  const existingAnalyzeMessage = summaryDiv.querySelector('.analyze-result-text');
-  let topMessageHTML = existingAnalyzeMessage ? existingAnalyzeMessage.outerHTML : '';
-  summaryDiv.innerHTML = topMessageHTML;
+  // Check if search was stopped
+  const searchStopped = stopSearchRequested;
+  
+  // Look for existing stopped message
+  const existingStoppedMsg = summaryDiv.querySelector('.search-stopped-message');
+  if (searchStopped && !existingStoppedMsg) {
+    const stoppedMessage = document.createElement('div');
+    stoppedMessage.className = 'search-stopped-message';
+    stoppedMessage.innerHTML = '<p><strong>Search was stopped by user.</strong> Partial results are displayed.</p>';
+    stoppedMessage.style.padding = '10px';
+    stoppedMessage.style.backgroundColor = '#ffecec';
+    stoppedMessage.style.border = '1px solid #f5c6cb';
+    stoppedMessage.style.borderRadius = '4px';
+    stoppedMessage.style.marginBottom = '15px';
+    summaryDiv.prepend(stoppedMessage);
+  }
+
+  // Replace content after the stopped message if it exists
+  let summaryContent = '';
 
   // check toggles
   const anyEnabled = (
@@ -1670,10 +1757,28 @@ function updateSummaryTab() {
     document.getElementById('toggle-ebay').checked
   );
   if (!anyEnabled) {
-    summaryDiv.innerHTML += 'No search results yet.';
-    return;
+    summaryContent = 'No search results yet.';
+  } else {
+    summaryContent = generateSummaryTableHtml();
   }
 
+  // If there's a stopped message, keep it and replace the rest
+  if (existingStoppedMsg) {
+    // Remove all other content
+    Array.from(summaryDiv.childNodes).forEach(node => {
+      if (node !== existingStoppedMsg) {
+        summaryDiv.removeChild(node);
+      }
+    });
+    // Add new content
+    summaryDiv.innerHTML += summaryContent;
+  } else {
+    // Replace all content
+    summaryDiv.innerHTML = summaryContent;
+  }
+}
+
+function generateSummaryTableHtml() {
   function createSummaryTable(key, label) {
     const dataArray = searchResults[key] || [];
     if (!dataArray.length) return '';
@@ -1776,11 +1881,7 @@ function updateSummaryTab() {
     summaryHTML += createSummaryTable('ebay', 'eBay');
   }
 
-  if (!summaryHTML.trim()) {
-    summaryDiv.innerHTML += 'No search results yet.';
-  } else {
-    summaryDiv.innerHTML += summaryHTML;
-  }
+  return summaryHTML.trim() || 'No search results yet.';
 }
 
 /***************************************************
