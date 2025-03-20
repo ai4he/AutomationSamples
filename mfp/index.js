@@ -317,6 +317,17 @@ async function performFinalAnalysis() {
       .replaceAll("```html", '')
       .replaceAll("```", '');
 
+    // Parse HTML content properly
+try {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(analyzeResultText, 'text/html');
+  if (doc.body && doc.body.innerHTML) {
+    analyzeResultText = doc.body.innerHTML;
+  }
+} catch (e) {
+  console.warn('Error parsing HTML content:', e);
+}
+
     // Store the user prompt and the LLM's reply in our conversation array
     // The user's initial prompt:
     conversationHistory.push({
