@@ -332,7 +332,7 @@ async function performFinalAnalysis() {
     // Update the analysis tab with the result
     const analyzeResultTextDiv = document.querySelector('#analysis-content .analyze-result-text');
     if (analyzeResultTextDiv) {
-      analyzeResultTextDiv.textContent = analyzeResultText;
+      analyzeResultTextDiv.innerHTML = analyzeResultText;
     }
 
     // Initialize the conversation UI in the analysis tab
