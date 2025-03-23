@@ -1039,6 +1039,8 @@ async function fetchSalesData(partNumbers) {
         const res = await fetch(`https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
         const data = await res.json();
+
+        // Only record lines that appear in OrderDtlPA
         data.forEach(entry => {
           const details = entry?.returnObj?.OrderDtlPA || [];
           details.forEach(line => {
@@ -1062,6 +1064,7 @@ async function fetchSalesData(partNumbers) {
         console.warn('Sales fetch error for', number, err);
       }
     }
+
     searchResults.sales.push(...newItems);
     buildSalesTable();
   } catch (err) {
