@@ -1147,11 +1147,9 @@ async function fetchPurchasesData(partNumbers) {
         const data = await res.json();
 
         data.forEach(entry => {
-          // First check PAPurchasedBefore, as the original code did
+          // Only record lines that appear in PAPurchasedBefore
           const purchasedItems = entry?.returnObj?.PAPurchasedBefore || [];
-
           if (purchasedItems.length > 0) {
-            // If PAPurchasedBefore has lines, parse them
             purchasedItems.forEach(line => {
               newItems.push({
                 sourcePartNumber: source,
@@ -1169,28 +1167,8 @@ async function fetchPurchasesData(partNumbers) {
                 PurchasedBefore: true
               });
             });
-          } else {
-            // If PAPurchasedBefore is empty, fall back to PurchaseAdvisor
-            const advisorItems = entry?.returnObj?.PurchaseAdvisor || [];
-            advisorItems.forEach(line => {
-              newItems.push({
-                sourcePartNumber: source,
-                PartNum: line.PartNum || '',
-                // The PurchaseAdvisor array doesn't provide vendor/cost/dates
-                VendorName: '',
-                VendorQty: '',
-                VendorUnitCost: '',
-                PONum: line.PONum || 0,
-                ReceiptDate: '',
-                OrderDate: '',
-                DueDate: '',
-                IsAdvisor: true,
-                PartDescription: line.PartDescription || '',
-                // The array has a boolean for PurchasedBefore
-                PurchasedBefore: !!line.PurchasedBefore
-              });
-            });
           }
+          // (Removed fallback: do not add PurchaseAdvisor lines if PAPurchasedBefore is empty)
         });
       } catch (err) {
         console.warn('Purchases fetch error for', number, err);
@@ -1214,6 +1192,7 @@ async function fetchPurchasesData(partNumbers) {
     checkIfAllDone();
   }
 }
+
 
 function buildPurchasesTable() {
   const resultsDiv = document.querySelector('#purchases-content .purchases-results');
