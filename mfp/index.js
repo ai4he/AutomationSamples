@@ -1776,6 +1776,12 @@ function updateSummaryTab() {
   }
 }
 
+// index.js
+
+// Locate the portion where we generate the summary table 
+// and add handling for 'epicor' (inventory) best price 
+// by reading the BasePrice field:
+
 function generateSummaryTableHtml() {
   function createSummaryTable(key, label) {
     const dataArray = searchResults[key] || [];
@@ -1807,11 +1813,18 @@ function generateSummaryTableHtml() {
             priceVal = parsePrice(it.rawPrice);
             break;
           case 'brokerbin':
-            if (typeof it.price === 'number') priceVal = it.price;
-            else if (typeof it.price === 'string') priceVal = parseFloat(it.price);
+            if (typeof it.price === 'number') {
+              priceVal = it.price;
+            } else if (typeof it.price === 'string') {
+              priceVal = parseFloat(it.price);
+            }
             break;
           case 'tdsynnex':
             priceVal = parseFloat(it.price);
+            break;
+          case 'epicor':
+            // For Epicor (inventory) we use the BasePrice field
+            priceVal = parseFloat(it.BasePrice);
             break;
         }
         if (priceVal != null && !isNaN(priceVal) && priceVal > 0) {
@@ -1881,6 +1894,7 @@ function generateSummaryTableHtml() {
 
   return summaryHTML.trim() || 'No search results yet.';
 }
+
 
 /***************************************************
  * Gathers final results for LLM analysis
