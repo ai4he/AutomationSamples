@@ -8,10 +8,11 @@ body {
   background-size: cover;
 }
 .container {
-  max-width: 1200px;
+  width: 80%;               /* Occupies 95% of the window width */
+  /* max-width: 1800px;        (Optional) Limit how wide it can get on large screens */
   margin: 20px auto;
   padding: 20px;
-  position: relative; /* Added to allow absolute positioning inside */
+  position: relative;
 }
 
 /* Logo container positioned at the top right */
