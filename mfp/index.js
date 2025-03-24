@@ -1208,13 +1208,20 @@ async function fetchPurchasesData(partNumbers) {
 }
 
 
+// index.js
+
 function buildPurchasesTable() {
   const resultsDiv = document.querySelector('#purchases-content .purchases-results');
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  const items = searchResults.purchases;
-  if (items.length === 0) return;
+  // First, filter out items that have no meaningful part number (empty or missing)
+  const allItems = searchResults.purchases;
+  const filteredItems = allItems.filter(it =>
+    it.PartNum && it.PartNum.trim() !== ''
+  );
+
+  if (filteredItems.length === 0) return;
 
   const table = document.createElement('table');
   table.innerHTML = `
@@ -1229,14 +1236,13 @@ function buildPurchasesTable() {
         <th>Receipt Date</th>
         <th>Order Date</th>
         <th>Due Date</th>
-        <!-- Additional columns to show if row came from PurchaseAdvisor or PAPurchasedBefore -->
         <th>Advisor</th>
         <th>Description</th>
         <th>Purchased Before</th>
       </tr>
     </thead>
     <tbody>
-      ${items.map(it => `
+      ${filteredItems.map(it => `
         <tr>
           <td>${it.sourcePartNumber}</td>
           <td>${it.PartNum || '-'}</td>
@@ -1254,6 +1260,7 @@ function buildPurchasesTable() {
       `).join('')}
     </tbody>
   `;
+  
   const container = document.createElement('div');
   container.className = 'table-container';
   container.appendChild(table);
