@@ -60,7 +60,9 @@ function stopSearch() {
   
   // Hide spinner
   const spinner = document.getElementById('loading-spinner');
+  const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'none';
+  if (stopBtn) stopBtn.style.display = 'none';
   
   // Show a message in the summary tab
   const summaryDiv = document.getElementById('summary-content');
@@ -282,7 +284,9 @@ function checkIfAllDone() {
 
   // if we reach here => expansions done + no active requests => finalize
   const spinner = document.getElementById('loading-spinner');
+  const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'none';
+  if (stopBtn) stopBtn.style.display = 'none';
 
   performFinalAnalysis();
 }
@@ -532,7 +536,9 @@ async function handleSearch() {
 
   // 4) Show spinner
   const spinner = document.getElementById('loading-spinner');
+  const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'inline-block';
+  if (stopBtn) stopBtn.style.display = 'inline-block';
 
   // We'll store discovered alternative parts
   const finalAlternatives = [];
