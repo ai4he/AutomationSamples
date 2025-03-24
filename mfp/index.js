@@ -980,6 +980,7 @@ async function fetchInventoryData(partNumbers) {
   }
 }
 
+// Epicor Search
 function buildEpicorInventoryTable() {
   const resultsDiv = document.querySelector('#inventory-content .inventory-results');
   if (!resultsDiv) return;
@@ -998,6 +999,8 @@ function buildEpicorInventoryTable() {
         <th>Description</th>
         <th>Class</th>
         <th>Product Code</th>
+        <th>Quantity</th>
+        <th>Base Price</th>
         <th>Status</th>
       </tr>
     </thead>
@@ -1010,6 +1013,8 @@ function buildEpicorInventoryTable() {
           <td>${it.PartDescription || '-'}</td>
           <td>${it.ClassDescription || '-'}</td>
           <td>${it.ProdCodeDescription || '-'}</td>
+          <td>${(it.Quantity !== undefined && it.Quantity !== null) ? it.Quantity : '-'}</td>
+          <td>${(it.BasePrice !== undefined && it.BasePrice !== null) ? it.BasePrice : '-'}</td>
           <td>${it.InActive ? '<span class="text-error">Inactive</span>' : '<span class="text-success">Active</span>'}</td>
         </tr>
       `).join('')}
