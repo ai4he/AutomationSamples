@@ -375,8 +375,9 @@ function initializeConversationUI() {
 
 // index.js
 
-// In the renderConversationUI function, after you populate and insert the HTML, 
-// scroll the messages container to the bottom.
+// Replace your existing renderConversationUI function with the version below
+// to enable automatic scrolling to the bottom of the chat container whenever
+// new messages are rendered:
 
 function renderConversationUI() {
   if (!chatContainer) return;
@@ -385,12 +386,14 @@ function renderConversationUI() {
   let chatHTML = '<div class="chat-messages">';
   conversationHistory.forEach(msg => {
     if (msg.role === 'assistant') {
+      // model's reply
       chatHTML += `
         <div class="chat-message assistant">
           <strong>Assistant:</strong> ${msg.content}
         </div>
       `;
     } else {
+      // user
       chatHTML += `
         <div class="chat-message user">
           <strong>You:</strong> ${msg.content}
@@ -408,19 +411,22 @@ function renderConversationUI() {
     </div>
   `;
 
+  // Replace the chat container content
   chatContainer.innerHTML = chatHTML;
 
-  // 3) Scroll to the bottom of the chat messages
-  const chatMessagesContainer = chatContainer.querySelector('.chat-messages');
-  if (chatMessagesContainer) {
-    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+  // 2a) Immediately scroll chat to the bottom
+  const messagesDiv = chatContainer.querySelector('.chat-messages');
+  if (messagesDiv) {
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
   }
 
-  // 4) Add event listeners for the send button and Enter key
+  // 3) Add an event listener for the "Send" button
   const sendBtn = document.getElementById('chat-send-btn');
   if (sendBtn) {
     sendBtn.addEventListener('click', handleUserChatSubmit);
   }
+
+  // Also handle "Enter" key in the input
   const inputField = document.getElementById('chat-input');
   if (inputField) {
     inputField.addEventListener('keydown', (e) => {
@@ -430,6 +436,7 @@ function renderConversationUI() {
     });
   }
 }
+
 
 
 function handleUserChatSubmit() {
