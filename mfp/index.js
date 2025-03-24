@@ -986,8 +986,14 @@ function buildEpicorInventoryTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  const items = searchResults.epicor;
-  if (items.length === 0) return;
+  // Filter out items where Company or PartNum are empty
+  const allItems = searchResults.epicor;
+  const filteredItems = allItems.filter(it =>
+    it.Company && it.Company.trim() !== '' &&
+    it.PartNum && it.PartNum.trim() !== ''
+  );
+
+  if (filteredItems.length === 0) return;
 
   const table = document.createElement('table');
   table.innerHTML = `
@@ -1005,11 +1011,11 @@ function buildEpicorInventoryTable() {
       </tr>
     </thead>
     <tbody>
-      ${items.map(it => `
+      ${filteredItems.map(it => `
         <tr>
           <td>${it.sourcePartNumber}</td>
-          <td>${it.Company || '-'}</td>
-          <td>${it.PartNum?.trim() || '-'}</td>
+          <td>${it.Company}</td>
+          <td>${it.PartNum.trim()}</td>
           <td>${it.PartDescription || '-'}</td>
           <td>${it.ClassDescription || '-'}</td>
           <td>${it.ProdCodeDescription || '-'}</td>
