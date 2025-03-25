@@ -42,7 +42,8 @@ let searchResults = {
   brokerbin: [],
   epicor: [],
   sales: [],
-  purchases: []
+  purchases: [],
+  lenovo: []
 };
 
 // Keep track of how many endpoint requests are currently active
@@ -1642,23 +1643,17 @@ function buildEbayScraperTable() {
   makeTableSortable(table);
 }
 
-/***************************************************
- * Lenovo
- ***************************************************/
-async function fetchLenovoData(partNumbers) {
-  if (stopSearchRequested) return;
-  if (!document.getElementById('toggle-lenovo').checked) return;
-  activeRequestsCount++;
-
+/**
+ * Build or update the Lenovo UI from all data in searchResults.lenovo
+ */
+function buildLenovoUI() {
   const lenovoContentDiv = document.getElementById('lenovo-content');
-  if (!lenovoContentDiv) {
-    console.error('Lenovo content div not found');
-    return;
-  }
+  if (!lenovoContentDiv) return;
 
   let subtabs = document.getElementById('lenovo-subtabs');
   let subcontent = document.getElementById('lenovo-subcontent');
 
+  // If these elements don't exist, create them
   if (!subtabs) {
     subtabs = document.createElement('div');
     subtabs.id = 'lenovo-subtabs';
@@ -1671,11 +1666,57 @@ async function fetchLenovoData(partNumbers) {
     lenovoContentDiv.appendChild(subcontent);
   }
 
-  subtabs.innerHTML = '<div class="loading">Loading Lenovo data...</div>';
+  // Clear existing UI
+  subtabs.innerHTML = '';
   subcontent.innerHTML = '';
 
+  // If we have no accumulated results, show a message
+  const allResults = searchResults.lenovo;
+  if (!allResults || allResults.length === 0) {
+    subtabs.innerHTML = '<div class="error">No Lenovo data found</div>';
+    return;
+  }
+
+  // Build UI for each doc
+  allResults.forEach((doc, index) => {
+    // Each doc gets a subtab button
+    const subtabButton = document.createElement('button');
+    subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
+    const title = doc.title || 'Untitled Document';
+    const cleanTitle = typeof title === 'string'
+      ? title.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
+      : 'Untitled Document';
+
+    subtabButton.textContent = `${doc.sourcePartNumber} - ${cleanTitle}`;
+    subtabButton.title = cleanTitle;
+    subtabButton.onclick = () => switchLenovoSubtab(index);
+    subtabs.appendChild(subtabButton);
+
+    // Build content area
+    const contentDiv = document.createElement('div');
+    contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
+    contentDiv.setAttribute('data-subtab-index', index);
+
+    let processedContent = decodeUnicodeEscapes(doc.content);
+    if (!processedContent.trim().toLowerCase().startsWith('<table')) {
+      processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
+    }
+    contentDiv.innerHTML = processedContent;
+    subcontent.appendChild(contentDiv);
+  });
+}
+
+/**
+ * Modified fetchLenovoData to accumulate results into searchResults.lenovo
+ * and then buildLenovoUI from that aggregator. Even if new calls return empty,
+ * existing data remains displayed.
+ */
+async function fetchLenovoData(partNumbers) {
+  if (stopSearchRequested) return;
+  if (!document.getElementById('toggle-lenovo').checked) return;
+  activeRequestsCount++;
+
   try {
-    const allResults = [];
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
@@ -1687,50 +1728,27 @@ async function fetchLenovoData(partNumbers) {
           const docs = data[0].data
             .filter(doc => doc && doc.content && doc.content.trim() !== '')
             .map(doc => ({ ...doc, sourcePartNumber: source }));
-          if (docs.length > 0) {
-            allResults.push(...docs);
-          }
+          // Append these results to our global aggregator
+          searchResults.lenovo.push(...docs);
         }
       } catch (error) {
         console.warn(`Lenovo error for ${number}:`, error);
       }
     }
 
-    subtabs.innerHTML = '';
-    subcontent.innerHTML = '';
-
-    if (allResults.length > 0) {
-      allResults.forEach((doc, index) => {
-        const subtabButton = document.createElement('button');
-        subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
-        const title = doc.title || 'Untitled Document';
-        const cleanTitle = typeof title === 'string'
-          ? title.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
-          : 'Untitled Document';
-
-        subtabButton.textContent = `${doc.sourcePartNumber} - ${cleanTitle}`;
-        subtabButton.title = cleanTitle;
-        subtabButton.onclick = () => switchLenovoSubtab(index);
-        subtabs.appendChild(subtabButton);
-
-        const contentDiv = document.createElement('div');
-        contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
-        contentDiv.setAttribute('data-subtab-index', index);
-
-        let processedContent = decodeUnicodeEscapes(doc.content);
-        if (!processedContent.trim().toLowerCase().startsWith('<table')) {
-          processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
-        }
-        contentDiv.innerHTML = processedContent;
-        subcontent.appendChild(contentDiv);
-      });
-    } else {
-      subtabs.innerHTML = '<div class="error">No Lenovo data found</div>';
-    }
+    // Now build the UI from the entire aggregator
+    buildLenovoUI();
 
   } catch (err) {
     console.error('Lenovo data fetch error:', err);
-    subtabs.innerHTML = `<div class="error">Error fetching Lenovo data: ${err.message}</div>`;
+    // If there's absolutely no data after the error,
+    // we can show an error message. Otherwise, keep what we have.
+    if (!searchResults.lenovo.length) {
+      const subtabs = document.getElementById('lenovo-subtabs');
+      if (subtabs) {
+        subtabs.innerHTML = `<div class="error">Error fetching Lenovo data: ${err.message}</div>`;
+      }
+    }
   } finally {
     activeRequestsCount--;
     checkIfAllDone();
