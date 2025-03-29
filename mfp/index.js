@@ -1779,45 +1779,31 @@ function updateSummaryTab() {
   // Check if search was stopped
   const searchStopped = stopSearchRequested;
   
-  // Look for existing stopped message
-  const existingStoppedMsg = summaryDiv.querySelector('.search-stopped-message');
-  if (searchStopped && !existingStoppedMsg) {
-    const stoppedMessage = document.createElement('div');
-    stoppedMessage.className = 'search-stopped-message';
-    stoppedMessage.innerHTML = '<p><strong>Search was stopped by user.</strong> Partial results are displayed.</p>';
-    stoppedMessage.style.padding = '10px';
-    stoppedMessage.style.backgroundColor = '#ffecec';
-    stoppedMessage.style.border = '1px solid #f5c6cb';
-    stoppedMessage.style.borderRadius = '4px';
-    stoppedMessage.style.marginBottom = '15px';
-    summaryDiv.prepend(stoppedMessage);
-  }
-
-  // Check if search is complete and not stopped
+  // Check if search is complete
   const searchEnded = analysisAlreadyCalled && !searchStopped;
-  const existingEndedMsg = summaryDiv.querySelector('.search-ended-message');
-  if (searchEnded && !existingEndedMsg) {
-    const endedMessage = document.createElement('div');
-    endedMessage.className = 'search-ended-message';
-    endedMessage.innerHTML = '<p><strong>Search completed.</strong> Results are displayed below.</p>';
-    endedMessage.style.padding = '10px';
-    endedMessage.style.backgroundColor = '#e6f7e6';
-    endedMessage.style.border = '1px solid #c3e6cb';
-    endedMessage.style.borderRadius = '4px';
-    endedMessage.style.marginBottom = '15px';
-    
-    // Position depends on whether there's already a stopped message
-    if (existingStoppedMsg) {
-      summaryDiv.insertBefore(endedMessage, existingStoppedMsg.nextSibling);
-    } else {
-      summaryDiv.prepend(endedMessage);
-    }
+  
+  // PREPARE NOTIFICATIONS
+  let notifications = '';
+  
+  // Add stopped message if needed
+  if (searchStopped) {
+    notifications += `
+      <div class="search-stopped-message" style="padding: 10px; background-color: #ffecec; border: 1px solid #f5c6cb; border-radius: 4px; margin-bottom: 15px;">
+        <p><strong>Search was stopped by user.</strong> Partial results are displayed.</p>
+      </div>
+    `;
+  }
+  
+  // Add completed message if needed
+  if (searchEnded) {
+    notifications += `
+      <div class="search-ended-message" style="padding: 10px; background-color: #e6f7e6; border: 1px solid #c3e6cb; border-radius: 4px; margin-bottom: 15px;">
+        <p><strong>Search completed.</strong> Results are displayed below.</p>
+      </div>
+    `;
   }
 
-  // Replace content after the notification messages
-  let summaryContent = '';
-
-  // check toggles
+  // Generate content with toggle checks
   const anyEnabled = (
     document.getElementById('toggle-inventory').checked ||
     document.getElementById('toggle-brokerbin').checked ||
@@ -1828,30 +1814,16 @@ function updateSummaryTab() {
     document.getElementById('toggle-amazon').checked ||
     document.getElementById('toggle-ebay').checked
   );
+  
+  let summaryContent = '';
   if (!anyEnabled) {
     summaryContent = 'No search results yet.';
   } else {
     summaryContent = generateSummaryTableHtml();
   }
 
-  // Remove all existing content EXCEPT notification messages
-  const notifications = [];
-  Array.from(summaryDiv.children).forEach(child => {
-    if (child.classList.contains('search-stopped-message') || 
-        child.classList.contains('search-ended-message')) {
-      notifications.push(child);
-      summaryDiv.removeChild(child);
-    }
-  });
-  
-  // Clear remaining content and add the notifications back
-  summaryDiv.innerHTML = '';
-  notifications.forEach(note => summaryDiv.appendChild(note));
-  
-  // Now add the new content after notifications
-  const contentDiv = document.createElement('div');
-  contentDiv.innerHTML = summaryContent;
-  summaryDiv.appendChild(contentDiv);
+  // Combine notifications with content
+  summaryDiv.innerHTML = notifications + summaryContent;
 }
 
 // index.js
