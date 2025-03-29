@@ -289,26 +289,6 @@ function checkIfAllDone() {
   if (spinner) spinner.style.display = 'none';
   if (stopBtn) stopBtn.style.display = 'none';
 
-  // ADD SEARCH ENDED NOTIFICATION
-  const summaryDiv = document.getElementById('summary-content');
-  if (summaryDiv) {
-    const searchEndedMsg = document.createElement('div');
-    searchEndedMsg.className = 'search-ended-message';
-    searchEndedMsg.innerHTML = '<p><strong>Search completed.</strong> Results are displayed below.</p>';
-    searchEndedMsg.style.padding = '10px';
-    searchEndedMsg.style.backgroundColor = '#e6f7e6';
-    searchEndedMsg.style.border = '1px solid #c3e6cb';
-    searchEndedMsg.style.borderRadius = '4px';
-    searchEndedMsg.style.marginBottom = '15px';
-    
-    // Insert at the top of summary content
-    if (summaryDiv.firstChild) {
-      summaryDiv.insertBefore(searchEndedMsg, summaryDiv.firstChild);
-    } else {
-      summaryDiv.appendChild(searchEndedMsg);
-    }
-  }
-
   performFinalAnalysis();
 }
 
@@ -1813,7 +1793,28 @@ function updateSummaryTab() {
     summaryDiv.prepend(stoppedMessage);
   }
 
-  // Replace content after the stopped message if it exists
+  // Check if search is complete and not stopped
+  const searchEnded = analysisAlreadyCalled && !searchStopped;
+  const existingEndedMsg = summaryDiv.querySelector('.search-ended-message');
+  if (searchEnded && !existingEndedMsg) {
+    const endedMessage = document.createElement('div');
+    endedMessage.className = 'search-ended-message';
+    endedMessage.innerHTML = '<p><strong>Search completed.</strong> Results are displayed below.</p>';
+    endedMessage.style.padding = '10px';
+    endedMessage.style.backgroundColor = '#e6f7e6';
+    endedMessage.style.border = '1px solid #c3e6cb';
+    endedMessage.style.borderRadius = '4px';
+    endedMessage.style.marginBottom = '15px';
+    
+    // Position depends on whether there's already a stopped message
+    if (existingStoppedMsg) {
+      summaryDiv.insertBefore(endedMessage, existingStoppedMsg.nextSibling);
+    } else {
+      summaryDiv.prepend(endedMessage);
+    }
+  }
+
+  // Replace content after the notification messages
   let summaryContent = '';
 
   // check toggles
@@ -1833,20 +1834,24 @@ function updateSummaryTab() {
     summaryContent = generateSummaryTableHtml();
   }
 
-  // If there's a stopped message, keep it and replace the rest
-  if (existingStoppedMsg) {
-    // Remove all other content
-    Array.from(summaryDiv.childNodes).forEach(node => {
-      if (node !== existingStoppedMsg) {
-        summaryDiv.removeChild(node);
-      }
-    });
-    // Add new content
-    summaryDiv.innerHTML += summaryContent;
-  } else {
-    // Replace all content
-    summaryDiv.innerHTML = summaryContent;
-  }
+  // Remove all existing content EXCEPT notification messages
+  const notifications = [];
+  Array.from(summaryDiv.children).forEach(child => {
+    if (child.classList.contains('search-stopped-message') || 
+        child.classList.contains('search-ended-message')) {
+      notifications.push(child);
+      summaryDiv.removeChild(child);
+    }
+  });
+  
+  // Clear remaining content and add the notifications back
+  summaryDiv.innerHTML = '';
+  notifications.forEach(note => summaryDiv.appendChild(note));
+  
+  // Now add the new content after notifications
+  const contentDiv = document.createElement('div');
+  contentDiv.innerHTML = summaryContent;
+  summaryDiv.appendChild(contentDiv);
 }
 
 // index.js
