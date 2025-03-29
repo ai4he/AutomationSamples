@@ -289,6 +289,26 @@ function checkIfAllDone() {
   if (spinner) spinner.style.display = 'none';
   if (stopBtn) stopBtn.style.display = 'none';
 
+  // ADD SEARCH ENDED NOTIFICATION
+  const summaryDiv = document.getElementById('summary-content');
+  if (summaryDiv) {
+    const searchEndedMsg = document.createElement('div');
+    searchEndedMsg.className = 'search-ended-message';
+    searchEndedMsg.innerHTML = '<p><strong>Search completed.</strong> Results are displayed below.</p>';
+    searchEndedMsg.style.padding = '10px';
+    searchEndedMsg.style.backgroundColor = '#e6f7e6';
+    searchEndedMsg.style.border = '1px solid #c3e6cb';
+    searchEndedMsg.style.borderRadius = '4px';
+    searchEndedMsg.style.marginBottom = '15px';
+    
+    // Insert at the top of summary content
+    if (summaryDiv.firstChild) {
+      summaryDiv.insertBefore(searchEndedMsg, summaryDiv.firstChild);
+    } else {
+      summaryDiv.appendChild(searchEndedMsg);
+    }
+  }
+
   performFinalAnalysis();
 }
 
@@ -354,8 +374,8 @@ try {
     // Initialize the conversation UI in the analysis tab
     initializeConversationUI();
 
-    // Switch to the analysis tab to show the results
-    switchTab('analysis');
+    // REMOVED: Switch to the analysis tab to show the results
+    // switchTab('analysis');
 
   } catch (err) {
     console.error('Analyze data error:', err);
