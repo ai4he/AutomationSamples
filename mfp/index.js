@@ -1009,11 +1009,14 @@ function buildEpicorInventoryTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // Filter out items where Company or PartNum are empty
+  // Filter out items where:
+  // 1) Company or PartNum are empty
+  // 2) Quantity is missing or zero (so we only show > 0)
   const allItems = searchResults.epicor;
   const filteredItems = allItems.filter(it =>
     it.Company && it.Company.trim() !== '' &&
-    it.PartNum && it.PartNum.trim() !== ''
+    it.PartNum && it.PartNum.trim() !== '' &&
+    it.Quantity && Number(it.Quantity) > 0
   );
 
   if (filteredItems.length === 0) return;
