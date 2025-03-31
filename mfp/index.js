@@ -255,7 +255,7 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
 /***************************************************
  * Function to add continue search button
  ***************************************************/
-function addContinueSearchButton(finalAlternatives, updateUICallback, searchCallback) {
+function addContinueSearchButton(finalAlternatives, updateUICallback, alreadySearched) {
   const altDiv = document.getElementById('alternative-numbers');
   if (!altDiv) return;
   
@@ -281,13 +281,10 @@ function addContinueSearchButton(finalAlternatives, updateUICallback, searchCall
       const partNumber = partNumberInput.value.trim();
       if (partNumber) {
         // Use the existing search functions to continue
-        const visited = new Set();
-        // Add existing alternatives to visited set to avoid duplicates
-        finalAlternatives.forEach(alt => {
-          visited.add(alt.value.trim().toUpperCase());
-        });
-        // Continue the search with no limit
-        gatherCombinatoryAlternatives(partNumber, 0, visited, finalAlternatives, searchCallback);
+        const visited = new Set(alreadySearched); // Copy the already searched set
+        
+        // Start recursive search again from the original part number
+        gatherCombinatoryAlternatives(partNumber, 0, visited, finalAlternatives, updateUICallback);
       }
     }
   });
@@ -315,23 +312,17 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
     if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
       result.push(alt);
       newlyAdded.push(alt);
-      
-      // If we've reached our initial limit and haven't displayed "Continue" button yet
-      if (!initialSearchComplete && result.length >= initialAltLimit) {
-        // Add continue button with the current finalAlternatives and callbacks
-        addContinueSearchButton(result, onNewAlts, onNewAlts);
-        // If not fully searched, return early
-        if (!initialSearchComplete) {
-          if (newlyAdded.length > 0 && onNewAlts) {
-            await onNewAlts(newlyAdded);
-          }
-          return;
-        }
-      }
     }
   }
+  
   if (newlyAdded.length > 0 && onNewAlts) {
     await onNewAlts(newlyAdded);
+  }
+
+  // If we've reached our initial limit and it's not a complete search yet
+  if (!initialSearchComplete && result.length >= initialAltLimit) {
+    addContinueSearchButton(result, onNewAlts, visited);
+    return; // Stop the search until user clicks to continue
   }
 
   let goDeeper = false;
@@ -341,12 +332,15 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
     goDeeper = currentLevel < configNestedLevel;
   }
   
-  // Only proceed deeper if we should go deeper AND
-  // either initialSearchComplete is true OR we haven't reached our initial limit yet
-  if (goDeeper && (initialSearchComplete || result.length < initialAltLimit)) {
+  if (goDeeper) {
     for (const alt of alternatives) {
       if (stopSearchRequested) return; // Check before each recursive call
       await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
+      
+      // Break the loop if we've reached the limit and not fully searched
+      if (!initialSearchComplete && result.length >= initialAltLimit) {
+        break;
+      }
     }
   }
 }
@@ -451,12 +445,6 @@ function initializeConversationUI() {
   // Render the conversation so far + input
   renderConversationUI();
 }
-
-// index.js
-
-// Replace your existing renderConversationUI function with the version below
-// to enable automatic scrolling to the bottom of the chat container whenever
-// new messages are rendered:
 
 function renderConversationUI() {
   if (!chatContainer) return;
@@ -1326,9 +1314,6 @@ async function fetchPurchasesData(partNumbers) {
   }
 }
 
-
-// index.js
-
 function buildPurchasesTable() {
   const resultsDiv = document.querySelector('#purchases-content .purchases-results');
   if (!resultsDiv) return;
@@ -1397,7 +1382,6 @@ function buildPurchasesTable() {
     headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
   }
 }
-
 
 // 7) AmazonConnector
 async function fetchAmazonConnectorData(partNumbers) {
@@ -1932,8 +1916,6 @@ function updateSummaryTab() {
   summaryDiv.innerHTML = notifications + summaryContent;
 }
 
-// index.js
-
 // Generate summary table with filtering for epicor items matching inventory filtering
 function generateSummaryTableHtml() {
   function createSummaryTable(key, label) {
@@ -1997,3 +1979,145 @@ function generateSummaryTableHtml() {
             // For Epicor (inventory) we use the BasePrice field
             priceVal = parseFloat(it.BasePrice);
             break;
+        }
+        if (priceVal != null && !isNaN(priceVal) && priceVal > 0) {
+          if (minPrice == null || priceVal < minPrice) {
+            minPrice = priceVal;
+          }
+        }
+      });
+      return minPrice;
+    }
+
+    let rows = '';
+    for (const part in grouped) {
+      const bestPrice = findBestPrice(grouped[part]);
+      rows += `
+        <tr>
+          <td>${part}</td>
+          <td>${grouped[part].length}</td>
+          <td>${bestPrice != null ? '$' + bestPrice.toFixed(2) : '-'}</td>
+        </tr>
+      `;
+    }
+
+    return `
+      <h3>${label} Summary</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Part Number</th>
+            <th>Items Found</th>
+            <th>Best Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    `;
+  }
+
+  let summaryHTML = '';
+
+  if (document.getElementById('toggle-inventory').checked) {
+    summaryHTML += createSummaryTable('epicor', 'Epicor (Inventory)');
+  }
+  if (document.getElementById('toggle-brokerbin').checked) {
+    summaryHTML += createSummaryTable('brokerbin', 'BrokerBin');
+  }
+  if (document.getElementById('toggle-tdsynnex').checked) {
+    summaryHTML += createSummaryTable('tdsynnex', 'TDSynnex');
+  }
+  if (document.getElementById('toggle-ingram').checked) {
+    summaryHTML += createSummaryTable('ingram', 'Ingram');
+  }
+  if (document.getElementById('toggle-amazon-connector').checked) {
+    summaryHTML += createSummaryTable('amazonConnector', 'AmazonConnector');
+  }
+  if (document.getElementById('toggle-ebay-connector').checked) {
+    summaryHTML += createSummaryTable('ebayConnector', 'eBayConnector');
+  }
+  if (document.getElementById('toggle-amazon').checked) {
+    summaryHTML += createSummaryTable('amazon', 'Amazon');
+  }
+  if (document.getElementById('toggle-ebay').checked) {
+    summaryHTML += createSummaryTable('ebay', 'eBay');
+  }
+
+  return summaryHTML.trim() || 'No search results yet.';
+}
+
+/***************************************************
+ * Gathers final results for LLM analysis
+ ***************************************************/
+function gatherResultsForAnalysis() {
+  const results = {};
+  if (document.getElementById('toggle-inventory').checked) {
+    const invElem = document.querySelector('#inventory-content .inventory-results');
+    results['epicor-search'] = invElem ? invElem.innerHTML : "";
+  }
+  if (document.getElementById('toggle-brokerbin').checked) {
+    const bbElem = document.querySelector('.brokerbin-results .results-container');
+    results['brokerbin-search'] = bbElem ? bbElem.innerHTML : "";
+  }
+  if (document.getElementById('toggle-tdsynnex').checked) {
+    const tdElem = document.querySelector('.tdsynnex-results .results-container');
+    results['tdsynnex-search'] = tdElem ? tdElem.innerHTML : "";
+  }
+  if (document.getElementById('toggle-ingram').checked) {
+    const ingElem = document.querySelector('.ingram-results .results-container');
+    results['ingram-search'] = ingElem ? ingElem.innerHTML : "";
+  }
+  if (document.getElementById('toggle-amazon-connector').checked) {
+    const acElem = document.querySelector('.amazon-connector-results .results-container');
+    results['amazon-connector'] = acElem ? acElem.innerHTML : "";
+  }
+  if (document.getElementById('toggle-ebay-connector').checked) {
+    const ecElem = document.querySelector('.ebay-connector-results .results-container');
+    results['ebay-connector'] = ecElem ? ecElem.innerHTML : "";
+  }
+  if (document.getElementById('toggle-amazon').checked) {
+    const amzScrElem = document.querySelector('.amazon-results .results-container');
+    results['amazon-scraper'] = amzScrElem ? amzScrElem.innerHTML : "";
+  }
+  if (document.getElementById('toggle-ebay').checked) {
+    const eScrElem = document.querySelector('.ebay-results .results-container');
+    results['ebay-scraper'] = eScrElem ? eScrElem.innerHTML : "";
+  }
+
+  return results;
+}
+
+/***************************************************
+ * Google / MS sign-in from original snippet
+ ***************************************************/
+document.getElementById('google-signin-btn').addEventListener('click', () => {
+  google.accounts.id.initialize({
+    client_id: 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com',
+    callback: handleGoogleCredentialResponse
+  });
+  google.accounts.id.prompt();
+});
+function handleGoogleCredentialResponse(response) {
+  console.log('Google Credential Response:', response);
+  document.getElementById('user-info').textContent = 'Signed in with Google';
+}
+
+const msalConfig = {
+  auth: {
+    clientId: "YOUR_MICROSOFT_CLIENT_ID",
+    redirectUri: window.location.origin
+  }
+};
+const msalInstance = new msal.PublicClientApplication(msalConfig);
+document.getElementById('microsoft-signin-btn').addEventListener('click', () => {
+  msalInstance.loginPopup({ scopes: ["User.Read"] })
+    .then(loginResponse => {
+      console.log('Microsoft Login Response:', loginResponse);
+      document.getElementById('user-info').textContent = 'Signed in as: ' + loginResponse.account.username;
+    })
+    .catch(error => {
+      console.error('Microsoft Login Error:', error);
+    });
+});
