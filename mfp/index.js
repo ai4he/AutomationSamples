@@ -16,6 +16,10 @@ let configUseAlternatives = true;
 // -1 => infinite expansions until no new parts discovered
 let configNestedLevel = 1;
 
+// Maximum number of alternative parts to find initially
+let initialAltLimit = 3;
+let initialSearchComplete = false;
+
 // Stores the entire conversation as an array of message objects:
 // e.g. [ { role: "user", content: "Hello" }, { role: "assistant", content: "Hi!" }, ... ]
 let conversationHistory = [];
@@ -119,10 +123,26 @@ function makeTableSortable(table) {
 function sortTableByColumn(table, columnIndex, asc = true) {
   const tbody = table.tBodies[0];
   const rows = Array.from(tbody.querySelectorAll("tr"));
+  
+  // Get the column header text to determine if it might be a date column
+  const headerText = table.querySelector(`th:nth-child(${columnIndex + 1})`).textContent.trim().toLowerCase();
+  const isDateColumn = headerText.includes('date') || headerText.includes('time');
 
   rows.sort((a, b) => {
     const aText = a.children[columnIndex].textContent.trim();
     const bText = b.children[columnIndex].textContent.trim();
+    
+    // Special handling for date columns
+    if (isDateColumn) {
+      // Try to parse as dates
+      const aDate = new Date(aText);
+      const bDate = new Date(bText);
+      
+      // Check if both strings parsed as valid dates
+      if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
+        return asc ? aDate - bDate : bDate - aDate;
+      }
+    }
 
     // Try numeric comparison
     const aNum = parseFloat(aText.replace(/[^0-9.-]/g, ""));
@@ -213,6 +233,7 @@ async function getAlternativePartNumbers(partNumber) {
 function startExpansions(baseNumber, finalAlts, onNewAlts) {
   // Mark expansions as in progress
   expansionsInProgress = true;
+  initialSearchComplete = false;
 
   // We'll track visited parts
   const visited = new Set();
@@ -231,6 +252,48 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
     });
 }
 
+/***************************************************
+ * Function to add continue search button
+ ***************************************************/
+function addContinueSearchButton(finalAlternatives, updateUICallback, searchCallback) {
+  const altDiv = document.getElementById('alternative-numbers');
+  if (!altDiv) return;
+  
+  // Remove existing button if any
+  const existingBtn = document.getElementById('continue-search-btn');
+  if (existingBtn) existingBtn.remove();
+  
+  // Create continue button
+  const continueBtn = document.createElement('button');
+  continueBtn.id = 'continue-search-btn';
+  continueBtn.textContent = 'Continue Searching for More Parts';
+  continueBtn.style.marginTop = '15px';
+  continueBtn.style.backgroundColor = '#4CAF50';
+  
+  continueBtn.addEventListener('click', function() {
+    // Set flag to allow full search
+    initialSearchComplete = true;
+    // Remove the button
+    continueBtn.remove();
+    // Continue search process
+    const partNumberInput = document.getElementById('part-numbers');
+    if (partNumberInput) {
+      const partNumber = partNumberInput.value.trim();
+      if (partNumber) {
+        // Use the existing search functions to continue
+        const visited = new Set();
+        // Add existing alternatives to visited set to avoid duplicates
+        finalAlternatives.forEach(alt => {
+          visited.add(alt.value.trim().toUpperCase());
+        });
+        // Continue the search with no limit
+        gatherCombinatoryAlternatives(partNumber, 0, visited, finalAlternatives, searchCallback);
+      }
+    }
+  });
+  
+  altDiv.appendChild(continueBtn);
+}
 
 /***************************************************
  * Recursive Gathering of Alt Parts to configNestedLevel
@@ -252,6 +315,19 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
     if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
       result.push(alt);
       newlyAdded.push(alt);
+      
+      // If we've reached our initial limit and haven't displayed "Continue" button yet
+      if (!initialSearchComplete && result.length >= initialAltLimit) {
+        // Add continue button with the current finalAlternatives and callbacks
+        addContinueSearchButton(result, onNewAlts, onNewAlts);
+        // If not fully searched, return early
+        if (!initialSearchComplete) {
+          if (newlyAdded.length > 0 && onNewAlts) {
+            await onNewAlts(newlyAdded);
+          }
+          return;
+        }
+      }
     }
   }
   if (newlyAdded.length > 0 && onNewAlts) {
@@ -264,14 +340,16 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
   } else if (configNestedLevel > 0) {
     goDeeper = currentLevel < configNestedLevel;
   }
-  if (goDeeper) {
+  
+  // Only proceed deeper if we should go deeper AND
+  // either initialSearchComplete is true OR we haven't reached our initial limit yet
+  if (goDeeper && (initialSearchComplete || result.length < initialAltLimit)) {
     for (const alt of alternatives) {
       if (stopSearchRequested) return; // Check before each recursive call
       await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
     }
   }
 }
-
 
 /***************************************************
  * Spinner, expansions, and final analysis
@@ -438,8 +516,6 @@ function renderConversationUI() {
   }
 }
 
-
-
 function handleUserChatSubmit() {
   const inputField = document.getElementById('chat-input');
   if (!inputField) return;
@@ -507,13 +583,15 @@ async function sendChatMessageToLLM() {
   }
 }
 
-
 /***************************************************
  * The main handleSearch
  ***************************************************/
 async function handleSearch() {
   // Reset the stop search flag
   stopSearchRequested = false;
+  
+  // Reset the initialSearchComplete flag
+  initialSearchComplete = false;
   
   // Ensure that final analysis can happen again for each fresh search
   analysisAlreadyCalled = false;
@@ -649,7 +727,6 @@ async function handleSearch() {
   }
 }
 
-
 /***************************************************
  * A helper to do parallel endpoint searches for a 
  * given array of {number, source}
@@ -758,8 +835,14 @@ function buildTDSynnexTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
+  // Filter out items with zero quantity
   const allItems = searchResults.tdsynnex;
-  if (allItems.length === 0) return;
+  const filteredItems = allItems.filter(item => {
+    const qty = parseInt(item.totalQuantity, 10);
+    return !isNaN(qty) && qty > 0;
+  });
+  
+  if (filteredItems.length === 0) return;
 
   const table = document.createElement('table');
   table.innerHTML = `
@@ -776,7 +859,7 @@ function buildTDSynnexTable() {
       </tr>
     </thead>
     <tbody>
-      ${allItems.map(item => `
+      ${filteredItems.map(item => `
         <tr>
           <td>${item.sourcePartNumber}</td>
           <td>${item.synnexSKU}</td>
@@ -1167,6 +1250,16 @@ function buildSalesTable() {
   resultsDiv.appendChild(container);
 
   makeTableSortable(table);
+  
+  // Sort by Order Date (newest first) by default
+  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
+  sortTableByColumn(table, orderDateColumnIndex, false); // false = descending
+  
+  // Mark the Order Date header as sorted
+  const headers = table.querySelectorAll("th");
+  if (headers[orderDateColumnIndex]) {
+    headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
+  }
 }
 
 // 6) Purchases
@@ -1293,6 +1386,16 @@ function buildPurchasesTable() {
   resultsDiv.appendChild(container);
 
   makeTableSortable(table);
+  
+  // Sort by Order Date (newest first) by default
+  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
+  sortTableByColumn(table, orderDateColumnIndex, false); // false = descending
+  
+  // Mark the Order Date header as sorted
+  const headers = table.querySelectorAll("th");
+  if (headers[orderDateColumnIndex]) {
+    headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
+  }
 }
 
 
@@ -1831,18 +1934,33 @@ function updateSummaryTab() {
 
 // index.js
 
-// Locate the portion where we generate the summary table 
-// and add handling for 'epicor' (inventory) best price 
-// by reading the BasePrice field:
-
+// Generate summary table with filtering for epicor items matching inventory filtering
 function generateSummaryTableHtml() {
   function createSummaryTable(key, label) {
     const dataArray = searchResults[key] || [];
     if (!dataArray.length) return '';
 
+    // Special handling for epicor - filter out items with zero quantity
+    let filteredDataArray = dataArray;
+    if (key === 'epicor') {
+      filteredDataArray = dataArray.filter(item => 
+        item.Quantity && Number(item.Quantity) > 0
+      );
+      if (filteredDataArray.length === 0) return '';
+    }
+    
+    // Special handling for tdsynnex - filter out items with zero quantity
+    if (key === 'tdsynnex') {
+      filteredDataArray = dataArray.filter(item => {
+        const qty = parseInt(item.totalQuantity, 10);
+        return !isNaN(qty) && qty > 0;
+      });
+      if (filteredDataArray.length === 0) return '';
+    }
+
     // group by sourcePartNumber
     const grouped = {};
-    dataArray.forEach(item => {
+    filteredDataArray.forEach(item => {
       const pnum = item.sourcePartNumber || 'Unknown';
       if (!grouped[pnum]) grouped[pnum] = [];
       grouped[pnum].push(item);
@@ -1879,146 +1997,3 @@ function generateSummaryTableHtml() {
             // For Epicor (inventory) we use the BasePrice field
             priceVal = parseFloat(it.BasePrice);
             break;
-        }
-        if (priceVal != null && !isNaN(priceVal) && priceVal > 0) {
-          if (minPrice == null || priceVal < minPrice) {
-            minPrice = priceVal;
-          }
-        }
-      });
-      return minPrice;
-    }
-
-    let rows = '';
-    for (const part in grouped) {
-      const bestPrice = findBestPrice(grouped[part]);
-      rows += `
-        <tr>
-          <td>${part}</td>
-          <td>${grouped[part].length}</td>
-          <td>${bestPrice != null ? '$' + bestPrice.toFixed(2) : '-'}</td>
-        </tr>
-      `;
-    }
-
-    return `
-      <h3>${label} Summary</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Part Number</th>
-            <th>Items Found</th>
-            <th>Best Price</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-    `;
-  }
-
-  let summaryHTML = '';
-
-  if (document.getElementById('toggle-inventory').checked) {
-    summaryHTML += createSummaryTable('epicor', 'Epicor (Inventory)');
-  }
-  if (document.getElementById('toggle-brokerbin').checked) {
-    summaryHTML += createSummaryTable('brokerbin', 'BrokerBin');
-  }
-  if (document.getElementById('toggle-tdsynnex').checked) {
-    summaryHTML += createSummaryTable('tdsynnex', 'TDSynnex');
-  }
-  if (document.getElementById('toggle-ingram').checked) {
-    summaryHTML += createSummaryTable('ingram', 'Ingram');
-  }
-  if (document.getElementById('toggle-amazon-connector').checked) {
-    summaryHTML += createSummaryTable('amazonConnector', 'AmazonConnector');
-  }
-  if (document.getElementById('toggle-ebay-connector').checked) {
-    summaryHTML += createSummaryTable('ebayConnector', 'eBayConnector');
-  }
-  if (document.getElementById('toggle-amazon').checked) {
-    summaryHTML += createSummaryTable('amazon', 'Amazon');
-  }
-  if (document.getElementById('toggle-ebay').checked) {
-    summaryHTML += createSummaryTable('ebay', 'eBay');
-  }
-
-  return summaryHTML.trim() || 'No search results yet.';
-}
-
-
-/***************************************************
- * Gathers final results for LLM analysis
- ***************************************************/
-function gatherResultsForAnalysis() {
-  const results = {};
-  if (document.getElementById('toggle-inventory').checked) {
-    const invElem = document.querySelector('#inventory-content .inventory-results');
-    results['epicor-search'] = invElem ? invElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-brokerbin').checked) {
-    const bbElem = document.querySelector('.brokerbin-results .results-container');
-    results['brokerbin-search'] = bbElem ? bbElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-tdsynnex').checked) {
-    const tdElem = document.querySelector('.tdsynnex-results .results-container');
-    results['tdsynnex-search'] = tdElem ? tdElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-ingram').checked) {
-    const ingElem = document.querySelector('.ingram-results .results-container');
-    results['ingram-search'] = ingElem ? ingElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-amazon-connector').checked) {
-    const acElem = document.querySelector('.amazon-connector-results .results-container');
-    results['amazon-connector'] = acElem ? acElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-ebay-connector').checked) {
-    const ecElem = document.querySelector('.ebay-connector-results .results-container');
-    results['ebay-connector'] = ecElem ? ecElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-amazon').checked) {
-    const amzScrElem = document.querySelector('.amazon-results .results-container');
-    results['amazon-scraper'] = amzScrElem ? amzScrElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-ebay').checked) {
-    const eScrElem = document.querySelector('.ebay-results .results-container');
-    results['ebay-scraper'] = eScrElem ? eScrElem.innerHTML : "";
-  }
-
-  return results;
-}
-
-/***************************************************
- * Google / MS sign-in from original snippet
- ***************************************************/
-document.getElementById('google-signin-btn').addEventListener('click', () => {
-  google.accounts.id.initialize({
-    client_id: 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com',
-    callback: handleGoogleCredentialResponse
-  });
-  google.accounts.id.prompt();
-});
-function handleGoogleCredentialResponse(response) {
-  console.log('Google Credential Response:', response);
-  document.getElementById('user-info').textContent = 'Signed in with Google';
-}
-
-const msalConfig = {
-  auth: {
-    clientId: "YOUR_MICROSOFT_CLIENT_ID",
-    redirectUri: window.location.origin
-  }
-};
-const msalInstance = new msal.PublicClientApplication(msalConfig);
-document.getElementById('microsoft-signin-btn').addEventListener('click', () => {
-  msalInstance.loginPopup({ scopes: ["User.Read"] })
-    .then(loginResponse => {
-      console.log('Microsoft Login Response:', loginResponse);
-      document.getElementById('user-info').textContent = 'Signed in as: ' + loginResponse.account.username;
-    })
-    .catch(error => {
-      console.error('Microsoft Login Error:', error);
-    });
-});
