@@ -301,13 +301,25 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
     return;
   }
 
+  // If we've already hit the limit and not in full search mode, don't go further
+  if (!initialSearchComplete && result.length >= initialAltLimit) {
+    return;
+  }
+
   const upperBase = baseNumber.trim().toUpperCase();
   if (visited.has(upperBase)) return;
   visited.add(upperBase);
 
   const { alternatives } = await getAlternativePartNumbers(baseNumber);
   let newlyAdded = [];
+  
+  // Only add alternatives until we reach the limit
   for (const alt of alternatives) {
+    // Stop adding if we've reached the limit and not in full search
+    if (!initialSearchComplete && result.length >= initialAltLimit) {
+      break;
+    }
+    
     const altUpper = alt.value.trim().toUpperCase();
     if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
       result.push(alt);
@@ -315,14 +327,15 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
     }
   }
   
+  // If we have new alternatives, call the callback
   if (newlyAdded.length > 0 && onNewAlts) {
     await onNewAlts(newlyAdded);
   }
 
-  // If we've reached our initial limit and it's not a complete search yet
+  // After adding alternatives, check if we've reached the limit
   if (!initialSearchComplete && result.length >= initialAltLimit) {
     addContinueSearchButton(result, onNewAlts, visited);
-    return; // Stop the search until user clicks to continue
+    return; // Stop search
   }
 
   let goDeeper = false;
@@ -332,15 +345,17 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
     goDeeper = currentLevel < configNestedLevel;
   }
   
-  if (goDeeper) {
+  // Only go deeper if appropriate and we haven't hit the limit
+  if (goDeeper && (initialSearchComplete || result.length < initialAltLimit)) {
     for (const alt of alternatives) {
       if (stopSearchRequested) return; // Check before each recursive call
-      await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
       
-      // Break the loop if we've reached the limit and not fully searched
+      // Skip recursion if we've hit the limit
       if (!initialSearchComplete && result.length >= initialAltLimit) {
         break;
       }
+      
+      await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
     }
   }
 }
