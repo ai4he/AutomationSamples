@@ -18,10 +18,21 @@ let configNestedLevel = 1;
 
 // Maximum number of alternative parts to find initially
 let initialAltLimit = 3;
-let initialSearchComplete = false;
 
-// Counter for alternatives found - critical for limiting search
+// Flag for whether we're in limited search mode or full search mode
+let limitedSearchMode = true;
+
+// Counter for alternatives found
 let altCountFound = 0;
+
+// State for paused search - stores the exploration state
+let pausedSearchState = {
+  isActive: false,
+  baseNumber: '',
+  visited: new Set(),
+  finalAlts: [],
+  onNewAltsCallback: null
+};
 
 // Stores the entire conversation as an array of message objects:
 // e.g. [ { role: "user", content: "Hello" }, { role: "assistant", content: "Hi!" }, ... ]
@@ -88,6 +99,53 @@ function stopSearch() {
   
   // Update the summary with current partial results
   updateSummaryTab();
+}
+
+/***************************************************
+ * Clean UI for new search
+ ***************************************************/
+function cleanupUI() {
+  // Clean alternative numbers
+  const altDiv = document.getElementById('alternative-numbers');
+  if (altDiv) altDiv.innerHTML = '';
+  
+  // Reset summary
+  const summaryDiv = document.getElementById('summary-content');
+  if (summaryDiv) summaryDiv.innerHTML = '';
+  
+  // Clear each vendor's results
+  const resultContainers = [
+    '.tdsynnex-results .results-container',
+    '.ingram-results .results-container',
+    '.brokerbin-results .results-container',
+    '.ebay-results .results-container',
+    '.amazon-results .results-container',
+    '.ebay-connector-results .results-container',
+    '.amazon-connector-results .results-container',
+    '#inventory-content .inventory-results',
+    '#sales-content .sales-results',
+    '#purchases-content .purchases-results'
+  ];
+  
+  resultContainers.forEach(selector => {
+    const container = document.querySelector(selector);
+    if (container) container.innerHTML = '';
+  });
+  
+  // Clear Lenovo tabs
+  const lenovoSubtabs = document.getElementById('lenovo-subtabs');
+  const lenovoSubcontent = document.getElementById('lenovo-subcontent');
+  if (lenovoSubtabs) lenovoSubtabs.innerHTML = '';
+  if (lenovoSubcontent) lenovoSubcontent.innerHTML = '';
+  
+  // Clear analysis tab
+  const analysisDiv = document.getElementById('analysis-content');
+  if (analysisDiv) {
+    const analyzeResultTextDiv = analysisDiv.querySelector('.analyze-result-text');
+    if (analyzeResultTextDiv) analyzeResultTextDiv.innerHTML = '';
+    const chatContainer = document.getElementById('chat-container-analysis');
+    if (chatContainer) chatContainer.innerHTML = '';
+  }
 }
 
 /***************************************************
@@ -234,12 +292,13 @@ async function getAlternativePartNumbers(partNumber) {
  * @param {Function} onNewAlts - Callback invoked whenever new alt(s) appear
  */
 function startExpansions(baseNumber, finalAlts, onNewAlts) {
-  // Reset the global counter
+  // Reset the global counter and flags
   altCountFound = 0;
+  limitedSearchMode = true;
+  pausedSearchState.isActive = false;
   
   // Mark expansions as in progress
   expansionsInProgress = true;
-  initialSearchComplete = false;
 
   // We'll track visited parts
   const visited = new Set();
@@ -250,10 +309,20 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
       // Once recursion completes, expansions are done
       expansionsInProgress = false;
       
-      // If we stopped at the limit, add the continue button if not already added
-      if (!initialSearchComplete && altCountFound >= initialAltLimit && 
+      // If we're in paused state and haven't shown the button yet, do it now
+      if (limitedSearchMode && altCountFound >= initialAltLimit && 
           !document.getElementById('continue-search-btn')) {
-        addContinueSearchButton(finalAlts, onNewAlts, visited);
+        // Save the search state for continuation
+        pausedSearchState = {
+          isActive: true,
+          baseNumber: baseNumber,
+          visited: new Set(visited), // Make a copy
+          finalAlts: finalAlts,
+          onNewAltsCallback: onNewAlts
+        };
+        
+        // Show the continue button
+        addContinueSearchButton();
       }
       
       checkIfAllDone();  // might hide spinner + call analysis if activeRequests=0
@@ -268,13 +337,17 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
 /***************************************************
  * Function to add continue search button
  ***************************************************/
-function addContinueSearchButton(finalAlternatives, updateUICallback, alreadySearched) {
+function addContinueSearchButton() {
   const altDiv = document.getElementById('alternative-numbers');
   if (!altDiv) return;
   
   // Remove existing button if any
   const existingBtn = document.getElementById('continue-search-btn');
   if (existingBtn) existingBtn.remove();
+  
+  // Remove existing message if any
+  const existingMsg = document.getElementById('continue-search-message');
+  if (existingMsg) existingMsg.remove();
   
   // Create continue button with improved styling
   const continueBtn = document.createElement('button');
@@ -291,42 +364,46 @@ function addContinueSearchButton(finalAlternatives, updateUICallback, alreadySea
   // Add a message above the button
   const messageDiv = document.createElement('div');
   messageDiv.id = 'continue-search-message';
-  messageDiv.innerHTML = '<p style="color:#4CAF50; font-weight:bold; margin-top:15px;">Initial search completed with 3 alternatives. Click below to find more.</p>';
+  messageDiv.innerHTML = '<p style="color:#4CAF50; font-weight:bold; margin-top:15px;">' + 
+                        'Initial search completed with ' + altCountFound + ' alternatives. ' + 
+                        'Click below to find more.</p>';
   altDiv.appendChild(messageDiv);
   
   continueBtn.addEventListener('click', function() {
     console.log("Continue button clicked - resuming search");
-    
-    // Reset counter and flags to continue search
-    initialSearchComplete = true;
     
     // Remove UI elements
     continueBtn.remove();
     const msgDiv = document.getElementById('continue-search-message');
     if (msgDiv) msgDiv.remove();
     
-    // Continue search
-    const partNumberInput = document.getElementById('part-numbers');
-    if (partNumberInput) {
-      const partNumber = partNumberInput.value.trim();
-      if (partNumber) {
-        // Use the existing search functions to continue
-        const visited = new Set();
-        alreadySearched.forEach(part => visited.add(part));
-        
-        // Start recursive search again from the original part number
-        expansionsInProgress = true;
-        gatherCombinatoryAlternatives(partNumber, 0, visited, finalAlternatives, updateUICallback)
-          .then(() => {
-            expansionsInProgress = false;
-            checkIfAllDone();
-          })
-          .catch(err => {
-            console.error('Expansion continuation error:', err);
-            expansionsInProgress = false;
-            checkIfAllDone();
-          });
-      }
+    // Resume search if we have saved state
+    if (pausedSearchState.isActive) {
+      // Switch to unlimited search mode
+      limitedSearchMode = false;
+      
+      // Mark search as in progress again
+      expansionsInProgress = true;
+      
+      // Show spinner again
+      const spinner = document.getElementById('loading-spinner');
+      if (spinner) spinner.style.display = 'inline-block';
+      
+      // Get the saved state
+      const { baseNumber, visited, finalAlts, onNewAltsCallback } = pausedSearchState;
+      
+      // Continue the search from where we left off
+      gatherCombinatoryAlternatives(baseNumber, 0, visited, finalAlts, onNewAltsCallback)
+        .then(() => {
+          // Once recursion completes, expansions are done
+          expansionsInProgress = false;
+          checkIfAllDone();
+        })
+        .catch(err => {
+          console.error('Expansion continuation error:', err);
+          expansionsInProgress = false;
+          checkIfAllDone();
+        });
     }
   });
   
@@ -343,9 +420,8 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
     return;
   }
   
-  // Stop if we've already found enough alternatives and not in full search mode
-  if (!initialSearchComplete && altCountFound >= initialAltLimit) {
-    console.log(`Already found ${altCountFound} alternatives, stopping search`);
+  // Check if we need to pause the search (in limited mode and reached the limit)
+  if (limitedSearchMode && altCountFound >= initialAltLimit) {
     return;
   }
   
@@ -359,11 +435,10 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
     const { alternatives } = await getAlternativePartNumbers(baseNumber);
     let newlyAdded = [];
     
-    // Add alternatives (without exceeding the limit)
+    // Add alternatives (considering the limit)
     for (const alt of alternatives) {
-      // Emergency brake - stop if we hit the limit
-      if (!initialSearchComplete && altCountFound >= initialAltLimit) {
-        console.log(`Hit limit of ${initialAltLimit} alternatives, breaking loop`);
+      // Check if we've reached the limit
+      if (limitedSearchMode && altCountFound >= initialAltLimit) {
         break;
       }
       
@@ -371,17 +446,28 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
       if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
         result.push(alt);
         newlyAdded.push(alt);
-        altCountFound++; // Increment global counter
+        altCountFound++;
         console.log(`Found alternative #${altCountFound}: ${alt.type} - ${alt.value}`);
         
-        // Hard stop if we've reached the limit
-        if (!initialSearchComplete && altCountFound >= initialAltLimit) {
-          // Process this batch and stop
+        // If we've reached the limit, add the continue button
+        if (limitedSearchMode && altCountFound >= initialAltLimit) {
+          // Save the search state for continuation
+          pausedSearchState = {
+            isActive: true,
+            baseNumber: baseNumber,
+            visited: new Set(visited), // Make a copy
+            finalAlts: result,
+            onNewAltsCallback: onNewAlts
+          };
+          
+          // Process this batch before pausing
           if (newlyAdded.length > 0 && onNewAlts) {
             await onNewAlts(newlyAdded);
           }
-          console.log(`Reached limit of ${initialAltLimit} alternatives, stopping search`);
-          return; // Stop immediately
+          
+          // Show the continue button
+          addContinueSearchButton();
+          return;
         }
       }
     }
@@ -391,9 +477,7 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
       await onNewAlts(newlyAdded);
     }
 
-    // Only continue deeper if:
-    // 1. We're allowed to go deeper based on configNestedLevel
-    // 2. We haven't hit the alternatives limit OR we're in full search mode
+    // Determine if we should go deeper
     let goDeeper = false;
     if (configNestedLevel === -1) {
       goDeeper = true;
@@ -401,11 +485,11 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
       goDeeper = currentLevel < configNestedLevel;
     }
     
-    if (goDeeper && (initialSearchComplete || altCountFound < initialAltLimit)) {
+    // Only continue deeper if we should and haven't been limited
+    if (goDeeper && (!limitedSearchMode || altCountFound < initialAltLimit)) {
       for (const alt of alternatives) {
-        // Emergency brake - check again before recursion
-        if (!initialSearchComplete && altCountFound >= initialAltLimit) {
-          console.log("Reached limit before recursion, stopping");
+        // Check limit before recursion
+        if (limitedSearchMode && altCountFound >= initialAltLimit) {
           return;
         }
         if (stopSearchRequested) return;
@@ -652,17 +736,25 @@ async function handleSearch() {
   // Reset the stop search flag
   stopSearchRequested = false;
   
-  // Reset the initialSearchComplete flag
-  initialSearchComplete = false;
-  
-  // Reset the counter for alternatives found
+  // Reset search state
+  limitedSearchMode = true;
   altCountFound = 0;
+  pausedSearchState = {
+    isActive: false,
+    baseNumber: '',
+    visited: new Set(),
+    finalAlts: [],
+    onNewAltsCallback: null
+  };
   
   // Ensure that final analysis can happen again for each fresh search
   analysisAlreadyCalled = false;
   conversationHistory = [];
 
-  // 1) Get part number
+  // 1) Clean UI for new search
+  cleanupUI();
+
+  // 2) Get part number
   const partNumberInput = document.getElementById('part-numbers');
   if (!partNumberInput) {
     alert('part number input not found');
@@ -672,19 +764,6 @@ async function handleSearch() {
   if (!partNumber) {
     alert('Please enter a part number');
     return;
-  }
-
-  // 2) Clear summary
-  const summaryDiv = document.getElementById('summary-content');
-  if (summaryDiv) summaryDiv.innerHTML = '';
-  
-  // Clear analysis tab
-  const analysisDiv = document.getElementById('analysis-content');
-  if (analysisDiv) {
-    const analyzeResultTextDiv = analysisDiv.querySelector('.analyze-result-text');
-    if (analyzeResultTextDiv) analyzeResultTextDiv.textContent = '';
-    const chatContainer = document.getElementById('chat-container-analysis');
-    if (chatContainer) chatContainer.innerHTML = '';
   }
 
   // 3) Reset aggregator and counters
@@ -731,6 +810,13 @@ async function handleSearch() {
     }
     altDiv.innerHTML = html;
     altDiv.classList.add('active');
+    
+    // If we're in paused state and need to show the button, do it now
+    if (limitedSearchMode && altCountFound >= initialAltLimit && 
+        !document.getElementById('continue-search-btn') &&
+        pausedSearchState.isActive) {
+      addContinueSearchButton();
+    }
   }
 
   // Tracks which alt part numbers we've already "searched"
@@ -765,6 +851,9 @@ async function handleSearch() {
     topOriginal = topData.original;
     topDescription = topData.description;
     topCategory = topData.category;
+
+    // Show description immediately
+    updateAlternativeNumbersUI();
 
     // 2) If we want alternative expansions, start them in parallel
     if (configUseAlternatives) {
