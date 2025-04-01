@@ -166,6 +166,22 @@ function parsePrice(str) {
 }
 
 /***************************************************
+ * Helper: safely parse JSON response
+ ***************************************************/
+async function safeJsonParse(response) {
+  // First get the response text
+  const text = await response.text();
+  if (!text) {
+    throw new Error('Empty response');
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error('JSON parse error: ' + e.message);
+  }
+}
+
+/***************************************************
  * Table Sorting
  ***************************************************/
 function makeTableSortable(table) {
@@ -283,14 +299,10 @@ async function getAlternativePartNumbers(partNumber) {
   }
 }
 
-/**
+/***************************************************
  * Launches alternative expansions in the background, 
  * so we can do them in parallel with the main search.
- *
- * @param {string} baseNumber - The initial part number to expand
- * @param {Array} finalAlts   - The shared array where discovered alt objects go
- * @param {Function} onNewAlts - Callback invoked whenever new alt(s) appear
- */
+ ***************************************************/
 function startExpansions(baseNumber, finalAlts, onNewAlts) {
   // Reset the global counter and flags
   altCountFound = 0;
@@ -553,15 +565,15 @@ async function performFinalAnalysis() {
       .replaceAll("```", '');
 
     // Parse HTML content properly
-try {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(analyzeResultText, 'text/html');
-  if (doc.body && doc.body.innerHTML) {
-    analyzeResultText = doc.body.innerHTML;
-  }
-} catch (e) {
-  console.warn('Error parsing HTML content:', e);
-}
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(analyzeResultText, 'text/html');
+      if (doc.body && doc.body.innerHTML) {
+        analyzeResultText = doc.body.innerHTML;
+      }
+    } catch (e) {
+      console.warn('Error parsing HTML content:', e);
+    }
 
     // Store the user prompt and the LLM's reply in our conversation array
     // The user's initial prompt:
@@ -1050,7 +1062,13 @@ async function fetchDistributorData(partNumbers) {
       try {
         const res = await fetch(`https://${serverDomain}/webhook/ingram-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        const data = await res.json();
+        let data;
+        try {
+          data = await safeJsonParse(res);
+        } catch (parseError) {
+          console.warn('Ingram JSON parse error for', number, parseError);
+          continue;
+        }
         const resultsWithSource = data.map(obj => ({ ...obj, sourcePartNumber: source }));
         newItems.push(...resultsWithSource);
       } catch (err) {
@@ -1219,7 +1237,13 @@ async function fetchInventoryData(partNumbers) {
       try {
         const res = await fetch(`https://${serverDomain}/webhook/epicor-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        const data = await res.json();
+        let data;
+        try {
+          data = await safeJsonParse(res);
+        } catch (parseError) {
+          console.warn('Epicor JSON parse error for', number, parseError);
+          continue;
+        }
         const withSrc = data.map(obj => ({ ...obj, sourcePartNumber: source }));
         newItems.push(...withSrc);
       } catch (err) {
@@ -1387,7 +1411,7 @@ function buildSalesTable() {
         <th>Line</th>
         <th>Customer ID</th>
         <th>Customer Name</th>
-        <th>Order Date</th>
+        <th data-date="true">Order Date</th>
         <th>Order Qty</th>
         <th>Unit Price</th>
         <th>Request Date</th>
