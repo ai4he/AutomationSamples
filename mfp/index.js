@@ -2,7 +2,7 @@
  * Configuration Variables
  ***************************************************/
 var serverDomain = "gpu.haielab.org";
-// You can override the domain or keep the same 
+// You can override the domain or keep the same
 // let serverDomain = "n8n.haielab.org";
 
 // Master toggles for LLM model (if you want to set a default)
@@ -19,20 +19,27 @@ let configNestedLevel = 1;
 // Maximum number of alternative parts to find initially
 let initialAltLimit = 3;
 
-// Flag for whether we're in limited search mode or full search mode
+// Default timeout for fetch requests (ms)
+const API_TIMEOUT = 15000;
+// Longer timeout for critical/potentially slow endpoints (ms)
+const LONG_API_TIMEOUT = 30000;
+
+// --- State for Pause/Continue Mechanism ---
+// Flag to indicate if the search is currently paused (after initial limit)
+let isPaused = false;
+// Flag to indicate if we are in the initial limited search phase
 let limitedSearchMode = true;
-
-// Counter for alternatives found
+// Counter for alternatives found during the current search phase
 let altCountFound = 0;
-
-// State for paused search - stores the exploration state
+// State for paused search - stores the exploration state needed for resuming
 let pausedSearchState = {
   isActive: false,
-  baseNumber: '',
-  visited: new Set(),
-  finalAlts: [],
-  onNewAltsCallback: null
+  pendingExploration: [], // Array of { number, level } to explore after continue
+  visited: new Set(),     // The visited set *at the time of pause*
+  finalAlts: [],          // The alternatives array *at the time of pause*
+  onNewAltsCallback: null // The callback function
 };
+// --- End Pause/Continue State ---
 
 // Stores the entire conversation as an array of message objects:
 // e.g. [ { role: "user", content: "Hello" }, { role: "assistant", content: "Hi!" }, ... ]
@@ -44,7 +51,7 @@ let chatContainer = null;
 // Prevents repeated calls to performFinalAnalysis
 let analysisAlreadyCalled = false;
 
-// Flag to indicate if search should be stopped
+// Flag to indicate if search should be stopped by user
 let stopSearchRequested = false;
 
 /***************************************************
@@ -70,50 +77,110 @@ let activeRequestsCount = 0;
 // Flag for whether alternative expansions are still in progress
 let expansionsInProgress = false;
 
+// **NO STRAY IDENTIFIERS HERE**
+
 /***************************************************
- * Stop Search Function
+ * Helper: Create AbortController with timeout
+ ***************************************************/
+function createFetchController(timeout = API_TIMEOUT) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.warn(`Request timed out after ${timeout}ms. Aborting.`);
+    controller.abort();
+  }, timeout);
+  return { controller, timeoutId };
+}
+
+/***************************************************
+ * Helper: Safe JSON parsing with Content-Type Check
+ ***************************************************/
+async function safelyParseJSON(response, url = '') {
+  try {
+    const contentType = response.headers.get('content-type');
+    // Allow JSON derivatives like application/vnd.api+json
+    if (!contentType || !contentType.includes('application/json')) {
+      const textResponse = await response.text(); // Read text to avoid unconsumed body errors
+      console.warn(`Response from ${url} is not JSON (Content-Type: ${contentType}). Body: ${textResponse.substring(0, 200)}...`);
+      return null;
+    }
+
+    const text = await response.text();
+    if (!text || text.trim() === '') {
+      console.warn(`Empty JSON response received from ${url}`);
+      return null;
+    }
+    // Add extra try...catch specifically for JSON.parse
+    try {
+         return JSON.parse(text);
+    } catch (parseError) {
+         console.error(`JSON.parse error for ${url}: ${parseError.message}. Response text: ${text.substring(0, 500)}...`);
+         return null; // Return null if parsing fails
+    }
+  } catch (err) {
+    // Catch errors reading response body (e.g., network errors during text())
+    console.error(`Error reading/parsing JSON response body from ${url}:`, err);
+    return null;
+  }
+}
+
+/***************************************************
+ * Stop Search Function (User Initiated)
  ***************************************************/
 function stopSearch() {
   stopSearchRequested = true;
-  console.log("Search stopping requested");
-  
-  // Hide spinner
+  isPaused = false; // Ensure pause state is cleared if user stops
+  console.log("User requested search stop.");
+
+  // Hide spinner and stop button
   const spinner = document.getElementById('loading-spinner');
   const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'none';
   if (stopBtn) stopBtn.style.display = 'none';
-  
+
+   // Remove continue button if present
+  const continueBtn = document.getElementById('continue-search-btn');
+  if (continueBtn) continueBtn.remove();
+  const continueMsg = document.getElementById('continue-search-message');
+  if (continueMsg) continueMsg.remove();
+
+
   // Show a message in the summary tab
   const summaryDiv = document.getElementById('summary-content');
   if (summaryDiv && !summaryDiv.querySelector('.search-stopped-message')) {
     const stoppedMessage = document.createElement('div');
     stoppedMessage.className = 'search-stopped-message';
     stoppedMessage.innerHTML = '<p><strong>Search was stopped by user.</strong> Partial results are displayed.</p>';
-    stoppedMessage.style.padding = '10px';
-    stoppedMessage.style.backgroundColor = '#ffecec';
-    stoppedMessage.style.border = '1px solid #f5c6cb';
-    stoppedMessage.style.borderRadius = '4px';
-    stoppedMessage.style.marginBottom = '15px';
+    stoppedMessage.style.cssText = 'padding: 10px; background-color: #ffecec; border: 1px solid #f5c6cb; border-radius: 4px; margin-bottom: 15px;';
     summaryDiv.prepend(stoppedMessage);
   }
-  
+
   // Update the summary with current partial results
   updateSummaryTab();
+  // Consider if we need to abort ongoing fetch requests here
+  // AbortController instances would need to be stored globally or passed around to achieve this.
 }
 
 /***************************************************
  * Clean UI for new search
  ***************************************************/
 function cleanupUI() {
-  // Clean alternative numbers
+  console.log("Cleaning UI for new search...");
+  // Clean alternative numbers div and remove continue button/message
   const altDiv = document.getElementById('alternative-numbers');
-  if (altDiv) altDiv.innerHTML = '';
-  
+  if (altDiv) {
+      altDiv.innerHTML = '';
+      altDiv.classList.remove('active');
+      const continueBtn = document.getElementById('continue-search-btn');
+      if (continueBtn) continueBtn.remove();
+      const continueMsg = document.getElementById('continue-search-message');
+      if (continueMsg) continueMsg.remove();
+  }
+
   // Reset summary
   const summaryDiv = document.getElementById('summary-content');
   if (summaryDiv) summaryDiv.innerHTML = '';
-  
-  // Clear each vendor's results
+
+  // Clear each vendor's results container
   const resultContainers = [
     '.tdsynnex-results .results-container',
     '.ingram-results .results-container',
@@ -126,18 +193,18 @@ function cleanupUI() {
     '#sales-content .sales-results',
     '#purchases-content .purchases-results'
   ];
-  
+
   resultContainers.forEach(selector => {
     const container = document.querySelector(selector);
     if (container) container.innerHTML = '';
   });
-  
+
   // Clear Lenovo tabs
   const lenovoSubtabs = document.getElementById('lenovo-subtabs');
   const lenovoSubcontent = document.getElementById('lenovo-subcontent');
   if (lenovoSubtabs) lenovoSubtabs.innerHTML = '';
   if (lenovoSubcontent) lenovoSubcontent.innerHTML = '';
-  
+
   // Clear analysis tab
   const analysisDiv = document.getElementById('analysis-content');
   if (analysisDiv) {
@@ -146,6 +213,15 @@ function cleanupUI() {
     const chatContainer = document.getElementById('chat-container-analysis');
     if (chatContainer) chatContainer.innerHTML = '';
   }
+
+  // Hide any loading indicators
+  const loadingElements = document.querySelectorAll('.loading');
+  loadingElements.forEach(el => {
+    if (el) el.style.display = 'none';
+  });
+    // Hide stop button initially
+  const stopBtn = document.getElementById('stop-search-btn');
+  if (stopBtn) stopBtn.style.display = 'none';
 }
 
 /***************************************************
@@ -161,7 +237,7 @@ function parseXML(xmlString) {
  ***************************************************/
 function parsePrice(str) {
   if (!str) return null;
-  const numeric = parseFloat(str.replace(/[^\d.]/g, ''));
+  const numeric = parseFloat(String(str).replace(/[^\d.-]/g, '')); // Added dot to regex
   return isNaN(numeric) ? null : numeric;
 }
 
@@ -171,52 +247,119 @@ function parsePrice(str) {
 function makeTableSortable(table) {
   const headers = table.querySelectorAll("th");
   headers.forEach((header, index) => {
+    // Don't make image columns sortable
+    if (header.classList.contains('no-sort')) return;
+
     header.style.cursor = "pointer";
+    // Add sort icons (optional, requires CSS)
+    let sortIcon = header.querySelector('.sort-icon');
+    if (!sortIcon) {
+        sortIcon = document.createElement('span');
+        sortIcon.className = 'sort-icon';
+        header.appendChild(sortIcon);
+    }
+
+
     header.addEventListener("click", () => {
-      const currentOrder = header.getAttribute("data-sort-order") || "asc";
-      const asc = currentOrder === "asc";
-      sortTableByColumn(table, index, asc);
-      header.setAttribute("data-sort-order", asc ? "desc" : "asc");
+      // Find the current sort state across the entire table
+      let currentSortCol = -1;
+      let currentSortOrder = 'none';
+      headers.forEach((h, i) => {
+          const order = h.getAttribute("data-sort-order");
+          if (order) {
+              currentSortCol = i;
+              currentSortOrder = order;
+          }
+      });
+
+      let newOrder;
+      if (index === currentSortCol) {
+          // Clicked same column, reverse order
+          newOrder = currentSortOrder === "asc" ? "desc" : "asc";
+      } else {
+          // Clicked new column, default to descending for dates/numerics, ascending for text
+          const headerText = header?.textContent.trim().toLowerCase() || '';
+          const isDateOrNumeric = headerText.includes('date') || headerText.includes('qty') || headerText.includes('quantity') || headerText.includes('price') || headerText.includes('cost') || headerText.includes('age') || headerText.includes('num') || headerText.includes('line');
+          newOrder = isDateOrNumeric ? 'desc' : 'asc';
+      }
+
+
+      // Remove sort order from all headers first
+       headers.forEach(h => {
+           h.removeAttribute("data-sort-order");
+           const icon = h.querySelector('.sort-icon');
+           if(icon) icon.textContent = ''; // Clear other icons
+       });
+
+      sortTableByColumn(table, index, newOrder === 'asc');
+      header.setAttribute("data-sort-order", newOrder);
+      // Update icon (optional, requires CSS)
+       const icon = header.querySelector('.sort-icon');
+       if(icon) icon.textContent = newOrder === 'asc' ? ' ▲' : ' ▼';
     });
   });
 }
 
 function sortTableByColumn(table, columnIndex, asc = true) {
   const tbody = table.tBodies[0];
+  if (!tbody) return;
   const rows = Array.from(tbody.querySelectorAll("tr"));
-  
+
   // Get the column header text to determine if it might be a date column
-  const headerText = table.querySelector(`th:nth-child(${columnIndex + 1})`).textContent.trim().toLowerCase();
-  const isDateColumn = headerText.includes('date') || headerText.includes('time');
+  const headerText = table.querySelector(`th:nth-child(${columnIndex + 1})`)?.textContent.trim().toLowerCase() || '';
+  const isDateColumn = headerText.includes('date');
+  const isNumericColumn = headerText.includes('qty') || headerText.includes('quantity') || headerText.includes('price') || headerText.includes('cost') || headerText.includes('age') || headerText.includes('num') || headerText.includes('line') || headerText.includes('reviews');
 
   rows.sort((a, b) => {
-    const aText = a.children[columnIndex].textContent.trim();
-    const bText = b.children[columnIndex].textContent.trim();
-    
-    // Special handling for date columns
+    const aCell = a.children[columnIndex];
+    const bCell = b.children[columnIndex];
+    if (!aCell || !bCell) return 0;
+
+    const aText = aCell.textContent.trim();
+    const bText = bCell.textContent.trim();
+
+    // 1. Date Sorting
     if (isDateColumn) {
-      // Try to parse as dates
-      const aDate = new Date(aText);
-      const bDate = new Date(bText);
-      
-      // Check if both strings parsed as valid dates
-      if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
-        return asc ? aDate - bDate : bDate - aDate;
-      }
+      // Use data-date attribute if available (preferred)
+      const aDataDate = aCell.getAttribute('data-date');
+      const bDataDate = bCell.getAttribute('data-date');
+      // Use attribute if present, otherwise fall back to text content
+      const aDate = new Date(aDataDate || aText);
+      const bDate = new Date(bDataDate || bText);
+
+      // Handle invalid dates (push them to the bottom)
+      const aValid = !isNaN(aDate.getTime()) && aDate.getFullYear() > 1900; // Basic validity check
+      const bValid = !isNaN(bDate.getTime()) && bDate.getFullYear() > 1900;
+
+      if (aValid && bValid) return asc ? aDate - bDate : bDate - aDate;
+      if (aValid && !bValid) return -1; // a comes first
+      if (!aValid && bValid) return 1;  // b comes first
+      return 0; // Both invalid
     }
 
-    // Try numeric comparison
-    const aNum = parseFloat(aText.replace(/[^0-9.-]/g, ""));
-    const bNum = parseFloat(bText.replace(/[^0-9.-]/g, ""));
-    if (!isNaN(aNum) && !isNaN(bNum)) {
-      return asc ? aNum - bNum : bNum - aNum;
+    // 2. Numeric Sorting
+    if (isNumericColumn) {
+        // More robust parsing: remove $, commas, etc. before parseFloat
+        const aNum = parseFloat(aText.replace(/[^0-9.-]/g, ""));
+        const bNum = parseFloat(bText.replace(/[^0-9.-]/g, ""));
+        const aValid = !isNaN(aNum);
+        const bValid = !isNaN(bNum);
+
+        if (aValid && bValid) return asc ? aNum - bNum : bNum - aNum;
+        if (aValid && !bValid) return -1; // Valid numbers first
+        if (!aValid && bValid) return 1;
+        // Fallback to string compare if one/both aren't numbers but column header suggests they should be
     }
-    // fallback to string
-    return asc ? aText.localeCompare(bText) : bText.localeCompare(aText);
+
+    // 3. String Sorting (default)
+    // localeCompare with numeric option handles strings containing numbers better ("Item 2" vs "Item 10")
+    return asc ? aText.localeCompare(bText, undefined, {numeric: true, sensitivity: 'base'}) : bText.localeCompare(aText, undefined, {numeric: true, sensitivity: 'base'});
   });
 
+  // Re-append rows in sorted order
   rows.forEach(row => tbody.appendChild(row));
 }
+
 
 /***************************************************
  * Switch Tab
@@ -224,112 +367,119 @@ function sortTableByColumn(table, columnIndex, asc = true) {
 function switchTab(tabId) {
   document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
   document.querySelectorAll('.tab-button').forEach(button => button.classList.remove('active'));
-  document.getElementById(tabId).classList.add('active');
-  document.querySelector(`button[onclick="switchTab('${tabId}')"]`).classList.add('active');
+  const contentTab = document.getElementById(tabId);
+  if (contentTab) contentTab.classList.add('active');
+  const buttonTab = document.querySelector(`button[onclick="switchTab('${tabId}')"]`);
+   if (buttonTab) buttonTab.classList.add('active');
 }
 
 /***************************************************
  * getAlternativePartNumbers: obtains direct alt parts (1 level).
  ***************************************************/
 async function getAlternativePartNumbers(partNumber) {
+  const url = `https://${serverDomain}/webhook/get-parts?item=${encodeURIComponent(partNumber)}`;
   try {
-    const response = await fetch(`https://${serverDomain}/webhook/get-parts?item=${encodeURIComponent(partNumber)}`);
+    const { controller, timeoutId } = createFetchController();
+
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      console.warn(`Alternative parts request for ${partNumber} failed with status: ${response.status}`);
+      return { original: partNumber, description: '', category: '', alternatives: [] };
     }
-    const data = await response.json();
+
+    const data = await safelyParseJSON(response, url);
     if (!data || !data[0]) {
-      return {
-        original: partNumber,
-        description: '',
-        category: '',
-        alternatives: []
-      };
+       console.log(`No alternative part data found for ${partNumber}`);
+      return { original: partNumber, description: '', category: '', alternatives: [] };
     }
+
     const record = data[0];
     const description = record.Description || '';
     const category = record.Category || '';
-    const originalPart = record.ORD && record.ORD.trim() ? record.ORD : partNumber;
+    // Ensure originalPart is always a string, fallback to input partNumber
+    const originalPart = (record.ORD && String(record.ORD).trim()) ? String(record.ORD).trim() : partNumber;
 
-    // Build structured alt array
+
+    // Build structured alt array, ensuring values are strings and trimmed
     const alternatives = [];
-    if (record.FRU && record.FRU.length > 0) {
-      record.FRU.forEach(num => alternatives.push({ type: 'FRU', value: num }));
-    }
-    if (record.MFG && record.MFG.length > 0) {
-      record.MFG.forEach(num => alternatives.push({ type: 'MFG', value: num }));
-    }
-    if (record.OEM && record.OEM.length > 0) {
-      record.OEM.forEach(num => alternatives.push({ type: 'OEM', value: num }));
-    }
-    if (record.OPT && record.OPT.length > 0) {
-      record.OPT.forEach(num => alternatives.push({ type: 'OPT', value: num }));
-    }
+     const processAltArray = (key, type) => {
+         if (record[key] && Array.isArray(record[key])) {
+             record[key].forEach(num => {
+                 const strNum = String(num).trim(); // Ensure string and trim
+                 if (strNum) alternatives.push({ type: type, value: strNum });
+             });
+         }
+     };
 
-    return {
-      original: originalPart,
-      description,
-      category,
-      alternatives
-    };
+     processAltArray('FRU', 'FRU');
+     processAltArray('MFG', 'MFG');
+     processAltArray('OEM', 'OEM');
+     processAltArray('OPT', 'OPT');
+
+
+    // Filter out any alternatives that match the original part number (case-insensitive)
+    const originalUpper = originalPart.toUpperCase();
+    const validAlternatives = alternatives.filter(alt => alt.value.toUpperCase() !== originalUpper);
+
+
+    console.log(`Found ${validAlternatives.length} distinct alternatives for ${originalPart}`);
+    return { original: originalPart, description, category, alternatives: validAlternatives };
   } catch (err) {
-    console.error('Error fetching alternative part numbers:', err);
-    return {
-      original: partNumber,
-      description: '',
-      category: '',
-      alternatives: []
-    };
+    if (err.name === 'AbortError') {
+      console.error(`Alternative parts request timed out for ${partNumber}`);
+    } else {
+      console.error(`Error fetching alternative part numbers for ${partNumber}:`, err);
+    }
+    // Return input part number as original in case of error
+    return { original: partNumber, description: '', category: '', alternatives: [] };
   }
 }
 
 /**
- * Launches alternative expansions in the background, 
- * so we can do them in parallel with the main search.
+ * Launches alternative expansions. Handles initial limited search and continuation.
  *
  * @param {string} baseNumber - The initial part number to expand
- * @param {Array} finalAlts   - The shared array where discovered alt objects go
+ * @param {Array} finalAlts   - The shared array where discovered alt objects go {type, value}
  * @param {Function} onNewAlts - Callback invoked whenever new alt(s) appear
  */
 function startExpansions(baseNumber, finalAlts, onNewAlts) {
-  // Reset the global counter and flags
+  // Reset flags and state for a new search
+  isPaused = false;
   altCountFound = 0;
-  limitedSearchMode = true;
-  pausedSearchState.isActive = false;
-  
-  // Mark expansions as in progress
+  limitedSearchMode = true; // Start in limited mode
+  pausedSearchState = { isActive: false, pendingExploration: [], visited: new Set(), finalAlts: [], onNewAltsCallback: null };
+
+  console.log(`Starting expansions for ${baseNumber}, initial limit: ${initialAltLimit}`);
   expansionsInProgress = true;
+  const visited = new Set(); // Track visited parts for *this expansion process*
 
-  // We'll track visited parts
-  const visited = new Set();
+  // Make sure the initial base number is marked as visited for the expansion logic
+  visited.add(baseNumber.trim().toUpperCase());
 
-  // Run gatherCombinatoryAlternatives in the background
+
+  // Run gatherCombinatoryAlternatives - this handles both initial and continued search internally now
   gatherCombinatoryAlternatives(baseNumber, 0, visited, finalAlts, onNewAlts)
     .then(() => {
-      // Once recursion completes, expansions are done
+      console.log("Expansion process completed or paused.");
       expansionsInProgress = false;
-      
-      // If we're in paused state and haven't shown the button yet, do it now
-      if (limitedSearchMode && altCountFound >= initialAltLimit && 
-          !document.getElementById('continue-search-btn')) {
-        // Save the search state for continuation
-        pausedSearchState = {
-          isActive: true,
-          baseNumber: baseNumber,
-          visited: new Set(visited), // Make a copy
-          finalAlts: finalAlts,
-          onNewAltsCallback: onNewAlts
-        };
-        
-        // Show the continue button
-        addContinueSearchButton();
+      // If it finished because it paused, the button is added inside gatherCombinatoryAlternatives
+      // If it finished completely (not paused), proceed to check if all done.
+      if (!isPaused) {
+          checkIfAllDone();
+      } else {
+           // If paused, update summary to show partial results
+           updateSummaryTab();
+           // Hide spinner even if paused
+            const spinner = document.getElementById('loading-spinner');
+            if (spinner) spinner.style.display = 'none';
       }
-      
-      checkIfAllDone();  // might hide spinner + call analysis if activeRequests=0
     })
     .catch(err => {
-      console.error('Expansion error:', err);
+      console.error('Error during alternative expansions:', err);
       expansionsInProgress = false;
+      isPaused = false; // Ensure not stuck in paused state on error
       checkIfAllDone();
     });
 }
@@ -339,181 +489,227 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
  ***************************************************/
 function addContinueSearchButton() {
   const altDiv = document.getElementById('alternative-numbers');
-  if (!altDiv) return;
-  
-  // Remove existing button if any
-  const existingBtn = document.getElementById('continue-search-btn');
-  if (existingBtn) existingBtn.remove();
-  
-  // Remove existing message if any
-  const existingMsg = document.getElementById('continue-search-message');
-  if (existingMsg) existingMsg.remove();
-  
-  // Create continue button with improved styling
+  if (!altDiv || document.getElementById('continue-search-btn')) return; // Don't add if exists
+
+
+  console.log("Adding 'Continue Search' button.");
+
+  // Create message
+  const messageDiv = document.createElement('div');
+  messageDiv.id = 'continue-search-message';
+  messageDiv.innerHTML = `<p style="color:#4CAF50; font-weight:bold; margin-top:15px;">Initial search found ${altCountFound} alternatives. Click below to find more.</p>`;
+
+
+  // Create continue button
   const continueBtn = document.createElement('button');
   continueBtn.id = 'continue-search-btn';
   continueBtn.textContent = 'Continue Searching for More Parts';
-  continueBtn.style.marginTop = '15px';
-  continueBtn.style.backgroundColor = '#4CAF50';
-  continueBtn.style.padding = '10px 20px';
-  continueBtn.style.fontSize = '16px';
-  continueBtn.style.fontWeight = 'bold';
-  continueBtn.style.width = '100%';
-  continueBtn.style.border = '2px solid #2e7d32';
-  
-  // Add a message above the button
-  const messageDiv = document.createElement('div');
-  messageDiv.id = 'continue-search-message';
-  messageDiv.innerHTML = '<p style="color:#4CAF50; font-weight:bold; margin-top:15px;">' + 
-                        'Initial search completed with ' + altCountFound + ' alternatives. ' + 
-                        'Click below to find more.</p>';
-  altDiv.appendChild(messageDiv);
-  
-  continueBtn.addEventListener('click', function() {
-    console.log("Continue button clicked - resuming search");
-    
-    // Remove UI elements
+  continueBtn.style.cssText = 'margin-top: 10px; background-color: #4CAF50; color: white; padding: 10px 20px; font-size: 16px; font-weight: bold; width: 100%; border: none; border-radius: 4px; cursor: pointer;';
+  continueBtn.addEventListener('mouseover', () => continueBtn.style.backgroundColor = '#45a049');
+  continueBtn.addEventListener('mouseout', () => continueBtn.style.backgroundColor = '#4CAF50');
+
+
+  continueBtn.addEventListener('click', async () => {
+    console.log("'Continue Search' button clicked.");
+
+    // Remove UI elements immediately
     continueBtn.remove();
     const msgDiv = document.getElementById('continue-search-message');
     if (msgDiv) msgDiv.remove();
-    
-    // Resume search if we have saved state
-    if (pausedSearchState.isActive) {
-      // Switch to unlimited search mode
-      limitedSearchMode = false;
-      
-      // Mark search as in progress again
-      expansionsInProgress = true;
-      
-      // Show spinner again
-      const spinner = document.getElementById('loading-spinner');
-      if (spinner) spinner.style.display = 'inline-block';
-      
-      // Get the saved state
-      const { baseNumber, visited, finalAlts, onNewAltsCallback } = pausedSearchState;
-      
-      // Continue the search from where we left off
-      gatherCombinatoryAlternatives(baseNumber, 0, visited, finalAlts, onNewAltsCallback)
-        .then(() => {
-          // Once recursion completes, expansions are done
-          expansionsInProgress = false;
-          checkIfAllDone();
-        })
-        .catch(err => {
-          console.error('Expansion continuation error:', err);
-          expansionsInProgress = false;
-          checkIfAllDone();
-        });
+
+    // Check if we have valid paused state
+    if (!pausedSearchState.isActive) { // Removed check for pendingExploration as it might be empty if pause hit right at end of level
+        console.error("Cannot continue search, paused state is not active or invalid.");
+        isPaused = false; // Ensure we are unpaused even if state was bad
+        return;
     }
+
+    // --- Resume Search ---
+    isPaused = false;           // Unpause FIRST
+    limitedSearchMode = false;  // Switch to unlimited mode
+    expansionsInProgress = true;// Mark as in progress again
+
+    // Show spinner again
+    const spinner = document.getElementById('loading-spinner');
+    if (spinner) spinner.style.display = 'inline-block';
+
+    // Get the saved state - IMPORTANT: Use the state *as it was when saved*
+    const { pendingExploration, visited, finalAlts, onNewAltsCallback } = pausedSearchState;
+    console.log(`Resuming search. ${pendingExploration.length} pending explorations. Visited count at pause: ${visited.size}. Current alts count: ${finalAlts.length}.`);
+
+    // Clear the global paused state now that we're using it
+    pausedSearchState = { isActive: false, pendingExploration: [], visited: new Set(), finalAlts: [], onNewAltsCallback: null };
+
+    // Create promises for each pending exploration path using the *saved visited set*
+    const resumePromises = pendingExploration.map(item =>
+      gatherCombinatoryAlternatives(item.number, item.level, visited, finalAlts, onNewAltsCallback)
+    );
+
+    try {
+        // Wait for all resumed branches to complete
+        await Promise.all(resumePromises);
+        console.log("Resumed expansion process completed.");
+        expansionsInProgress = false;
+        checkIfAllDone(); // Check if everything is finished now
+    } catch (err) {
+        console.error('Error during resumed alternative expansions:', err);
+        expansionsInProgress = false;
+        checkIfAllDone();
+    }
+    // --- End Resume Search ---
   });
-  
+
+   // Append message and button
+  altDiv.appendChild(messageDiv);
   altDiv.appendChild(continueBtn);
 }
 
 /***************************************************
- * Recursive Gathering of Alt Parts to configNestedLevel
+ * Recursive Gathering of Alt Parts (Handles Pause/Continue)
  ***************************************************/
 async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, result, onNewAlts) {
-  // Check for stop conditions immediately
+  // --- Immediate Stop/Pause Checks ---
   if (stopSearchRequested) {
-    console.log("Stopping search - user requested stop");
     return;
   }
-  
-  // Check if we need to pause the search (in limited mode and reached the limit)
-  if (limitedSearchMode && altCountFound >= initialAltLimit) {
+  // Check pause state *before* adding to visited or fetching
+  if (isPaused) {
     return;
   }
-  
-  // Avoid revisiting parts
+   // Limit recursion depth if configNestedLevel is set (and not -1 for infinite)
+   if (configNestedLevel !== -1 && currentLevel > configNestedLevel) {
+       return;
+   }
+  // --- End Checks ---
+
   const upperBase = baseNumber.trim().toUpperCase();
-  if (visited.has(upperBase)) return;
+  // Check visited *before* fetch
+  if (visited.has(upperBase)) {
+      return;
+  }
   visited.add(upperBase);
 
+
   try {
-    // Get alternatives for this part
+    // Fetch alternatives for the current baseNumber
     const { alternatives } = await getAlternativePartNumbers(baseNumber);
+    if (isPaused || stopSearchRequested) return; // Check again after await
+
     let newlyAdded = [];
-    
-    // Add alternatives (considering the limit)
+    let pendingForThisLevel = []; // Parts found at this level to explore deeper
+
     for (const alt of alternatives) {
-      // Check if we've reached the limit
-      if (limitedSearchMode && altCountFound >= initialAltLimit) {
-        break;
-      }
-      
+       // Re-check stop/pause conditions within the loop *before processing each alt*
+      if (stopSearchRequested) return;
+      if (isPaused) return; // If paused during the loop, stop processing this level
+
       const altUpper = alt.value.trim().toUpperCase();
-      if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
+
+      // Check if it's a truly new alternative (not visited and not already in results)
+      if (!visited.has(altUpper) && !result.some(r => r.value.trim().toUpperCase() === altUpper)) {
+
+        // --- Check Pause Condition ---
+        if (limitedSearchMode && altCountFound >= initialAltLimit) {
+          console.log(`Limit of ${initialAltLimit} alternatives reached while processing alternatives for ${baseNumber}. Pausing search.`);
+          if (!isPaused) { // Ensure pause logic runs only once
+              isPaused = true;
+
+              // Save state for potential continuation
+              // Find index of current 'alt' to determine remaining ones
+              const currentIndex = alternatives.findIndex(a => a.value === alt.value);
+              const remainingAlternatives = (currentIndex !== -1) ? alternatives.slice(currentIndex) : [];
+
+              pausedSearchState = {
+                isActive: true,
+                pendingExploration: remainingAlternatives.map(p => ({ number: p.value, level: currentLevel + 1 })),
+                visited: new Set(visited), // Copy the visited set at pause time
+                finalAlts: result, // Reference to the final results array
+                onNewAltsCallback: onNewAlts
+              };
+              console.log(`Paused state saved. Pending explorations at this point: ${pausedSearchState.pendingExploration.length}`);
+
+              // Process any batch accumulated *before* hitting the limit in this loop iteration
+              if (newlyAdded.length > 0 && onNewAlts) {
+                await onNewAlts(newlyAdded);
+                newlyAdded = []; // Clear batch after processing
+              }
+
+              addContinueSearchButton(); // Show the button
+          }
+          return; // Stop further processing in this branch once paused
+          // --- End Pause Condition ---
+        }
+
+        // --- Add New Alternative (if not paused) ---
         result.push(alt);
         newlyAdded.push(alt);
         altCountFound++;
-        console.log(`Found alternative #${altCountFound}: ${alt.type} - ${alt.value}`);
-        
-        // If we've reached the limit, add the continue button
-        if (limitedSearchMode && altCountFound >= initialAltLimit) {
-          // Save the search state for continuation
-          pausedSearchState = {
-            isActive: true,
-            baseNumber: baseNumber,
-            visited: new Set(visited), // Make a copy
-            finalAlts: result,
-            onNewAltsCallback: onNewAlts
-          };
-          
-          // Process this batch before pausing
-          if (newlyAdded.length > 0 && onNewAlts) {
-            await onNewAlts(newlyAdded);
+        console.log(`Found alternative #${altCountFound}: ${alt.type} - ${alt.value} (via ${baseNumber}, Level ${currentLevel})`);
+
+        // Add to list for deeper exploration later in this function
+        pendingForThisLevel.push({ number: alt.value, level: currentLevel + 1 });
+
+      } else if (!visited.has(altUpper)) {
+         // If it's already in 'result' but not 'visited', it means another branch found it first.
+         // We still potentially need to explore *from* it if depth allows and it's not the original base.
+          if (altUpper !== baseNumber.toUpperCase()) { // Avoid re-exploring the parent immediately
+            pendingForThisLevel.push({ number: alt.value, level: currentLevel + 1 });
           }
-          
-          // Show the continue button
-          addContinueSearchButton();
-          return;
-        }
       }
-    }
-    
-    // Process any newly added alternatives
+    } // End loop through alternatives for this level
+
+    // Process the newly added alternatives from this level (if any were added before pausing/stopping)
     if (newlyAdded.length > 0 && onNewAlts) {
-      await onNewAlts(newlyAdded);
+        // Check pause/stop again before calling back
+        if (isPaused || stopSearchRequested) return;
+        await onNewAlts(newlyAdded);
     }
 
-    // Determine if we should go deeper
-    let goDeeper = false;
-    if (configNestedLevel === -1) {
-      goDeeper = true;
-    } else if (configNestedLevel > 0) {
-      goDeeper = currentLevel < configNestedLevel;
+    // --- Recursive Calls (if not paused/stopped and depth allows) ---
+    if (!isPaused && !stopSearchRequested && (configNestedLevel === -1 || currentLevel < configNestedLevel)) {
+        const explorationPromises = pendingForThisLevel.map(item =>
+            gatherCombinatoryAlternatives(item.number, item.level, visited, result, onNewAlts)
+        );
+        await Promise.all(explorationPromises); // Explore children in parallel
+    } else if (isPaused && pausedSearchState.isActive) {
+        // If paused *after* iterating all children for this level, add them to pending state if they weren't already
+        const currentPendingNumbers = new Set(pausedSearchState.pendingExploration.map(p => p.number.toUpperCase()));
+        let addedToPending = 0;
+        pendingForThisLevel.forEach(item => {
+             if (!currentPendingNumbers.has(item.number.toUpperCase())) {
+                 pausedSearchState.pendingExploration.push(item);
+                 addedToPending++;
+             }
+         });
+         // if (addedToPending > 0) console.log(`Added ${addedToPending} pending explorations from ${baseNumber} to overall paused state.`);
     }
-    
-    // Only continue deeper if we should and haven't been limited
-    if (goDeeper && (!limitedSearchMode || altCountFound < initialAltLimit)) {
-      for (const alt of alternatives) {
-        // Check limit before recursion
-        if (limitedSearchMode && altCountFound >= initialAltLimit) {
-          return;
-        }
-        if (stopSearchRequested) return;
-        
-        // Recursive search with the next part
-        await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
-      }
-    }
+    // --- End Recursive Calls ---
+
   } catch (err) {
-    console.error(`Error in gatherCombinatoryAlternatives for ${baseNumber}:`, err);
+    console.error(`Error during gathering alternatives for ${baseNumber}:`, err);
+    // Don't necessarily stop the whole process, but log the error
   }
 }
 
+
 /***************************************************
- * Spinner, expansions, and final analysis
+ * Spinner, expansions, and final analysis check
  ***************************************************/
 function checkIfAllDone() {
-  if (expansionsInProgress) return;
-  if (activeRequestsCount > 0) return;
-  if (analysisAlreadyCalled) return;
+  // Don't proceed if search was stopped by user, paused, alternative expansions still running, or API requests active
+  if (stopSearchRequested || isPaused || expansionsInProgress || activeRequestsCount > 0) {
+    // Optional detailed logging for debugging state:
+    // console.log(`CheckIfAllDone: Not done yet. State: stopReq=${stopSearchRequested}, paused=${isPaused}, expand=${expansionsInProgress}, reqs=${activeRequestsCount}`);
+    return;
+  }
 
+  // Prevent calling analysis multiple times
+  if (analysisAlreadyCalled) return;
   analysisAlreadyCalled = true;
 
-  // if we reach here => expansions done + no active requests => finalize
+  console.log("All expansions and requests completed. Performing final analysis.");
+
+  // Hide spinner and stop button
   const spinner = document.getElementById('loading-spinner');
   const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'none';
@@ -522,438 +718,552 @@ function checkIfAllDone() {
   performFinalAnalysis();
 }
 
+/***************************************************
+ * Perform Final LLM Analysis
+ ***************************************************/
 async function performFinalAnalysis() {
   // One last summary update before analysis
-  updateSummaryTab();
+  updateSummaryTab(true); // Pass true to indicate search completion
 
   try {
-    // Gather results from your existing aggregator logic
     const analysisData = gatherResultsForAnalysis();
+    if (Object.keys(analysisData).length === 0) {
+        console.log("No data gathered for analysis. Skipping LLM call.");
+        // Optionally clear the analysis tab or show a message
+        const analysisContent = document.getElementById('analysis-content');
+        if(analysisContent) analysisContent.innerHTML = "<p>No data was found for the selected sources to analyze.</p>";
+        return;
+    }
+
     const selectedModel = document.getElementById('llm-model').value;
     const promptText = document.getElementById('prompt').value;
 
-    // Prepare query URL for the initial analysis, same as before
     const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
+    console.log("Sending data for final analysis...");
+
+    const { controller, timeoutId } = createFetchController(LONG_API_TIMEOUT); // Longer timeout for analysis
 
     const response = await fetch(analyzeUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(analysisData)
+      body: JSON.stringify(analysisData),
+      signal: controller.signal
     });
-    const analyzeResult = await response.json();
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+        console.error(`Analysis request failed with status: ${response.status}`);
+         const analysisContent = document.getElementById('analysis-content');
+         if(analysisContent) analysisContent.innerHTML = `<div class='error'>Analysis request failed (Status: ${response.status}).</div>`;
+        return;
+    }
+
+    const analyzeResult = await safelyParseJSON(response, analyzeUrl);
+    if (!analyzeResult) {
+      console.error('Failed to parse analysis results.');
+      // Optionally display an error in the analysis tab
+      const analysisContent = document.getElementById('analysis-content');
+      if(analysisContent) analysisContent.innerHTML = "<div class='error'>Error retrieving analysis from the server (invalid format).</div>";
+      return;
+    }
 
     let analyzeResultText = '';
     if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
       analyzeResultText = analyzeResult[0].text;
+    } else if (typeof analyzeResult === 'object') {
+         // Handle cases where the response might be structured differently
+         analyzeResultText = analyzeResult.result || analyzeResult.message || JSON.stringify(analyzeResult);
     } else {
-      analyzeResultText = JSON.stringify(analyzeResult);
+      analyzeResultText = String(analyzeResult); // Fallback to string conversion
     }
+
+    // Basic cleanup - remove markdown code blocks
     analyzeResultText = analyzeResultText
-      .replaceAll("```html", '')
-      .replaceAll("```", '');
+      .replace(/```html\b/gi, '')
+      .replace(/```/g, '');
 
-    // Parse HTML content properly
-try {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(analyzeResultText, 'text/html');
-  if (doc.body && doc.body.innerHTML) {
-    analyzeResultText = doc.body.innerHTML;
-  }
-} catch (e) {
-  console.warn('Error parsing HTML content:', e);
-}
-
-    // Store the user prompt and the LLM's reply in our conversation array
-    // The user's initial prompt:
-    conversationHistory.push({
-      role: 'user',
-      content: promptText || '(No prompt provided)'
-    });
-    // The model's first reply:
-    conversationHistory.push({
-      role: 'assistant',
-      content: analyzeResultText
-    });
-
-    // Update the analysis tab with the result
-    const analyzeResultTextDiv = document.querySelector('#analysis-content .analyze-result-text');
-    if (analyzeResultTextDiv) {
-      analyzeResultTextDiv.innerHTML = '';
+    // Attempt to render as HTML if it looks like HTML, otherwise render as text
+    let finalContent = '';
+    if (analyzeResultText.trim().startsWith('<') && analyzeResultText.trim().endsWith('>')) {
+        try {
+            // Use a temporary element to parse and sanitize if needed (basic example)
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = analyzeResultText;
+            // Basic check if parsing resulted in meaningful elements
+            if (tempDiv.children.length > 0 || tempDiv.textContent.trim().length > 0) {
+                 finalContent = tempDiv.innerHTML; // Use parsed HTML
+            } else {
+                // If parsing results in empty body, treat as text
+                finalContent = `<pre>${analyzeResultText.replace(/</g, "<").replace(/>/g, ">")}</pre>`;
+            }
+        } catch (e) {
+            console.warn('Error parsing analysis result as HTML, displaying as text:', e);
+            finalContent = `<pre>${analyzeResultText.replace(/</g, "<").replace(/>/g, ">")}</pre>`; // Display as preformatted text on error
+        }
+    } else {
+         finalContent = `<pre>${analyzeResultText.replace(/</g, "<").replace(/>/g, ">")}</pre>`; // Wrap non-HTML in <pre> for formatting
     }
+
+
+    // Store conversation history
+    conversationHistory.push({ role: 'user', content: promptText || '(No prompt provided)' });
+    conversationHistory.push({ role: 'assistant', content: finalContent });
 
     // Initialize the conversation UI in the analysis tab
     initializeConversationUI();
 
-    // REMOVED: Switch to the analysis tab to show the results
-    // switchTab('analysis');
-
   } catch (err) {
-    console.error('Analyze data error:', err);
+    if (err.name === 'AbortError') {
+      console.error('Analysis request timed out.');
+       const analysisContent = document.getElementById('analysis-content');
+      if(analysisContent) analysisContent.innerHTML = "<div class='error'>Analysis request timed out.</div>";
+    } else {
+      console.error('Error performing final analysis:', err);
+       const analysisContent = document.getElementById('analysis-content');
+       if(analysisContent) analysisContent.innerHTML = `<div class='error'>An error occurred during analysis: ${err.message}</div>`;
+    }
   }
 }
 
+/***************************************************
+ * LLM Chat Interface Functions
+ ***************************************************/
 function initializeConversationUI() {
-  // Create a container for the conversation if not already created
   chatContainer = document.getElementById('chat-container-analysis');
   if (!chatContainer) {
     console.error('Chat container element not found in analysis tab');
+    const analysisContent = document.getElementById('analysis-content');
+    if(analysisContent) analysisContent.innerHTML += "<div class='error'>Chat UI failed to initialize.</div>"; // Add error to tab
     return;
   }
-
-  // Render the conversation so far + input
   renderConversationUI();
 }
 
 function renderConversationUI() {
   if (!chatContainer) return;
 
-  // 1) Build the HTML for current messages
   let chatHTML = '<div class="chat-messages">';
   conversationHistory.forEach(msg => {
-    if (msg.role === 'assistant') {
-      // model's reply
-      chatHTML += `
-        <div class="chat-message assistant">
-          <strong>Assistant:</strong> ${msg.content}
+    const roleClass = msg.role === 'assistant' ? 'assistant' : 'user';
+    const label = msg.role === 'assistant' ? 'Assistant' : 'You';
+    // Use innerHTML directly as content might already be HTML or preformatted text
+    chatHTML += `
+        <div class="chat-message ${roleClass}">
+          <strong>${label}:</strong>
+          <div class="message-content">${msg.content}</div>
         </div>
       `;
-    } else {
-      // user
-      chatHTML += `
-        <div class="chat-message user">
-          <strong>You:</strong> ${msg.content}
-        </div>
-      `;
-    }
   });
-  chatHTML += '</div>';
+  chatHTML += '</div>'; // End chat-messages
 
-  // 2) Add an input area to continue the conversation
+  // Add input area
   chatHTML += `
-    <div class="chat-input-area" style="margin-top: 10px;">
-      <input type="text" id="chat-input" placeholder="Type your question..." style="width:80%;">
-      <button id="chat-send-btn" style="width:18%;">Send</button>
+    <div class="chat-input-area" style="margin-top: 15px; display: flex; gap: 5px;">
+      <input type="text" id="chat-input" placeholder="Ask a follow-up question..." style="flex-grow: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+      <button id="chat-send-btn" style="padding: 8px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Send</button>
     </div>
   `;
 
-  // Replace the chat container content
   chatContainer.innerHTML = chatHTML;
 
-  // 2a) Immediately scroll chat to the bottom
+  // Scroll to bottom
   const messagesDiv = chatContainer.querySelector('.chat-messages');
   if (messagesDiv) {
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
   }
 
-  // 3) Add an event listener for the "Send" button
+  // Add event listeners using replaceWith to avoid duplicates
   const sendBtn = document.getElementById('chat-send-btn');
   if (sendBtn) {
-    sendBtn.addEventListener('click', handleUserChatSubmit);
+     const newSendBtn = sendBtn.cloneNode(true);
+     sendBtn.parentNode.replaceChild(newSendBtn, sendBtn);
+     newSendBtn.addEventListener('click', handleUserChatSubmit);
   }
-
-  // Also handle "Enter" key in the input
   const inputField = document.getElementById('chat-input');
   if (inputField) {
-    inputField.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
+     const newInputField = inputField.cloneNode(true);
+     inputField.parentNode.replaceChild(newInputField, inputField);
+     newInputField.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { // Send on Enter, allow Shift+Enter for newline
+        e.preventDefault(); // Prevent default Enter behavior (like form submission)
         handleUserChatSubmit();
       }
     });
+    // Focus input field after rendering
+    // setTimeout(() => newInputField.focus(), 0); // Use timeout to ensure element is fully ready
   }
 }
 
 function handleUserChatSubmit() {
   const inputField = document.getElementById('chat-input');
   if (!inputField) return;
-
   const userMessage = inputField.value.trim();
   if (!userMessage) return;
 
-  // Add the user's new message to the conversation
-  conversationHistory.push({
-    role: 'user',
-    content: userMessage
-  });
+  // Basic sanitization (replace angle brackets)
+  const sanitizedMessage = userMessage.replace(/</g, "<").replace(/>/g, ">");
 
-  // Clear the input
+  conversationHistory.push({ role: 'user', content: sanitizedMessage });
   inputField.value = '';
-
-  // Re-render so the user sees their message
-  renderConversationUI();
-
-  // Send the entire conversation to the endpoint for the next assistant reply
-  sendChatMessageToLLM();
+  renderConversationUI(); // Show user's message immediately
+  sendChatMessageToLLM(); // Send to backend
 }
 
 async function sendChatMessageToLLM() {
+   // Add a temporary "Assistant is thinking..." message
+  conversationHistory.push({ role: 'assistant', content: '<div class="thinking" style="font-style: italic; color: grey;">Assistant is thinking...</div>' });
+  renderConversationUI();
+
   try {
-    // We'll reuse the same model param from the UI
     const selectedModel = document.getElementById('llm-model').value;
+    // Send the *entire* history for context, excluding the "thinking" message
+    const historyToSend = conversationHistory.slice(0, -1);
+    // Ensure history is not excessively long (optional - implement if needed)
+    // const MAX_HISTORY_LENGTH = 20; // Example limit
+    // if (historyToSend.length > MAX_HISTORY_LENGTH) {
+    //     historyToSend = historyToSend.slice(-MAX_HISTORY_LENGTH);
+    //     // Make sure the first message is always a user message if possible
+    //     if (historyToSend[0].role === 'assistant') {
+    //          historyToSend = historyToSend.slice(1);
+    //     }
+    // }
+    const conversationJSON = encodeURIComponent(JSON.stringify(historyToSend));
 
-    // Convert the entire conversation array to JSON
-    const conversationJSON = encodeURIComponent(JSON.stringify(conversationHistory));
 
-    // Build the endpoint (same as your 'analyze-data' but with added ?history=)
-    const url = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${conversationJSON}`;
+    const url = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${conversationJSON}`; // Using history in prompt param
+    const analysisData = gatherResultsForAnalysis(); // Resend original data for context if needed by backend
 
-    // We can still pass the aggregator results if needed:
-    const analysisData = gatherResultsForAnalysis();
+    console.log("Sending chat message to LLM...");
+    const { controller, timeoutId } = createFetchController(LONG_API_TIMEOUT);
 
-    // POST the aggregator data as before, but rely on `history` to pass conversation
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(analysisData)
+      body: JSON.stringify(analysisData),
+      signal: controller.signal
     });
-    const result = await response.json();
 
-    let assistantReply = '';
-    if (Array.isArray(result) && result.length > 0 && result[0].text) {
-      assistantReply = result[0].text;
-    } else {
-      assistantReply = JSON.stringify(result);
+    clearTimeout(timeoutId);
+
+     // Remove the "thinking..." message *before* processing response
+    conversationHistory.pop();
+
+    if (!response.ok) {
+        console.error(`LLM chat request failed with status: ${response.status}`);
+        conversationHistory.push({ role: 'assistant', content: '<div class="error">Sorry, I encountered an error communicating with the server. Please try again.</div>' });
+        renderConversationUI();
+        return;
     }
 
-    // Add the new assistant reply to the conversation
-    conversationHistory.push({
-      role: 'assistant',
-      content: assistantReply
-        .replaceAll("```html", '')
-        .replaceAll("```", '')
-    });
+    const result = await safelyParseJSON(response, url);
+    if (!result) {
+       console.error('Failed to parse LLM chat response.');
+       conversationHistory.push({ role: 'assistant', content: '<div class="error">Sorry, I received an invalid response from the server. Please try again.</div>' });
+       renderConversationUI();
+       return;
+    }
 
-    // Re-render the chat
+    let assistantReply = '';
+     if (Array.isArray(result) && result.length > 0 && result[0].text) {
+       assistantReply = result[0].text;
+     } else if (typeof result === 'object') {
+         assistantReply = result.result || result.message || JSON.stringify(result);
+     } else {
+       assistantReply = String(result);
+     }
+
+    // Basic cleanup
+    assistantReply = assistantReply
+      .replace(/```html\b/gi, '')
+      .replace(/```/g, '');
+
+     // Similar HTML vs Text rendering as in performFinalAnalysis
+     let finalContent = '';
+     if (assistantReply.trim().startsWith('<') && assistantReply.trim().endsWith('>')) {
+         try {
+             const tempDiv = document.createElement('div');
+             tempDiv.innerHTML = assistantReply;
+             if (tempDiv.children.length > 0 || tempDiv.textContent.trim().length > 0) {
+                  finalContent = tempDiv.innerHTML;
+             } else {
+                 finalContent = `<pre>${assistantReply.replace(/</g, "<").replace(/>/g, ">")}</pre>`;
+             }
+         } catch (e) {
+             finalContent = `<pre>${assistantReply.replace(/</g, "<").replace(/>/g, ">")}</pre>`;
+         }
+     } else {
+          finalContent = `<pre>${assistantReply.replace(/</g, "<").replace(/>/g, ">")}</pre>`;
+     }
+
+
+    conversationHistory.push({ role: 'assistant', content: finalContent });
     renderConversationUI();
+
   } catch (err) {
-    console.error('sendChatMessageToLLM error:', err);
+    // Remove the "thinking..." message on error too
+    if (conversationHistory.length > 0 && conversationHistory[conversationHistory.length - 1]?.content.includes('thinking...')) {
+         conversationHistory.pop();
+    }
+
+    if (err.name === 'AbortError') {
+      console.error('LLM chat request timed out.');
+      conversationHistory.push({ role: 'assistant', content: '<div class="error">Sorry, the request timed out. Please try again.</div>' });
+    } else {
+      console.error('Error sending chat message:', err);
+      conversationHistory.push({ role: 'assistant', content: `<div class="error">Sorry, an error occurred: ${err.message}</div>` });
+    }
+    renderConversationUI();
   }
 }
 
 /***************************************************
- * The main handleSearch
+ * The main handleSearch Function
  ***************************************************/
 async function handleSearch() {
-  // Reset the stop search flag
+  console.log("--- Starting New Search ---");
+  // 1) Reset state variables FIRST
   stopSearchRequested = false;
-  
-  // Reset search state
+  isPaused = false;
   limitedSearchMode = true;
   altCountFound = 0;
-  pausedSearchState = {
-    isActive: false,
-    baseNumber: '',
-    visited: new Set(),
-    finalAlts: [],
-    onNewAltsCallback: null
-  };
-  
-  // Ensure that final analysis can happen again for each fresh search
+  pausedSearchState = { isActive: false, pendingExploration: [], visited: new Set(), finalAlts: [], onNewAltsCallback: null };
   analysisAlreadyCalled = false;
   conversationHistory = [];
+  Object.keys(searchResults).forEach(k => { searchResults[k] = []; });
+  activeRequestsCount = 0;
+  expansionsInProgress = false; // Reset expansion flag
 
-  // 1) Clean UI for new search
+  // 2) Clean the UI thoroughly
   cleanupUI();
 
-  // 2) Get part number
+  // 3) Get part number input
   const partNumberInput = document.getElementById('part-numbers');
-  if (!partNumberInput) {
-    alert('part number input not found');
-    return;
-  }
-  const partNumber = partNumberInput.value.trim();
+  const partNumber = partNumberInput?.value.trim();
   if (!partNumber) {
-    alert('Please enter a part number');
+    alert('Please enter a part number.');
     return;
   }
+  console.log(`Searching for part: ${partNumber}`);
 
-  // 3) Reset aggregator and counters
-  Object.keys(searchResults).forEach(k => {
-    searchResults[k] = [];
-  });
-  activeRequestsCount = 0;
-  expansionsInProgress = false;  // Will set to 'true' if we do expansions
-
-  // 4) Show spinner
+  // 4) Show spinner and stop button
   const spinner = document.getElementById('loading-spinner');
   const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'inline-block';
   if (stopBtn) stopBtn.style.display = 'inline-block';
 
-  // We'll store discovered alternative parts
-  const finalAlternatives = [];
-
-  // For partial UI updates
+  // 5) Initialize variables for this search
+  const finalAlternatives = []; // Array to hold {type, value} objects
   let topDescription = '';
   let topCategory = '';
-  let topOriginal = partNumber;
+  let topOriginal = partNumber; // May be updated by getAlternativePartNumbers if ORD differs
+  const alreadySearched = new Set(); // Track parts searched by executeEndpointSearches
 
-  // Helper that re-renders <div id="alternative-numbers"> 
+  // 6) Helper to update the alternative numbers UI section
   function updateAlternativeNumbersUI() {
     const altDiv = document.getElementById('alternative-numbers');
     if (!altDiv) return;
 
     let html = `
-      <p><strong>Description:</strong> ${topDescription}</p>
-      <p><strong>Category:</strong> ${topCategory}</p>
+      <p><strong>Description:</strong> ${topDescription || 'Loading...'}</p>
+      <p><strong>Category:</strong> ${topCategory || 'Loading...'}</p>
     `;
     if (finalAlternatives.length > 0) {
       html += `
-        <h4>Alternative Part Numbers Found (up to level ${configNestedLevel === -1 ? '∞' : configNestedLevel}):</h4>
+        <h4>Alternative Part Numbers Found:</h4>
         <ul class="alternative-numbers-list">
-          ${finalAlternatives.map(a => `
-            <li class="alternative-number"><span>${a.type}: ${a.value}</span></li>
-          `).join('')}
+          ${finalAlternatives.map(a => `<li class="alternative-number"><span>${a.type}: ${a.value}</span></li>`).join('')}
         </ul>
       `;
-    } else {
-      html += `<p>No alternative part numbers found.</p>`;
+    } else if (!expansionsInProgress && !isPaused) {
+         // Only show "No alternatives" if search isn't running or paused AND not stopped
+         if (!stopSearchRequested) {
+             html += `<p>No alternative part numbers found.</p>`;
+         }
     }
-    altDiv.innerHTML = html;
+    altDiv.innerHTML = html; // Overwrite content
     altDiv.classList.add('active');
-    
-    // If we're in paused state and need to show the button, do it now
-    if (limitedSearchMode && altCountFound >= initialAltLimit && 
-        !document.getElementById('continue-search-btn') &&
-        pausedSearchState.isActive) {
-      addContinueSearchButton();
+
+    // Re-add continue button if search is paused (might be called after initial fetch)
+    if (isPaused && !document.getElementById('continue-search-btn')) {
+        addContinueSearchButton();
     }
   }
 
-  // Tracks which alt part numbers we've already "searched"
-  const alreadySearched = new Set();
-
-  // Callback for newly discovered alt parts.  
+  // 7) Callback triggered by gatherCombinatoryAlternatives when new alts are found
   async function onNewAlts(newlyAdded) {
-    // Check if search should be stopped
-    if (stopSearchRequested) return;
-    
-    // 1) Update the alt UI
+    if (stopSearchRequested || isPaused) return; // Don't process if stopped or paused
+
+    // 1. Update the UI list of alternatives
     updateAlternativeNumbersUI();
 
-    // 2) For each new alt, if not searched yet, do so
-    const freshParts = [];
-    for (const alt of newlyAdded) {
-      const altUpper = alt.value.trim().toUpperCase();
-      if (!alreadySearched.has(altUpper)) {
-        alreadySearched.add(altUpper);
-        freshParts.push({ number: alt.value, source: `${alt.type}: ${alt.value}` });
-      }
-    }
-    if (freshParts.length > 0) {
-      // Launch endpoint searches for these new parts
-      await executeEndpointSearches(freshParts);
+    // 2. Filter out parts already searched by endpoint functions
+    const partsToSearch = newlyAdded.filter(alt => {
+        const altUpper = alt.value.trim().toUpperCase();
+        if (!alreadySearched.has(altUpper)) {
+            alreadySearched.add(altUpper);
+            return true;
+        }
+        return false;
+    }).map(alt => ({ number: alt.value, source: `${alt.type}: ${alt.value}` })); // Format for executeEndpointSearches
+
+    // 3. Trigger endpoint searches for these *new* parts
+    if (partsToSearch.length > 0) {
+      console.log(`onNewAlts: Triggering endpoint searches for ${partsToSearch.length} new alternatives.`);
+      // Run searches but don't wait here, let them run in parallel managed by activeRequestsCount
+      executeEndpointSearches(partsToSearch);
     }
   }
 
+  // --- Main Search Execution ---
   try {
-    // 1) Fetch top-level data (to get Description/Category, etc.)
+    // 8) Fetch top-level data for the entered part number (gets description, category, direct alts)
+    console.log("Fetching initial part data...");
     const topData = await getAlternativePartNumbers(partNumber);
-    topOriginal = topData.original;
+    // Check if search was stopped during the initial fetch
+    if (stopSearchRequested) {
+        console.log("Search stopped during initial part fetch.");
+        cleanupUI(); // Clean up fully
+        return;
+    }
+    topOriginal = topData.original; // Use the ORD part number if available
     topDescription = topData.description;
     topCategory = topData.category;
+    console.log(`Initial Data: Original=${topOriginal}, Desc=${topDescription}, Cat=${topCategory}`);
 
-    // Show description immediately
+    // 9) Update UI immediately with description/category
     updateAlternativeNumbersUI();
 
-    // 2) If we want alternative expansions, start them in parallel
-    if (configUseAlternatives) {
-      // Kick off expansions in the background (no await)
-      startExpansions(topOriginal, finalAlternatives, onNewAlts);
+    // 10) Immediately search endpoints for the original part number
+    const originalPartUpper = topOriginal.trim().toUpperCase();
+    if (!alreadySearched.has(originalPartUpper)) {
+        alreadySearched.add(originalPartUpper);
+        console.log(`Executing endpoint searches for original part: ${topOriginal}`);
+        // Don't await here, let it run in parallel
+        executeEndpointSearches([{ number: topOriginal, source: `Original: ${topOriginal}` }]);
     } else {
-      // If alt is disabled, just mention it in the UI
-      const altDiv = document.getElementById('alternative-numbers');
-      if (altDiv) {
-        altDiv.innerHTML = '<p>Alternative search is disabled.</p>';
-        altDiv.classList.add('active');
-      }
+        console.log(`Original part ${topOriginal} already processed (likely same as input).`);
     }
 
-    // 3) Immediately search the user's original part
-    alreadySearched.add(topOriginal.trim().toUpperCase());
-    // We do NOT wait for expansions to finish
-    await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
 
-    // 4) Possibly do a final check if expansions might be done immediately
-    checkIfAllDone();
+    // 11) Start alternative part expansions (if enabled)
+    if (configUseAlternatives) {
+      // This runs in the background (no await here)
+      // It will call onNewAlts as it finds parts, which triggers endpoint searches
+      startExpansions(topOriginal, finalAlternatives, onNewAlts);
+    } else {
+      console.log("Alternative search is disabled by configuration.");
+      const altDiv = document.getElementById('alternative-numbers');
+      if (altDiv) {
+        altDiv.innerHTML += '<p><i>Alternative search is disabled.</i></p>';
+      }
+      // If not expanding, trigger check if done now that initial searches are launched
+      checkIfAllDone();
+    }
+
+    // Initial checkIfAllDone call might be premature here,
+    // as endpoint searches for original part and expansions are running in background.
+    // It will be called correctly when activeRequestsCount becomes 0 and expansionsInProgress is false.
 
   } catch (err) {
-    console.error('handleSearch error:', err);
+    console.error('Error in main handleSearch execution:', err);
+    alert(`An error occurred during the search: ${err.message}`);
+    // Hide spinner on error
+    if (spinner) spinner.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'none';
+    // Ensure state is reset on error
+    stopSearchRequested = true; // Treat as stopped
+    isPaused = false;
+    expansionsInProgress = false;
+    activeRequestsCount = 0;
   }
 }
 
 /***************************************************
- * A helper to do parallel endpoint searches for a 
- * given array of {number, source}
+ * Execute Endpoint Searches for a Batch of Parts
  ***************************************************/
-async function executeEndpointSearches(partNumbers) {
-  if (!partNumbers || partNumbers.length === 0 || stopSearchRequested) return;
+async function executeEndpointSearches(partNumbersInfo) {
+  // partNumbersInfo is an array of { number: string, source: string }
+  if (!partNumbersInfo || partNumbersInfo.length === 0) return;
+  if (stopSearchRequested) {
+    console.log("Skipping endpoint searches - User requested stop.");
+    return;
+  }
+   if (isPaused) {
+       // This check might be redundant if onNewAlts already checks, but safe to keep.
+       // console.log("Skipping endpoint searches - Search is paused.");
+       return;
+   }
 
+  // console.log(`Executing searches for ${partNumbersInfo.length} parts: ${partNumbersInfo.map(p=>p.number).join(', ')}`);
   const tasks = [];
+  const activeEndpoints = []; // For logging
 
-  if (document.getElementById('toggle-inventory').checked) {
-    tasks.push(fetchInventoryData(partNumbers).finally(() => updateSummaryTab()));
-  }
-  if (document.getElementById('toggle-brokerbin').checked) {
-    tasks.push(fetchBrokerBinData(partNumbers).finally(() => updateSummaryTab()));
-  }
-  if (document.getElementById('toggle-tdsynnex').checked) {
-    tasks.push(fetchTDSynnexData(partNumbers).finally(() => updateSummaryTab()));
-  }
-  if (document.getElementById('toggle-ingram').checked) {
-    tasks.push(fetchDistributorData(partNumbers).finally(() => updateSummaryTab()));
-  }
-  if (document.getElementById('toggle-amazon-connector').checked) {
-    tasks.push(fetchAmazonConnectorData(partNumbers).finally(() => updateSummaryTab()));
-  }
-  if (document.getElementById('toggle-ebay-connector').checked) {
-    tasks.push(fetchEbayConnectorData(partNumbers).finally(() => updateSummaryTab()));
-  }
-  if (document.getElementById('toggle-amazon').checked) {
-    tasks.push(fetchAmazonData(partNumbers).finally(() => updateSummaryTab()));
-  }
-  if (document.getElementById('toggle-ebay').checked) {
-    tasks.push(fetchEbayData(partNumbers).finally(() => updateSummaryTab()));
-  }
+  // Build tasks based on checked toggles
+  const toggleChecks = {
+      'toggle-inventory': () => tasks.push(fetchInventoryData(partNumbersInfo).finally(() => updateSummaryTab())),
+      'toggle-sales': () => tasks.push(fetchSalesData(partNumbersInfo).finally(() => updateSummaryTab())),
+      'toggle-purchases': () => tasks.push(fetchPurchasesData(partNumbersInfo).finally(() => updateSummaryTab())),
+      'toggle-brokerbin': () => tasks.push(fetchBrokerBinData(partNumbersInfo).finally(() => updateSummaryTab())),
+      'toggle-tdsynnex': () => tasks.push(fetchTDSynnexData(partNumbersInfo).finally(() => updateSummaryTab())),
+      'toggle-ingram': () => tasks.push(fetchDistributorData(partNumbersInfo).finally(() => updateSummaryTab())),
+      'toggle-amazon-connector': () => tasks.push(fetchAmazonConnectorData(partNumbersInfo).finally(() => updateSummaryTab())),
+      'toggle-ebay-connector': () => tasks.push(fetchEbayConnectorData(partNumbersInfo).finally(() => updateSummaryTab())),
+      'toggle-amazon': () => tasks.push(fetchAmazonData(partNumbersInfo).finally(() => updateSummaryTab())),
+      'toggle-ebay': () => tasks.push(fetchEbayData(partNumbersInfo).finally(() => updateSummaryTab())),
+      'toggle-lenovo': () => tasks.push(fetchLenovoData(partNumbersInfo)) // Lenovo updates own UI
+  };
 
-  // Sales and Purchases
-  tasks.push(fetchSalesData(partNumbers).finally(() => updateSummaryTab()));
-  tasks.push(fetchPurchasesData(partNumbers).finally(() => updateSummaryTab()));
-
-  // We do not always put Lenovo in here, but let's add it too if needed:
-  if (document.getElementById('toggle-lenovo').checked) {
-    // We'll call it once after the others
-    // or you can put it directly in the tasks
-    tasks.push(fetchLenovoData(partNumbers));
+  for (const toggleId in toggleChecks) {
+      const toggleElement = document.getElementById(toggleId);
+      if (toggleElement?.checked) {
+          activeEndpoints.push(toggleId.replace('toggle-', '')); // Log endpoint name
+          toggleChecks[toggleId](); // Add the fetch task promise
+      }
   }
 
-  await Promise.all(tasks);
+  // console.log(`Active endpoints for this batch: ${activeEndpoints.join(', ')}`);
+  if (tasks.length > 0) {
+       // We don't await Promise.all here.
+       // Each task manages its own activeRequestsCount decrement in its finally block.
+       // This allows batches to run concurrently.
+       console.log(`Launched ${tasks.length} endpoint search tasks for batch starting with ${partNumbersInfo[0]?.number}`);
+  } else {
+      // console.log("No active endpoints enabled for this search batch.");
+      // If no tasks were launched for this batch, we might need to trigger checkIfAllDone if appropriate
+      // However, this function is usually called from onNewAlts which is part of expansions,
+      // or from handleSearch for the initial part. The checkIfAllDone logic should handle completion naturally.
+  }
 }
 
 /***************************************************
- * Now define each fetch function, aggregator style
- * then rebuild the entire table from aggregator
+ * Individual Fetch Functions (with improvements)
  ***************************************************/
 
-// 1) TDSynnex
-async function fetchTDSynnexData(partNumbers) {
+// --- TDSynnex ---
+async function fetchTDSynnexData(partNumbersInfo) {
   if (stopSearchRequested) return;
   activeRequestsCount++;
   const loading = document.querySelector('.tdsynnex-results .loading');
   if (loading) loading.style.display = 'block';
 
   try {
-    const newItems = [];
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
+    const promises = partNumbersInfo.map(async ({ number, source }) => {
+      if (stopSearchRequested || isPaused) return null; // Check before fetch
+      const url = `https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`;
       try {
-        const res = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
-        if (!res.ok) continue;
+        const { controller, timeoutId } = createFetchController();
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!res.ok || isPaused || stopSearchRequested) return null; // Check again after fetch
+
         const xmlText = await res.text();
+        if (!xmlText || xmlText.trim() === '' || isPaused || stopSearchRequested) return null;
         const xmlDoc = parseXML(xmlText);
         const priceList = xmlDoc.getElementsByTagName('PriceAvailabilityList')[0];
-        if (!priceList) continue;
+        if (!priceList) return null;
 
-        const result = {
+        return { // Return the processed result
           sourcePartNumber: source,
           synnexSKU: xmlDoc.querySelector('synnexSKU')?.textContent || '-',
           mfgPN: xmlDoc.querySelector('mfgPN')?.textContent || '-',
@@ -963,1351 +1273,794 @@ async function fetchTDSynnexData(partNumbers) {
           totalQuantity: xmlDoc.querySelector('totalQuantity')?.textContent || '0',
           warehouses: Array.from(xmlDoc.getElementsByTagName('AvailabilityByWarehouse'))
             .map(warehouse => ({
-              city: warehouse.querySelector('warehouseInfo city')?.textContent,
-              qty: warehouse.querySelector('qty')?.textContent
+              city: warehouse.querySelector('warehouseInfo city')?.textContent || 'N/A',
+              qty: warehouse.querySelector('qty')?.textContent || '0'
             }))
         };
-        newItems.push(result);
       } catch (err) {
-        console.warn('TDSynnex fetch error for', number, err);
+        if (err.name !== 'AbortError') console.warn(`TDSynnex fetch error for ${number}:`, err);
+        return null; // Return null on error
       }
+    });
+
+    const results = await Promise.all(promises);
+    const newItems = results.filter(item => item !== null); // Filter out nulls from errors/stops
+
+    if (newItems.length > 0) {
+        searchResults.tdsynnex.push(...newItems);
+        buildTDSynnexTable();
     }
-    // aggregator
-    searchResults.tdsynnex.push(...newItems);
-    buildTDSynnexTable();
   } catch (err) {
-    console.error('fetchTDSynnexData error:', err);
+    console.error('Error processing TDSynnex batch:', err);
   } finally {
     if (loading) loading.style.display = 'none';
     activeRequestsCount--;
-    checkIfAllDone();
+    checkIfAllDone(); // Check if all searches are complete now
   }
 }
 
-function buildTDSynnexTable() {
-  const resultsDiv = document.querySelector('.tdsynnex-results .results-container');
-  if (!resultsDiv) return;
-  resultsDiv.innerHTML = '';
-
-  // Filter out items with zero quantity
-  const allItems = searchResults.tdsynnex;
-  const filteredItems = allItems.filter(item => {
-    const qty = parseInt(item.totalQuantity, 10);
-    return !isNaN(qty) && qty > 0;
-  });
-  
-  if (filteredItems.length === 0) return;
-
-  const table = document.createElement('table');
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Synnex SKU</th>
-        <th>Mfg Part Number</th>
-        <th>Description</th>
-        <th>Status</th>
-        <th>Price</th>
-        <th>Total Quantity</th>
-        <th>Warehouses</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${filteredItems.map(item => `
-        <tr>
-          <td>${item.sourcePartNumber}</td>
-          <td>${item.synnexSKU}</td>
-          <td>${item.mfgPN}</td>
-          <td>${item.description}</td>
-          <td>${item.status}</td>
-          <td>${item.price}</td>
-          <td>${item.totalQuantity}</td>
-          <td>${item.warehouses.map(wh => `${wh.city}: ${wh.qty}`).join('<br>')}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
-
-  makeTableSortable(table);
-}
-
-// 2) Ingram
-async function fetchDistributorData(partNumbers) {
+// --- Ingram ---
+async function fetchDistributorData(partNumbersInfo) { // Assuming Ingram
   if (stopSearchRequested) return;
   activeRequestsCount++;
   const loading = document.querySelector('#distributors-content .loading');
-  const resultsDiv = document.querySelector('#distributors-content .ingram-results .results-container');
   if (loading) loading.style.display = 'block';
 
   try {
-    const newItems = [];
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
-      try {
-        const res = await fetch(`https://${serverDomain}/webhook/ingram-search?item=${encodeURIComponent(number)}`);
-        if (!res.ok) continue;
-        const data = await res.json();
-        const resultsWithSource = data.map(obj => ({ ...obj, sourcePartNumber: source }));
-        newItems.push(...resultsWithSource);
-      } catch (err) {
-        console.warn('Ingram error for', number, err);
-      }
-    }
-    searchResults.ingram.push(...newItems);
-    buildIngramTable();
+     const promises = partNumbersInfo.map(async ({ number, source }) => {
+         if (stopSearchRequested || isPaused) return null;
+         const url = `https://${serverDomain}/webhook/ingram-search?item=${encodeURIComponent(number)}`;
+         try {
+             const { controller, timeoutId } = createFetchController();
+             const res = await fetch(url, { signal: controller.signal });
+             clearTimeout(timeoutId);
+             if (!res.ok || isPaused || stopSearchRequested) return null;
+
+             const data = await safelyParseJSON(res, url);
+             if (!data || !Array.isArray(data)) return null;
+
+             return data.map(obj => ({ ...obj, sourcePartNumber: source })); // Return array of results for this part
+
+         } catch (err) {
+             if (err.name !== 'AbortError') console.warn(`Ingram error for ${number}:`, err);
+             return null;
+         }
+     });
+
+     const resultsArrays = await Promise.all(promises);
+     // Flatten the array of arrays and filter out nulls/empty arrays
+     const newItems = resultsArrays.flat().filter(item => item !== null);
+
+     if (newItems.length > 0) {
+        searchResults.ingram.push(...newItems);
+        buildIngramTable();
+     }
   } catch (err) {
-    console.error('fetchDistributorData error:', err);
-    if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
-    }
+    console.error('Error processing Ingram batch:', err);
+     const resultsDiv = document.querySelector('#distributors-content .ingram-results .results-container');
+     if (resultsDiv) resultsDiv.innerHTML = `<div class="error">Error loading Ingram data: ${err.message}</div>`;
   } finally {
     if (loading) loading.style.display = 'none';
     activeRequestsCount--;
     checkIfAllDone();
   }
 }
+
+// --- BrokerBin ---
+async function fetchBrokerBinData(partNumbersInfo) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+  const loading = document.querySelector('.brokerbin-results .loading');
+  if (loading) loading.style.display = 'block';
+
+  try {
+     const promises = partNumbersInfo.map(async ({ number, source }) => {
+        if (stopSearchRequested || isPaused) return null;
+        const url = `https://${serverDomain}/webhook/brokerbin-search?item=${encodeURIComponent(number)}`;
+        try {
+            const { controller, timeoutId } = createFetchController();
+            const res = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!res.ok || isPaused || stopSearchRequested) return null;
+
+            const data = await safelyParseJSON(res, url);
+            if (!data || !Array.isArray(data)) return null;
+
+            return data.map(obj => ({ ...obj, sourcePartNumber: source }));
+        } catch (err) {
+            if (err.name !== 'AbortError') console.warn(`BrokerBin error for ${number}:`, err);
+            return null;
+        }
+     });
+
+     const resultsArrays = await Promise.all(promises);
+     const newItems = resultsArrays.flat().filter(item => item !== null);
+
+     if (newItems.length > 0) {
+        searchResults.brokerbin.push(...newItems);
+        buildBrokerBinTable();
+     }
+  } catch (error) {
+    console.error('Error processing BrokerBin batch:', error);
+     const resultsDiv = document.querySelector('.brokerbin-results .results-container');
+     if (resultsDiv) resultsDiv.innerHTML = `<div class="error">Error loading BrokerBin data: ${error.message}</div>`;
+  } finally {
+    if (loading) loading.style.display = 'none';
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+// --- Epicor Inventory (CRITICAL) ---
+async function fetchInventoryData(partNumbersInfo) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+  const loading = document.querySelector('#inventory-content .loading');
+  if (loading) loading.style.display = 'block';
+
+  try {
+     const promises = partNumbersInfo.map(async ({ number, source }) => {
+        if (stopSearchRequested || isPaused) return null;
+        const url = `https://${serverDomain}/webhook/epicor-search?item=${encodeURIComponent(number)}`;
+        try {
+            const { controller, timeoutId } = createFetchController(LONG_API_TIMEOUT);
+            const res = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!res.ok || isPaused || stopSearchRequested) {
+                if(!res.ok) console.warn(`EPICOR Inventory request for ${number} failed: Status ${res.status}`);
+                return null;
+            }
+
+            const data = await safelyParseJSON(res, url);
+            if (!data || !Array.isArray(data)) {
+                console.warn(`EPICOR Inventory for ${number}: Invalid data format received.`);
+                return null;
+            }
+            return data.map(obj => ({ ...obj, sourcePartNumber: source }));
+        } catch (err) {
+            if (err.name === 'AbortError') console.error(`EPICOR Inventory request timed out for ${number}`);
+            else console.error(`EPICOR Inventory fetch error for ${number}:`, err);
+            return null;
+        }
+     });
+
+     const resultsArrays = await Promise.all(promises);
+     const newItems = resultsArrays.flat().filter(item => item !== null);
+
+     if (newItems.length > 0) {
+        searchResults.epicor.push(...newItems);
+        buildEpicorInventoryTable();
+     }
+  } catch (err) {
+    console.error('Error processing Epicor Inventory batch:', err);
+    const resultsDiv = document.querySelector('#inventory-content .inventory-results');
+     if (resultsDiv) resultsDiv.innerHTML = `<div class="error">Error loading Epicor Inventory data: ${err.message}</div>`;
+  } finally {
+    if (loading) loading.style.display = 'none';
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+
+// --- Sales (CRITICAL) ---
+async function fetchSalesData(partNumbersInfo) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+  const loading = document.querySelector('#sales-content .loading');
+  if (loading) loading.style.display = 'block';
+
+  try {
+     const promises = partNumbersInfo.map(async ({ number, source }) => {
+         if (stopSearchRequested || isPaused) return null;
+         const url = `https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`;
+         try {
+             const { controller, timeoutId } = createFetchController(LONG_API_TIMEOUT);
+             const res = await fetch(url, { signal: controller.signal });
+             clearTimeout(timeoutId);
+             if (!res.ok || isPaused || stopSearchRequested) {
+                 if(!res.ok) console.warn(`EPICOR Sales request for ${number} failed: Status ${res.status}`);
+                 return null;
+             }
+
+             const data = await safelyParseJSON(res, url);
+             if (!data || !Array.isArray(data)) {
+                 console.warn(`EPICOR Sales for ${number}: Invalid data format received.`);
+                 return null;
+             }
+
+             const salesItems = [];
+             data.forEach(entry => {
+                 const details = entry?.returnObj?.OrderDtlPA || [];
+                 details.forEach(line => {
+                     salesItems.push({
+                         sourcePartNumber: source, PartNum: line.PartNum, LineDesc: line.LineDesc,
+                         OrderNum: line.OrderNum, OrderLine: line.OrderLine, CustomerID: line.CustomerCustID,
+                         CustomerName: line.CustomerCustName, OrderDate: line.OrderHedOrderDate, OrderQty: line.OrderQty,
+                         UnitPrice: line.UnitPrice, RequestDate: line.RequestDate, NeedByDate: line.NeedByDate
+                     });
+                 });
+             });
+             return salesItems; // Return array of sales items for this part
+         } catch (err) {
+             if (err.name === 'AbortError') console.error(`EPICOR Sales request timed out for ${number}`);
+             else console.error(`EPICOR Sales fetch error for ${number}:`, err);
+             return null;
+         }
+     });
+
+     const resultsArrays = await Promise.all(promises);
+     const newItems = resultsArrays.flat().filter(item => item !== null);
+
+     if (newItems.length > 0) {
+        searchResults.sales.push(...newItems);
+        buildSalesTable();
+     }
+  } catch (err) {
+    console.error('Error processing Epicor Sales batch:', err);
+     const resultsDiv = document.querySelector('#sales-content .sales-results');
+     if (resultsDiv) resultsDiv.innerHTML = `<div class="error">Error loading Epicor Sales data: ${err.message}</div>`;
+  } finally {
+    if (loading) loading.style.display = 'none';
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+// --- Purchases (CRITICAL) ---
+async function fetchPurchasesData(partNumbersInfo) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+  const loading = document.querySelector('#purchases-content .loading');
+  if (loading) loading.style.display = 'block';
+
+  try {
+      const promises = partNumbersInfo.map(async ({ number, source }) => {
+          if (stopSearchRequested || isPaused) return null;
+          const url = `https://${serverDomain}/webhook/epicor-purchases?item=${encodeURIComponent(number)}`;
+          try {
+              const { controller, timeoutId } = createFetchController(LONG_API_TIMEOUT);
+              const res = await fetch(url, { signal: controller.signal });
+              clearTimeout(timeoutId);
+              if (!res.ok || isPaused || stopSearchRequested) {
+                  if(!res.ok) console.warn(`EPICOR Purchases request for ${number} failed: Status ${res.status}`);
+                  return null;
+              }
+
+              const data = await safelyParseJSON(res, url);
+              if (!data || !Array.isArray(data)) {
+                  console.warn(`EPICOR Purchases for ${number}: Invalid data format received.`);
+                  return null;
+              }
+
+              const purchaseItems = [];
+              data.forEach(entry => {
+                  const purchasedItems = entry?.returnObj?.PAPurchasedBefore || [];
+                  purchasedItems.forEach(line => {
+                      purchaseItems.push({
+                          sourcePartNumber: source, PartNum: line.PartNum, VendorName: line.VendorName,
+                          VendorQty: line.VendorQty, VendorUnitCost: line.VendorUnitCost, PONum: line.PONum,
+                          ReceiptDate: line.ReceiptDate, OrderDate: line.OrderDate, DueDate: line.DueDate,
+                          IsAdvisor: false, PartDescription: line.PartDescription || '', PurchasedBefore: true
+                      });
+                  });
+              });
+              return purchaseItems;
+          } catch (err) {
+              if (err.name === 'AbortError') console.error(`EPICOR Purchases request timed out for ${number}`);
+              else console.error(`EPICOR Purchases fetch error for ${number}:`, err);
+              return null;
+          }
+      });
+
+      const resultsArrays = await Promise.all(promises);
+      const newItems = resultsArrays.flat().filter(item => item !== null);
+
+      if (newItems.length > 0) {
+        searchResults.purchases.push(...newItems);
+        buildPurchasesTable();
+      }
+  } catch (err) {
+    console.error('Error processing Epicor Purchases batch:', err);
+    const resultsDiv = document.querySelector('#purchases-content .purchases-results');
+     if (resultsDiv) resultsDiv.innerHTML = `<div class="error">Error loading Epicor Purchases data: ${err.message}</div>`;
+  } finally {
+    if (loading) loading.style.display = 'none';
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+
+// --- AmazonConnector ---
+async function fetchAmazonConnectorData(partNumbersInfo) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+  const loading = document.querySelector('.amazon-connector-results .loading');
+  if (loading) loading.style.display = 'block';
+
+  try {
+      const promises = partNumbersInfo.map(async ({ number, source }) => {
+         if (stopSearchRequested || isPaused) return null;
+         const url = `https://${serverDomain}/webhook/amazon-search?item=${encodeURIComponent(number)}`;
+         try {
+             const { controller, timeoutId } = createFetchController();
+             const resp = await fetch(url, { signal: controller.signal });
+             clearTimeout(timeoutId);
+             if (!resp.ok || isPaused || stopSearchRequested) return null;
+
+             const data = await safelyParseJSON(resp, url);
+             if (!data || !Array.isArray(data)) return null;
+             return data.map(obj => ({ ...obj, sourcePartNumber: source }));
+         } catch (err) {
+             if (err.name !== 'AbortError') console.warn(`AmazonConnector error for ${number}:`, err);
+             return null;
+         }
+      });
+
+      const resultsArrays = await Promise.all(promises);
+      const newItems = resultsArrays.flat().filter(item => item !== null);
+
+      if (newItems.length > 0) {
+        searchResults.amazonConnector.push(...newItems);
+        buildAmazonConnectorTable();
+      }
+  } catch (err) {
+    console.error('Error processing Amazon Connector batch:', err);
+     const resultsDiv = document.querySelector('.amazon-connector-results .results-container');
+     if (resultsDiv) resultsDiv.innerHTML = `<div class="error">Error loading Amazon Connector data: ${err.message}</div>`;
+  } finally {
+    if (loading) loading.style.display = 'none';
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+// --- eBayConnector ---
+async function fetchEbayConnectorData(partNumbersInfo) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+  const loading = document.querySelector('.ebay-connector-results .loading');
+  if (loading) loading.style.display = 'block';
+
+  try {
+      const promises = partNumbersInfo.map(async ({ number, source }) => {
+          if (stopSearchRequested || isPaused) return null;
+          const url = `https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`;
+          try {
+              const { controller, timeoutId } = createFetchController();
+              const resp = await fetch(url, { signal: controller.signal });
+              clearTimeout(timeoutId);
+              if (!resp.ok || isPaused || stopSearchRequested) return null;
+
+              const data = await safelyParseJSON(resp, url);
+              if (!data || !Array.isArray(data)) return null;
+              return data.map(obj => ({ ...obj, sourcePartNumber: source }));
+          } catch (err) {
+              if (err.name !== 'AbortError') console.warn(`eBayConnector error for ${number}:`, err);
+              return null;
+          }
+      });
+
+      const resultsArrays = await Promise.all(promises);
+      const newItems = resultsArrays.flat().filter(item => item !== null);
+
+      if (newItems.length > 0) {
+        searchResults.ebayConnector.push(...newItems);
+        buildEbayConnectorTable();
+      }
+  } catch (err) {
+    console.error('Error processing eBay Connector batch:', err);
+     const resultsDiv = document.querySelector('.ebay-connector-results .results-container');
+     if (resultsDiv) resultsDiv.innerHTML = `<div class="error">Error loading eBay Connector data: ${err.message}</div>`;
+  } finally {
+    if (loading) loading.style.display = 'none';
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+
+// --- AmazonScraper ---
+async function fetchAmazonData(partNumbersInfo) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+  const loading = document.querySelector('.amazon-results .loading');
+  if (loading) loading.style.display = 'block';
+
+  try {
+      const promises = partNumbersInfo.map(async ({ number, source }) => {
+          if (stopSearchRequested || isPaused) return null;
+          const url = `https://${serverDomain}/webhook/amazon-scraper?item=${encodeURIComponent(number)}`;
+          try {
+              const { controller, timeoutId } = createFetchController();
+              const resp = await fetch(url, { signal: controller.signal });
+              clearTimeout(timeoutId);
+              if (!resp.ok || isPaused || stopSearchRequested) return null;
+
+              const data = await safelyParseJSON(resp, url);
+              if (!data || !Array.isArray(data) || data.length === 0) return null;
+
+              const items = [];
+              const { title = [], price = [], image = [], link = [] } = data[0];
+              for (let i = 0; i < title.length; i++) {
+                  items.push({
+                      sourcePartNumber: source, title: title[i] || '-', rawPrice: price[i] || '-',
+                      image: image[i] || null, link: link[i] || '#'
+                  });
+              }
+              return items;
+          } catch (err) {
+              if (err.name !== 'AbortError') console.warn(`AmazonScraper error for ${number}:`, err);
+              return null;
+          }
+      });
+
+      const resultsArrays = await Promise.all(promises);
+      const newItems = resultsArrays.flat().filter(item => item !== null);
+
+      if (newItems.length > 0) {
+        searchResults.amazon.push(...newItems);
+        buildAmazonScraperTable();
+      }
+  } catch (err) {
+    console.error('Error processing Amazon Scraper batch:', err);
+     const resultsDiv = document.querySelector('.amazon-results .results-container');
+     if (resultsDiv) resultsDiv.innerHTML = `<div class="error">Error loading Amazon Scraper data: ${err.message}</div>`;
+  } finally {
+    if (loading) loading.style.display = 'none';
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+// --- eBayScraper ---
+async function fetchEbayData(partNumbersInfo) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+  const loading = document.querySelector('.ebay-results .loading');
+  if (loading) loading.style.display = 'block';
+
+  try {
+      const promises = partNumbersInfo.map(async ({ number, source }) => {
+          if (stopSearchRequested || isPaused) return null;
+          const url = `https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`;
+          try {
+              const { controller, timeoutId } = createFetchController();
+              const resp = await fetch(url, { signal: controller.signal });
+              clearTimeout(timeoutId);
+              if (!resp.ok || isPaused || stopSearchRequested) return null;
+
+              const data = await safelyParseJSON(resp, url);
+              if (!data || !Array.isArray(data) || data.length === 0) return null;
+
+              const items = [];
+              const { title = [], price = [], image = [], link = [] } = data[0];
+              for (let i = 0; i < title.length; i++) {
+                  items.push({
+                      sourcePartNumber: source, title: title[i] || '-', rawPrice: price[i] || '-',
+                      image: image[i] || null, link: link[i] || '#'
+                  });
+              }
+              return items;
+          } catch (err) {
+              if (err.name !== 'AbortError') console.warn(`eBayScraper error for ${number}:`, err);
+              return null;
+          }
+      });
+
+      const resultsArrays = await Promise.all(promises);
+      const newItems = resultsArrays.flat().filter(item => item !== null);
+
+      if (newItems.length > 0) {
+        searchResults.ebay.push(...newItems);
+        buildEbayScraperTable();
+      }
+  } catch (err) {
+    console.error('Error processing eBay Scraper batch:', err);
+     const resultsDiv = document.querySelector('.ebay-results .results-container');
+     if (resultsDiv) resultsDiv.innerHTML = `<div class="error">Error loading eBay Scraper data: ${err.message}</div>`;
+  } finally {
+    if (loading) loading.style.display = 'none';
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+
+// --- Lenovo ---
+async function fetchLenovoData(partNumbersInfo) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+
+  try {
+      let newDataFound = false;
+      const promises = partNumbersInfo.map(async ({ number, source }) => {
+          if (stopSearchRequested || isPaused) return null;
+          const url = `https://${serverDomain}/webhook/lenovo-scraper?item=${encodeURIComponent(number)}`;
+          try {
+              const { controller, timeoutId } = createFetchController();
+              const response = await fetch(url, { signal: controller.signal });
+              clearTimeout(timeoutId);
+              if (!response.ok || isPaused || stopSearchRequested) return null;
+
+              const data = await safelyParseJSON(response, url);
+              if (!data || !data[0]?.data || !Array.isArray(data[0].data) || data[0].data.length === 0) return null;
+
+              return data[0].data
+                  .filter(doc => doc?.content?.trim()) // Filter out empty content
+                  .map(doc => ({ ...doc, sourcePartNumber: source }));
+          } catch (error) {
+              if (error.name !== 'AbortError') console.warn(`Lenovo error for ${number}:`, error);
+              return null;
+          }
+      });
+
+      const resultsArrays = await Promise.all(promises);
+      const newItems = resultsArrays.flat().filter(item => item !== null);
+
+      if (newItems.length > 0) {
+        searchResults.lenovo.push(...newItems);
+        newDataFound = true;
+      }
+
+      // Only rebuild UI if new data was actually added in this batch
+      if (newDataFound) {
+          buildLenovoUI();
+      }
+
+  } catch (err) {
+    console.error('Error processing Lenovo batch:', err);
+    if (!searchResults.lenovo.length) { // Show error only if nothing was ever loaded
+      const subtabs = document.getElementById('lenovo-subtabs');
+      if (subtabs) subtabs.innerHTML = `<div class="error">Error fetching Lenovo data: ${err.message}</div>`;
+    }
+  } finally {
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+/*=================================================*
+ * Other UI Build Functions (Assumed mostly correct, *
+ * minor improvements like placeholders added)      *
+ *=================================================*/
+
+// Build functions for Ingram, BrokerBin, AmazonConnector, eBayConnector, AmazonScraper, eBayScraper, Lenovo
+// These functions primarily take data from searchResults[key] and render tables.
+// Key points: Add checks for empty results, use createTableContainer, call makeTableSortable.
 
 function buildIngramTable() {
   const resultsDiv = document.querySelector('#distributors-content .ingram-results .results-container');
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
-
   const items = searchResults.ingram;
-  if (items.length === 0) return;
-
+  if (items.length === 0) { resultsDiv.innerHTML = '<p>No Ingram results found.</p>'; return; }
   const table = document.createElement('table');
   table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Description</th>
-        <th>Category</th>
-        <th>Vendor</th>
-        <th>Part Number</th>
-        <th>UPC Code</th>
-        <th>Product Type</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${items.map(it => `
-        <tr>
-          <td>${it.sourcePartNumber}</td>
-          <td>${it.description || '-'}</td>
-          <td>${it.category || '-'}</td>
-          <td>${it.vendorName || '-'}</td>
-          <td>${it.vendorPartNumber || '-'}</td>
-          <td>${it.upcCode || '-'}</td>
-          <td>${it.productType || '-'}</td>
-          <td>
-            ${it.discontinued === 'True' ? '<span class="text-error">Discontinued</span>' : ''}
-            ${it.newProduct === 'True' ? '<span class="text-success">New</span>' : ''}
-          </td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
-
-  makeTableSortable(table);
-}
-
-// 3) BrokerBin
-async function fetchBrokerBinData(partNumbers) {
-  if (stopSearchRequested) return;
-  activeRequestsCount++;
-  const loading = document.querySelector('.brokerbin-results .loading');
-  const resultsDiv = document.querySelector('.brokerbin-results .results-container');
-  if (loading) loading.style.display = 'block';
-
-  try {
-    const newItems = [];
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
-      try {
-        const res = await fetch(`https://${serverDomain}/webhook/brokerbin-search?item=${encodeURIComponent(number)}`);
-        if (!res.ok) continue;
-        const data = await res.json();
-        const withSrc = data.map(obj => ({ ...obj, sourcePartNumber: source }));
-        newItems.push(...withSrc);
-      } catch (err) {
-        console.warn('BrokerBin error for', number, err);
-      }
-    }
-    searchResults.brokerbin.push(...newItems);
-    buildBrokerBinTable();
-  } catch (error) {
-    console.error('fetchBrokerBinData error:', error);
-    if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
-    }
-  } finally {
-    if (loading) loading.style.display = 'none';
-    activeRequestsCount--;
-    checkIfAllDone();
-  }
+    <thead><tr><th>Source Part</th><th>Description</th><th>Category</th><th>Vendor</th><th>Part Number</th><th>UPC Code</th><th>Product Type</th><th>Status</th></tr></thead>
+    <tbody>${items.map(it => `<tr><td>${it.sourcePartNumber}</td><td>${it.description || '-'}</td><td>${it.category || '-'}</td><td>${it.vendorName || '-'}</td><td>${it.vendorPartNumber || '-'}</td><td>${it.upcCode || '-'}</td><td>${it.productType || '-'}</td><td>${it.discontinued === 'True' ? '<span class="text-error">Discontinued</span>' : ''}${it.newProduct === 'True' ? '<span class="text-success">New</span>' : ''}${it.discontinued !== 'True' && it.newProduct !== 'True' ? 'Active' : ''}</td></tr>`).join('')}</tbody>`;
+  resultsDiv.appendChild(createTableContainer(table)); makeTableSortable(table);
 }
 
 function buildBrokerBinTable() {
   const resultsDiv = document.querySelector('.brokerbin-results .results-container');
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
-
   const items = searchResults.brokerbin;
-  if (items.length === 0) return;
-
+  if (items.length === 0) { resultsDiv.innerHTML = '<p>No BrokerBin results found.</p>'; return; }
   const table = document.createElement('table');
   table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Company</th>
-        <th>Country</th>
-        <th>Part</th>
-        <th>Manufacturer</th>
-        <th>Condition</th>
-        <th>Description</th>
-        <th>Price</th>
-        <th>Quantity</th>
-        <th>Age (Days)</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${items.map(it => `
-        <tr>
-          <td>${it.sourcePartNumber}</td>
-          <td>${it.company || '-'}</td>
-          <td>${it.country || '-'}</td>
-          <td>${it.part || '-'}</td>
-          <td>${it.mfg || '-'}</td>
-          <td>${it.cond || '-'}</td>
-          <td>${it.description || '-'}</td>
-          <td>${it.price ? '$' + parseFloat(it.price).toFixed(2) : '-'}</td>
-          <td>${it.qty || '0'}</td>
-          <td>${it.age_in_days || '-'}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
-
-  makeTableSortable(table);
-}
-
-// 4) Epicor Inventory
-async function fetchInventoryData(partNumbers) {
-  if (stopSearchRequested) return;
-  activeRequestsCount++;
-  const loading = document.querySelector('#inventory-content .loading');
-  const resultsDiv = document.querySelector('#inventory-content .inventory-results');
-  if (loading) loading.style.display = 'block';
-
-  try {
-    const newItems = [];
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
-      try {
-        const res = await fetch(`https://${serverDomain}/webhook/epicor-search?item=${encodeURIComponent(number)}`);
-        if (!res.ok) continue;
-        const data = await res.json();
-        const withSrc = data.map(obj => ({ ...obj, sourcePartNumber: source }));
-        newItems.push(...withSrc);
-      } catch (err) {
-        console.warn('Epicor inventory error for', number, err);
-      }
-    }
-    searchResults.epicor.push(...newItems);
-    buildEpicorInventoryTable();
-  } catch (err) {
-    console.error('fetchInventoryData error:', err);
-    if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
-    }
-  } finally {
-    if (loading) loading.style.display = 'none';
-    activeRequestsCount--;
-    checkIfAllDone();
-  }
-}
-
-// Epicor Search
-function buildEpicorInventoryTable() {
-  const resultsDiv = document.querySelector('#inventory-content .inventory-results');
-  if (!resultsDiv) return;
-  resultsDiv.innerHTML = '';
-
-  // Filter out items where:
-  // 1) Company or PartNum are empty
-  // 2) Quantity is missing or zero (so we only show > 0)
-  const allItems = searchResults.epicor;
-  const filteredItems = allItems.filter(it =>
-    it.Company && it.Company.trim() !== '' &&
-    it.PartNum && it.PartNum.trim() !== '' &&
-    it.Quantity && Number(it.Quantity) > 0
-  );
-
-  if (filteredItems.length === 0) return;
-
-  const table = document.createElement('table');
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Company</th>
-        <th>Part Number</th>
-        <th>Description</th>
-        <th>Class</th>
-        <th>Product Code</th>
-        <th>Quantity</th>
-        <th>Base Price</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${filteredItems.map(it => `
-        <tr>
-          <td>${it.sourcePartNumber}</td>
-          <td>${it.Company}</td>
-          <td>${it.PartNum.trim()}</td>
-          <td>${it.PartDescription || '-'}</td>
-          <td>${it.ClassDescription || '-'}</td>
-          <td>${it.ProdCodeDescription || '-'}</td>
-          <td>${(it.Quantity !== undefined && it.Quantity !== null) ? it.Quantity : '-'}</td>
-          <td>${(it.BasePrice !== undefined && it.BasePrice !== null) ? it.BasePrice : '-'}</td>
-          <td>${it.InActive ? '<span class="text-error">Inactive</span>' : '<span class="text-success">Active</span>'}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
-
-  makeTableSortable(table);
-}
-
-// 5) Sales
-async function fetchSalesData(partNumbers) {
-  if (stopSearchRequested) return;
-  activeRequestsCount++;
-  const loading = document.querySelector('#sales-content .loading');
-  const resultsDiv = document.querySelector('#sales-content .sales-results');
-  if (loading) loading.style.display = 'block';
-
-  try {
-    const newItems = [];
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
-      try {
-        const res = await fetch(`https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`);
-        if (!res.ok) continue;
-        const data = await res.json();
-
-        // Only record lines that appear in OrderDtlPA
-        data.forEach(entry => {
-          const details = entry?.returnObj?.OrderDtlPA || [];
-          details.forEach(line => {
-            newItems.push({
-              sourcePartNumber: source,
-              PartNum: line.PartNum,
-              LineDesc: line.LineDesc,
-              OrderNum: line.OrderNum,
-              OrderLine: line.OrderLine,
-              CustomerID: line.CustomerCustID,
-              CustomerName: line.CustomerCustName,
-              OrderDate: line.OrderHedOrderDate,
-              OrderQty: line.OrderQty,
-              UnitPrice: line.UnitPrice,
-              RequestDate: line.RequestDate,
-              NeedByDate: line.NeedByDate
-            });
-          });
-        });
-      } catch (err) {
-        console.warn('Sales fetch error for', number, err);
-      }
-    }
-
-    searchResults.sales.push(...newItems);
-    buildSalesTable();
-  } catch (err) {
-    console.error('fetchSalesData error:', err);
-    if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
-    }
-  } finally {
-    if (loading) loading.style.display = 'none';
-    activeRequestsCount--;
-    checkIfAllDone();
-  }
-}
-
-function buildSalesTable() {
-  const resultsDiv = document.querySelector('#sales-content .sales-results');
-  if (!resultsDiv) return;
-  resultsDiv.innerHTML = '';
-
-  const items = searchResults.sales;
-  if (items.length === 0) return;
-
-  // Pre-sort by date (newest first)
-  const sortedItems = [...items].sort((a, b) => {
-    // Parse dates properly
-    const dateA = a.OrderDate ? new Date(a.OrderDate) : null;
-    const dateB = b.OrderDate ? new Date(b.OrderDate) : null;
-    
-    // Handle invalid dates
-    if (!dateA && !dateB) return 0;
-    if (!dateA) return 1; // null dates to the end
-    if (!dateB) return -1;
-    
-    // Sort newest first (descending)
-    return dateB - dateA;
-  });
-
-  const table = document.createElement('table');
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Part Number</th>
-        <th>Description</th>
-        <th>Order Num</th>
-        <th>Line</th>
-        <th>Customer ID</th>
-        <th>Customer Name</th>
-        <th>Order Date</th>
-        <th>Order Qty</th>
-        <th>Unit Price</th>
-        <th>Request Date</th>
-        <th>Need By Date</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${sortedItems.map(it => `
-        <tr>
-          <td>${it.sourcePartNumber}</td>
-          <td>${it.PartNum || '-'}</td>
-          <td>${it.LineDesc || '-'}</td>
-          <td>${it.OrderNum || '-'}</td>
-          <td>${it.OrderLine || '-'}</td>
-          <td>${it.CustomerID || '-'}</td>
-          <td>${it.CustomerName || '-'}</td>
-          <td data-date="${it.OrderDate || ''}">${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
-          <td>${it.OrderQty || '-'}</td>
-          <td>${it.UnitPrice || '-'}</td>
-          <td>${it.RequestDate ? new Date(it.RequestDate).toLocaleDateString() : '-'}</td>
-          <td>${it.NeedByDate ? new Date(it.NeedByDate).toLocaleDateString() : '-'}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
-
-  makeTableSortable(table);
-  
-  // Mark the Order Date header as sorted
-  const headers = table.querySelectorAll("th");
-  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
-  if (headers[orderDateColumnIndex]) {
-    headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
-  }
-}
-
-// 6) Purchases
-async function fetchPurchasesData(partNumbers) {
-  if (stopSearchRequested) return;
-  activeRequestsCount++;
-  const loading = document.querySelector('#purchases-content .loading');
-  const resultsDiv = document.querySelector('#purchases-content .purchases-results');
-  if (loading) loading.style.display = 'block';
-
-  try {
-    const newItems = [];
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
-      try {
-        const res = await fetch(`https://${serverDomain}/webhook/epicor-purchases?item=${encodeURIComponent(number)}`);
-        if (!res.ok) continue;
-        const data = await res.json();
-
-        data.forEach(entry => {
-          // Only record lines that appear in PAPurchasedBefore
-          const purchasedItems = entry?.returnObj?.PAPurchasedBefore || [];
-          if (purchasedItems.length > 0) {
-            purchasedItems.forEach(line => {
-              newItems.push({
-                sourcePartNumber: source,
-                PartNum: line.PartNum,
-                VendorName: line.VendorName,
-                VendorQty: line.VendorQty,
-                VendorUnitCost: line.VendorUnitCost,
-                PONum: line.PONum,
-                ReceiptDate: line.ReceiptDate,
-                OrderDate: line.OrderDate,
-                DueDate: line.DueDate,
-                // Extra fields for clarity
-                IsAdvisor: false,
-                PartDescription: line.PartDescription || '',
-                PurchasedBefore: true
-              });
-            });
-          }
-          // (Removed fallback: do not add PurchaseAdvisor lines if PAPurchasedBefore is empty)
-        });
-      } catch (err) {
-        console.warn('Purchases fetch error for', number, err);
-      }
-    }
-
-    // Merge into the global aggregator
-    searchResults.purchases.push(...newItems);
-
-    // Build the table
-    buildPurchasesTable();
-
-  } catch (err) {
-    console.error('fetchPurchasesData error:', err);
-    if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
-    }
-  } finally {
-    if (loading) loading.style.display = 'none';
-    activeRequestsCount--;
-    checkIfAllDone();
-  }
-}
-
-function buildPurchasesTable() {
-  const resultsDiv = document.querySelector('#purchases-content .purchases-results');
-  if (!resultsDiv) return;
-  resultsDiv.innerHTML = '';
-
-  // First, filter out items that have no meaningful part number (empty or missing)
-  const allItems = searchResults.purchases;
-  const filteredItems = allItems.filter(it =>
-    it.PartNum && it.PartNum.trim() !== ''
-  );
-
-  if (filteredItems.length === 0) return;
-  
-  // Pre-sort by date (newest first)
-  const sortedItems = [...filteredItems].sort((a, b) => {
-    // Parse dates properly
-    const dateA = a.OrderDate ? new Date(a.OrderDate) : null;
-    const dateB = b.OrderDate ? new Date(b.OrderDate) : null;
-    
-    // Handle invalid dates
-    if (!dateA && !dateB) return 0;
-    if (!dateA) return 1; // null dates to the end
-    if (!dateB) return -1;
-    
-    // Sort newest first (descending)
-    return dateB - dateA;
-  });
-
-  const table = document.createElement('table');
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Part Number</th>
-        <th>Vendor Name</th>
-        <th>Vendor Qty</th>
-        <th>Vendor Unit Cost</th>
-        <th>PO Number</th>
-        <th>Receipt Date</th>
-        <th>Order Date</th>
-        <th>Due Date</th>
-        <th>Advisor</th>
-        <th>Description</th>
-        <th>Purchased Before</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${sortedItems.map(it => `
-        <tr>
-          <td>${it.sourcePartNumber}</td>
-          <td>${it.PartNum || '-'}</td>
-          <td>${it.VendorName || '-'}</td>
-          <td>${it.VendorQty || '-'}</td>
-          <td>${it.VendorUnitCost != null ? it.VendorUnitCost : '-'}</td>
-          <td>${it.PONum || '-'}</td>
-          <td>${it.ReceiptDate ? new Date(it.ReceiptDate).toLocaleDateString() : '-'}</td>
-          <td data-date="${it.OrderDate || ''}">${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
-          <td>${it.DueDate ? new Date(it.DueDate).toLocaleDateString() : '-'}</td>
-          <td>${it.IsAdvisor ? 'Yes' : 'No'}</td>
-          <td>${it.PartDescription || '-'}</td>
-          <td>${typeof it.PurchasedBefore === 'boolean' ? (it.PurchasedBefore ? 'Yes' : 'No') : '-'}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-  
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
-
-  makeTableSortable(table);
-  
-  // Mark the Order Date header as sorted
-  const headers = table.querySelectorAll("th");
-  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
-  if (headers[orderDateColumnIndex]) {
-    headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
-  }
-}
-
-// 7) AmazonConnector
-async function fetchAmazonConnectorData(partNumbers) {
-  if (stopSearchRequested) return;
-  if (!document.getElementById('toggle-amazon-connector').checked) return;
-  activeRequestsCount++;
-  const loading = document.querySelector('.amazon-connector-results .loading');
-  const resultsDiv = document.querySelector('.amazon-connector-results .results-container');
-  if (loading) loading.style.display = 'block';
-
-  try {
-    const newItems = [];
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
-      try {
-        const resp = await fetch(`https://${serverDomain}/webhook/amazon-search?item=${encodeURIComponent(number)}`);
-        if (!resp.ok) continue;
-        const data = await resp.json();
-        data.forEach(obj => newItems.push({ ...obj, sourcePartNumber: source }));
-      } catch (err) {
-        console.warn('AmazonConnector error', err);
-      }
-    }
-    searchResults.amazonConnector.push(...newItems);
-    buildAmazonConnectorTable();
-  } catch (err) {
-    console.error('fetchAmazonConnectorData error:', err);
-    if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
-    }
-  } finally {
-    if (loading) loading.style.display = 'none';
-    activeRequestsCount--;
-    checkIfAllDone();
-  }
+    <thead><tr><th>Source Part</th><th>Company</th><th>Country</th><th>Part</th><th>Manufacturer</th><th>Condition</th><th>Description</th><th>Price</th><th>Quantity</th><th>Age (Days)</th></tr></thead>
+    <tbody>${items.map(it => `<tr><td>${it.sourcePartNumber}</td><td>${it.company || '-'}</td><td>${it.country || '-'}</td><td>${it.part || '-'}</td><td>${it.mfg || '-'}</td><td>${it.cond || '-'}</td><td>${it.description || '-'}</td><td>${it.price ? '$' + parseFloat(it.price).toFixed(2) : '-'}</td><td>${it.qty || '0'}</td><td>${it.age_in_days || '-'}</td></tr>`).join('')}</tbody>`;
+  resultsDiv.appendChild(createTableContainer(table)); makeTableSortable(table);
 }
 
 function buildAmazonConnectorTable() {
   const resultsDiv = document.querySelector('.amazon-connector-results .results-container');
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
-
   const items = searchResults.amazonConnector;
-  if (items.length === 0) return;
-
+  if (items.length === 0) { resultsDiv.innerHTML = '<p>No Amazon Connector results found.</p>'; return; }
   const table = document.createElement('table');
   table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Image</th>
-        <th>Title</th>
-        <th>Price</th>
-        <th>List Price</th>
-        <th>Rating</th>
-        <th>Reviews</th>
-        <th>Stock Status</th>
-        <th>Seller</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${items.map(it => `
-        <tr>
-          <td>${it.sourcePartNumber}</td>
-          <td class="image-cell">
-            <img src="${it.thumbnailImage || '-'}" alt="${it.title || ''}" class="product-image">
-          </td>
-          <td><a href="${it.url}" target="_blank">${it.title || '-'}</a></td>
-          <td>${it.price ? (it.price.currency + it.price.value) : '-'}</td>
-          <td>${it.listPrice ? (it.listPrice.currency + it.listPrice.value) : '-'}</td>
-          <td>${it.stars ? it.stars + '/5' : '-'}</td>
-          <td>${it.reviewsCount || '0'}</td>
-          <td>${it.inStockText || '-'}</td>
-          <td>${(it.seller && it.seller.name) ? it.seller.name : '-'}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
-
-  makeTableSortable(table);
-}
-
-// 8) eBayConnector
-async function fetchEbayConnectorData(partNumbers) {
-  if (stopSearchRequested) return;
-  if (!document.getElementById('toggle-ebay-connector').checked) return;
-  activeRequestsCount++;
-  const loading = document.querySelector('.ebay-connector-results .loading');
-  const resultsDiv = document.querySelector('.ebay-connector-results .results-container');
-  if (loading) loading.style.display = 'block';
-
-  try {
-    const newItems = [];
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
-      try {
-        const resp = await fetch(`https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`);
-        if (!resp.ok) continue;
-        const data = await resp.json();
-        data.forEach(obj => newItems.push({ ...obj, sourcePartNumber: source }));
-      } catch (err) {
-        console.warn('eBayConnector error', err);
-      }
-    }
-    searchResults.ebayConnector.push(...newItems);
-    buildEbayConnectorTable();
-  } catch (err) {
-    console.error('fetchEbayConnectorData error:', err);
-    if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
-    }
-  } finally {
-    if (loading) loading.style.display = 'none';
-    activeRequestsCount--;
-    checkIfAllDone();
-  }
+    <thead><tr><th>Source Part</th><th class="no-sort">Image</th><th>Title</th><th>Price</th><th>List Price</th><th>Rating</th><th>Reviews</th><th>Stock Status</th><th>Seller</th></tr></thead>
+    <tbody>${items.map(it => `<tr><td>${it.sourcePartNumber}</td><td class="image-cell"><img src="${it.thumbnailImage || 'placeholder.png'}" alt="${it.title || 'Product Image'}" class="product-image" onerror="this.src='placeholder.png'; this.alt='Image not available';"></td><td><a href="${it.url || '#'}" target="_blank" rel="noopener noreferrer">${it.title || '-'}</a></td><td>${it.price ? (it.price.currency + it.price.value) : '-'}</td><td>${it.listPrice ? (it.listPrice.currency + it.listPrice.value) : '-'}</td><td>${it.stars ? it.stars + '/5' : '-'}</td><td>${it.reviewsCount || '0'}</td><td>${it.inStockText || '-'}</td><td>${(it.seller && it.seller.name) ? it.seller.name : '-'}</td></tr>`).join('')}</tbody>`;
+  resultsDiv.appendChild(createTableContainer(table)); makeTableSortable(table);
 }
 
 function buildEbayConnectorTable() {
   const resultsDiv = document.querySelector('.ebay-connector-results .results-container');
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
-
   const items = searchResults.ebayConnector;
-  if (items.length === 0) return;
-
+  if (items.length === 0) { resultsDiv.innerHTML = '<p>No eBay Connector results found.</p>'; return; }
   const table = document.createElement('table');
   table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Image</th>
-        <th>Title</th>
-        <th>Price</th>
-        <th>Condition</th>
-        <th>Seller</th>
-        <th>Location</th>
-        <th>Shipping</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${items.map(it => `
-        <tr>
-          <td>${it.sourcePartNumber}</td>
-          <td class="image-cell">
-            ${it.images && it.images.length > 0 
-              ? `<img src="${it.images[0]}" alt="${it.title}" class="product-image">` 
-              : '-'}
-          </td>
-          <td><a href="${it.url}" target="_blank">${it.title}</a></td>
-          <td>${it.priceWithCurrency || '-'}</td>
-          <td>${it.condition || '-'}</td>
-          <td><a href="${it.sellerUrl}" target="_blank">${it.sellerName}</a></td>
-          <td>${it.itemLocation || '-'}</td>
-          <td>${it.shipping || '-'}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
-
-  makeTableSortable(table);
-}
-
-// 9) AmazonScraper
-async function fetchAmazonData(partNumbers) {
-  if (stopSearchRequested) return;
-  if (!document.getElementById('toggle-amazon').checked) return;
-  activeRequestsCount++;
-  const loading = document.querySelector('.amazon-results .loading');
-  const resultsDiv = document.querySelector('.amazon-results .results-container');
-  if (loading) loading.style.display = 'block';
-
-  try {
-    const newItems = [];
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
-      try {
-        const resp = await fetch(`https://${serverDomain}/webhook/amazon-scraper?item=${encodeURIComponent(number)}`);
-        if (!resp.ok) continue;
-        const data = await resp.json();
-        if (Array.isArray(data) && data.length > 0) {
-          const { title = [], price = [], image = [], link = [] } = data[0];
-          for (let i = 0; i < title.length; i++) {
-            newItems.push({
-              sourcePartNumber: source,
-              title: title[i] || '-',
-              rawPrice: price[i] || '-',
-              image: image[i] || null,
-              link: link[i] || '#'
-            });
-          }
-        }
-      } catch (err) {
-        console.warn('AmazonScraper error', err);
-      }
-    }
-    searchResults.amazon.push(...newItems);
-    buildAmazonScraperTable();
-  } catch (err) {
-    console.error('fetchAmazonData error:', err);
-    if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
-    }
-  } finally {
-    if (loading) loading.style.display = 'none';
-    activeRequestsCount--;
-    checkIfAllDone();
-  }
+    <thead><tr><th>Source Part</th><th class="no-sort">Image</th><th>Title</th><th>Price</th><th>Condition</th><th>Seller</th><th>Location</th><th>Shipping</th></tr></thead>
+    <tbody>${items.map(it => `<tr><td>${it.sourcePartNumber}</td><td class="image-cell">${it.images && it.images.length > 0 ? `<img src="${it.images[0]}" alt="${it.title || 'Product Image'}" class="product-image" onerror="this.src='placeholder.png'; this.alt='Image not available';">` : '<img src="placeholder.png" alt="No image" class="product-image">'}</td><td><a href="${it.url || '#'}" target="_blank" rel="noopener noreferrer">${it.title || '-'}</a></td><td>${it.priceWithCurrency || '-'}</td><td>${it.condition || '-'}</td><td>${it.sellerUrl ? `<a href="${it.sellerUrl}" target="_blank" rel="noopener noreferrer">${it.sellerName || 'Unknown Seller'}</a>` : (it.sellerName || '-')}</td><td>${it.itemLocation || '-'}</td><td>${it.shipping || '-'}</td></tr>`).join('')}</tbody>`;
+  resultsDiv.appendChild(createTableContainer(table)); makeTableSortable(table);
 }
 
 function buildAmazonScraperTable() {
   const resultsDiv = document.querySelector('.amazon-results .results-container');
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
-
   const items = searchResults.amazon;
-  if (items.length === 0) return;
-
+  if (items.length === 0) { resultsDiv.innerHTML = '<p>No Amazon Scraper results found.</p>'; return; }
   const table = document.createElement('table');
   table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Image</th>
-        <th>Description</th>
-        <th>Price</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${items.map(it => `
-        <tr>
-          <td>${it.sourcePartNumber}</td>
-          <td class="image-cell">
-            ${it.image ? `<img src="${it.image}" alt="Product image" class="product-image">` : '-'}
-          </td>
-          <td>
-            ${it.link && it.link !== '#' 
-              ? `<a href="${it.link}" target="_blank">${it.title}</a>` 
-              : it.title}
-          </td>
-          <td>${it.rawPrice}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
-
-  makeTableSortable(table);
-}
-
-// 10) eBayScraper
-async function fetchEbayData(partNumbers) {
-  if (stopSearchRequested) return;
-  if (!document.getElementById('toggle-ebay').checked) return;
-  activeRequestsCount++;
-  const loading = document.querySelector('.ebay-results .loading');
-  const resultsDiv = document.querySelector('.ebay-results .results-container');
-  if (loading) loading.style.display = 'block';
-
-  try {
-    const newItems = [];
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
-      try {
-        const resp = await fetch(`https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`);
-        if (!resp.ok) continue;
-        const data = await resp.json();
-        if (Array.isArray(data) && data.length > 0) {
-          const { title = [], price = [], image = [], link = [] } = data[0];
-          for (let i = 0; i < title.length; i++) {
-            newItems.push({
-              sourcePartNumber: source,
-              title: title[i] || '-',
-              rawPrice: price[i] || '-',
-              image: image[i] || null,
-              link: link[i] || '#'
-            });
-          }
-        }
-      } catch (err) {
-        console.warn('ebayScraper error', err);
-      }
-    }
-    searchResults.ebay.push(...newItems);
-    buildEbayScraperTable();
-  } catch (err) {
-    console.error('fetchEbayData error:', err);
-    if (resultsDiv) {
-      resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
-    }
-  } finally {
-    if (loading) loading.style.display = 'none';
-    activeRequestsCount--;
-    checkIfAllDone();
-  }
+    <thead><tr><th>Source Part</th><th class="no-sort">Image</th><th>Description</th><th>Price</th></tr></thead>
+    <tbody>${items.map(it => `<tr><td>${it.sourcePartNumber}</td><td class="image-cell">${it.image ? `<img src="${it.image}" alt="Product image" class="product-image" onerror="this.src='placeholder.png'; this.alt='Image not available';">` : '<img src="placeholder.png" alt="No image" class="product-image">'}</td><td>${it.link && it.link !== '#' ? `<a href="${it.link}" target="_blank" rel="noopener noreferrer">${it.title}</a>` : it.title}</td><td>${it.rawPrice}</td></tr>`).join('')}</tbody>`;
+  resultsDiv.appendChild(createTableContainer(table)); makeTableSortable(table);
 }
 
 function buildEbayScraperTable() {
   const resultsDiv = document.querySelector('.ebay-results .results-container');
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
-
   const items = searchResults.ebay;
-  if (items.length === 0) return;
-
+  if (items.length === 0) { resultsDiv.innerHTML = '<p>No eBay Scraper results found.</p>'; return; }
   const table = document.createElement('table');
   table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Image</th>
-        <th>Description</th>
-        <th>Price</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${items.map(it => `
-        <tr>
-          <td>${it.sourcePartNumber}</td>
-          <td class="image-cell">
-            ${it.image ? `<img src="${it.image}" alt="Product image" class="product-image">` : '-'}
-          </td>
-          <td>
-            ${it.link && it.link !== '#' 
-              ? `<a href="${it.link}" target="_blank">${it.title}</a>` 
-              : it.title}
-          </td>
-          <td>${it.rawPrice}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
-
-  makeTableSortable(table);
+    <thead><tr><th>Source Part</th><th class="no-sort">Image</th><th>Description</th><th>Price</th></tr></thead>
+    <tbody>${items.map(it => `<tr><td>${it.sourcePartNumber}</td><td class="image-cell">${it.image ? `<img src="${it.image}" alt="Product image" class="product-image" onerror="this.src='placeholder.png'; this.alt='Image not available';">` : '<img src="placeholder.png" alt="No image" class="product-image">'}</td><td>${it.link && it.link !== '#' ? `<a href="${it.link}" target="_blank" rel="noopener noreferrer">${it.title}</a>` : it.title}</td><td>${it.rawPrice}</td></tr>`).join('')}</tbody>`;
+  resultsDiv.appendChild(createTableContainer(table)); makeTableSortable(table);
 }
 
-/**
- * Build or update the Lenovo UI from all data in searchResults.lenovo
- */
+
 function buildLenovoUI() {
   const lenovoContentDiv = document.getElementById('lenovo-content');
   if (!lenovoContentDiv) return;
 
   let subtabs = document.getElementById('lenovo-subtabs');
   let subcontent = document.getElementById('lenovo-subcontent');
-
-  // If these elements don't exist, create them
   if (!subtabs) {
-    subtabs = document.createElement('div');
-    subtabs.id = 'lenovo-subtabs';
-    subtabs.className = 'subtabs';
+    subtabs = document.createElement('div'); subtabs.id = 'lenovo-subtabs'; subtabs.className = 'subtabs';
     lenovoContentDiv.appendChild(subtabs);
   }
   if (!subcontent) {
-    subcontent = document.createElement('div');
-    subcontent.id = 'lenovo-subcontent';
+    subcontent = document.createElement('div'); subcontent.id = 'lenovo-subcontent';
     lenovoContentDiv.appendChild(subcontent);
   }
 
-  // Clear existing UI
-  subtabs.innerHTML = '';
-  subcontent.innerHTML = '';
+  subtabs.innerHTML = ''; subcontent.innerHTML = '';
 
-  // If we have no accumulated results, show a message
   const allResults = searchResults.lenovo;
-  if (!allResults || allResults.length === 0) {
-    subtabs.innerHTML = '<div class="error">No Lenovo data found</div>';
-    return;
-  }
+  if (!allResults || allResults.length === 0) { subtabs.innerHTML = '<p>No Lenovo data found.</p>'; return; }
 
-  // Build UI for each doc
   allResults.forEach((doc, index) => {
-    // Each doc gets a subtab button
     const subtabButton = document.createElement('button');
     subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
     const title = doc.title || 'Untitled Document';
-    const cleanTitle = typeof title === 'string'
-      ? title.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
-      : 'Untitled Document';
-
-    subtabButton.textContent = `${doc.sourcePartNumber} - ${cleanTitle}`;
+    const cleanTitle = typeof title === 'string' ? title.replace(/\s+/g, ' ').trim() : 'Untitled Document';
+    subtabButton.textContent = `${doc.sourcePartNumber} - ${cleanTitle.substring(0, 50)}${cleanTitle.length > 50 ? '...' : ''}`;
     subtabButton.title = cleanTitle;
     subtabButton.onclick = () => switchLenovoSubtab(index);
     subtabs.appendChild(subtabButton);
 
-    // Build content area
     const contentDiv = document.createElement('div');
     contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
     contentDiv.setAttribute('data-subtab-index', index);
-
     let processedContent = decodeUnicodeEscapes(doc.content);
-    if (!processedContent.trim().toLowerCase().startsWith('<table')) {
-      processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
+    if (!processedContent.trim().toLowerCase().startsWith('<table') && !processedContent.trim().toLowerCase().startsWith('<div')) {
+        processedContent = `<div class="lenovo-content-wrapper">${processedContent}</div>`;
     }
     contentDiv.innerHTML = processedContent;
     subcontent.appendChild(contentDiv);
   });
+   // Ensure the first tab's content is shown if results exist
+   if (allResults.length > 0) {
+       switchLenovoSubtab(0);
+   }
 }
 
-/**
- * Modified fetchLenovoData to accumulate results into searchResults.lenovo
- * and then buildLenovoUI from that aggregator. Even if new calls return empty,
- * existing data remains displayed.
- */
-async function fetchLenovoData(partNumbers) {
-  if (stopSearchRequested) return;
-  if (!document.getElementById('toggle-lenovo').checked) return;
-  activeRequestsCount++;
-
-  try {
-    for (const { number, source } of partNumbers) {
-      if (stopSearchRequested) break;
-      try {
-        const response = await fetch(`https://${serverDomain}/webhook/lenovo-scraper?item=${encodeURIComponent(number)}`);
-        if (!response.ok) continue;
-        const data = await response.json();
-        if (data?.[0]?.data?.length > 0) {
-          // Filter out empty content docs
-          const docs = data[0].data
-            .filter(doc => doc && doc.content && doc.content.trim() !== '')
-            .map(doc => ({ ...doc, sourcePartNumber: source }));
-          // Append these results to our global aggregator
-          searchResults.lenovo.push(...docs);
-        }
-      } catch (error) {
-        console.warn(`Lenovo error for ${number}:`, error);
-      }
-    }
-
-    // Now build the UI from the entire aggregator
-    buildLenovoUI();
-
-  } catch (err) {
-    console.error('Lenovo data fetch error:', err);
-    // If there's absolutely no data after the error,
-    // we can show an error message. Otherwise, keep what we have.
-    if (!searchResults.lenovo.length) {
-      const subtabs = document.getElementById('lenovo-subtabs');
-      if (subtabs) {
-        subtabs.innerHTML = `<div class="error">Error fetching Lenovo data: ${err.message}</div>`;
-      }
-    }
-  } finally {
-    activeRequestsCount--;
-    checkIfAllDone();
-  }
-}
-
-function switchLenovoSubtab(index) {
-  document.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
-  document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
-  document.querySelectorAll('.subtab-button')[index].classList.add('active');
-  document.querySelector(`.subtab-content[data-subtab-index="${index}"]`).classList.add('active');
-}
-
-function decodeUnicodeEscapes(str) {
-  if (typeof str !== 'string') return '';
-  return str.replace(/\\u[\dA-F]{4}/gi, match =>
-    String.fromCharCode(parseInt(match.replace(/\\u/g, ''), 16))
-  );
-}
+/*=================================================*/
 
 /***************************************************
- * Summary Tab
+ * Summary Tab (with Corrected Filtering)
  ***************************************************/
-function updateSummaryTab() {
-  const summaryDiv = document.getElementById('summary-content');
-  if (!summaryDiv) return;
+// updateSummaryTab and generateSummaryTableHtml functions are defined earlier
 
-  // Check if search was stopped
-  const searchStopped = stopSearchRequested;
-  
-  // Check if search is complete
-  const searchEnded = analysisAlreadyCalled && !searchStopped;
-  
-  // PREPARE NOTIFICATIONS
-  let notifications = '';
-  
-  // Add stopped message if needed
-  if (searchStopped) {
-    notifications += `
-      <div class="search-stopped-message" style="padding: 10px; background-color: #ffecec; border: 1px solid #f5c6cb; border-radius: 4px; margin-bottom: 15px;">
-        <p><strong>Search was stopped by user.</strong> Partial results are displayed.</p>
-      </div>
-    `;
-  }
-  
-  // Add completed message if needed
-  if (searchEnded) {
-    notifications += `
-      <div class="search-ended-message" style="padding: 10px; background-color: #e6f7e6; border: 1px solid #c3e6cb; border-radius: 4px; margin-bottom: 15px;">
-        <p><strong>Search completed.</strong> Results are displayed below.</p>
-      </div>
-    `;
-  }
 
-  // Generate content with toggle checks
-  const anyEnabled = (
-    document.getElementById('toggle-inventory').checked ||
-    document.getElementById('toggle-brokerbin').checked ||
-    document.getElementById('toggle-tdsynnex').checked ||
-    document.getElementById('toggle-ingram').checked ||
-    document.getElementById('toggle-amazon-connector').checked ||
-    document.getElementById('toggle-ebay-connector').checked ||
-    document.getElementById('toggle-amazon').checked ||
-    document.getElementById('toggle-ebay').checked
-  );
-  
-  let summaryContent = '';
-  if (!anyEnabled) {
-    summaryContent = 'No search results yet.';
+/***************************************************
+ * Gathers final results (HTML content) for LLM analysis
+ ***************************************************/
+// gatherResultsForAnalysis function is defined earlier
+
+
+/***************************************************
+ * Event Listeners & Initialization
+ ***************************************************/
+document.addEventListener('DOMContentLoaded', () => {
+  console.log("DOM fully loaded and parsed");
+
+  // Attach search handler
+  const searchButton = document.getElementById('search-btn');
+  if (searchButton) {
+    searchButton.addEventListener('click', handleSearch);
   } else {
-    summaryContent = generateSummaryTableHtml();
+      console.error("Search button not found!");
   }
 
-  // Combine notifications with content
-  summaryDiv.innerHTML = notifications + summaryContent;
-}
-
-// Generate summary table with filtering for epicor items matching inventory filtering
-function generateSummaryTableHtml() {
-  function createSummaryTable(key, label) {
-    const dataArray = searchResults[key] || [];
-    if (!dataArray.length) return '';
-
-    // Special handling for epicor - filter out items with zero quantity
-    let filteredDataArray = dataArray;
-    if (key === 'epicor') {
-      filteredDataArray = dataArray.filter(item => 
-        item.Quantity && Number(item.Quantity) > 0
-      );
-      if (filteredDataArray.length === 0) return '';
-    }
-    
-    // Special handling for tdsynnex - filter out items with zero quantity
-    if (key === 'tdsynnex') {
-      filteredDataArray = dataArray.filter(item => {
-        const qty = parseInt(item.totalQuantity, 10);
-        return !isNaN(qty) && qty > 0;
-      });
-      if (filteredDataArray.length === 0) return '';
-    }
-
-    // group by sourcePartNumber
-    const grouped = {};
-    filteredDataArray.forEach(item => {
-      const pnum = item.sourcePartNumber || 'Unknown';
-      if (!grouped[pnum]) grouped[pnum] = [];
-      grouped[pnum].push(item);
-    });
-
-    function findBestPrice(items) {
-      let minPrice = null;
-      items.forEach(it => {
-        let priceVal = null;
-        switch (key) {
-          case 'amazonConnector':
-            if (it.price && it.price.value) priceVal = parseFloat(it.price.value);
-            break;
-          case 'ebayConnector':
-            priceVal = parsePrice(it.priceWithCurrency);
-            break;
-          case 'amazon':
-            priceVal = parsePrice(it.rawPrice);
-            break;
-          case 'ebay':
-            priceVal = parsePrice(it.rawPrice);
-            break;
-          case 'brokerbin':
-            if (typeof it.price === 'number') {
-              priceVal = it.price;
-            } else if (typeof it.price === 'string') {
-              priceVal = parseFloat(it.price);
-            }
-            break;
-          case 'tdsynnex':
-            priceVal = parseFloat(it.price);
-            break;
-          case 'epicor':
-            // For Epicor (inventory) we use the BasePrice field
-            priceVal = parseFloat(it.BasePrice);
-            break;
-        }
-        if (priceVal != null && !isNaN(priceVal) && priceVal > 0) {
-          if (minPrice == null || priceVal < minPrice) {
-            minPrice = priceVal;
-          }
-        }
-      });
-      return minPrice;
-    }
-
-    let rows = '';
-    for (const part in grouped) {
-      const bestPrice = findBestPrice(grouped[part]);
-      rows += `
-        <tr>
-          <td>${part}</td>
-          <td>${grouped[part].length}</td>
-          <td>${bestPrice != null ? '$' + bestPrice.toFixed(2) : '-'}</td>
-        </tr>
-      `;
-    }
-
-    return `
-      <h3>${label} Summary</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Part Number</th>
-            <th>Items Found</th>
-            <th>Best Price</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-    `;
+   // Attach stop search handler
+  const stopButton = document.getElementById('stop-search-btn');
+  if (stopButton) {
+    stopButton.addEventListener('click', stopSearch);
+  } else {
+      console.error("Stop search button not found!");
   }
 
-  let summaryHTML = '';
 
-  if (document.getElementById('toggle-inventory').checked) {
-    summaryHTML += createSummaryTable('epicor', 'Epicor (Inventory)');
-  }
-  if (document.getElementById('toggle-brokerbin').checked) {
-    summaryHTML += createSummaryTable('brokerbin', 'BrokerBin');
-  }
-  if (document.getElementById('toggle-tdsynnex').checked) {
-    summaryHTML += createSummaryTable('tdsynnex', 'TDSynnex');
-  }
-  if (document.getElementById('toggle-ingram').checked) {
-    summaryHTML += createSummaryTable('ingram', 'Ingram');
-  }
-  if (document.getElementById('toggle-amazon-connector').checked) {
-    summaryHTML += createSummaryTable('amazonConnector', 'AmazonConnector');
-  }
-  if (document.getElementById('toggle-ebay-connector').checked) {
-    summaryHTML += createSummaryTable('ebayConnector', 'eBayConnector');
-  }
-  if (document.getElementById('toggle-amazon').checked) {
-    summaryHTML += createSummaryTable('amazon', 'Amazon');
-  }
-  if (document.getElementById('toggle-ebay').checked) {
-    summaryHTML += createSummaryTable('ebay', 'eBay');
-  }
+  // Initial tab setup
+  switchTab('summary'); // Start on summary tab
 
-  return summaryHTML.trim() || 'No search results yet.';
-}
+   // Add listener for Enter key on part number input
+   const partInput = document.getElementById('part-numbers');
+   if (partInput) {
+       partInput.addEventListener('keydown', (e) => {
+           if (e.key === 'Enter') {
+                e.preventDefault(); // Prevent potential form submission
+               handleSearch();
+           }
+       });
+   }
 
-/***************************************************
- * Gathers final results for LLM analysis
- ***************************************************/
-function gatherResultsForAnalysis() {
-  const results = {};
-  if (document.getElementById('toggle-inventory').checked) {
-    const invElem = document.querySelector('#inventory-content .inventory-results');
-    results['epicor-search'] = invElem ? invElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-brokerbin').checked) {
-    const bbElem = document.querySelector('.brokerbin-results .results-container');
-    results['brokerbin-search'] = bbElem ? bbElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-tdsynnex').checked) {
-    const tdElem = document.querySelector('.tdsynnex-results .results-container');
-    results['tdsynnex-search'] = tdElem ? tdElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-ingram').checked) {
-    const ingElem = document.querySelector('.ingram-results .results-container');
-    results['ingram-search'] = ingElem ? ingElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-amazon-connector').checked) {
-    const acElem = document.querySelector('.amazon-connector-results .results-container');
-    results['amazon-connector'] = acElem ? acElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-ebay-connector').checked) {
-    const ecElem = document.querySelector('.ebay-connector-results .results-container');
-    results['ebay-connector'] = ecElem ? ecElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-amazon').checked) {
-    const amzScrElem = document.querySelector('.amazon-results .results-container');
-    results['amazon-scraper'] = amzScrElem ? amzScrElem.innerHTML : "";
-  }
-  if (document.getElementById('toggle-ebay').checked) {
-    const eScrElem = document.querySelector('.ebay-results .results-container');
-    results['ebay-scraper'] = eScrElem ? eScrElem.innerHTML : "";
-  }
+   // Google / MS Sign-in (Placeholders - Replace with actual Client IDs)
+   const googleBtn = document.getElementById('google-signin-btn');
+   if (googleBtn) {
+       googleBtn.addEventListener('click', () => {
+           alert("Google Sign-In not configured. Replace 'YOUR_GOOGLE_CLIENT_ID' in the code.");
+           // Ensure google object is loaded before using
+           // if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+           //     google.accounts.id.initialize({ client_id: 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com', callback: handleGoogleCredentialResponse });
+           //     google.accounts.id.prompt();
+           // } else {
+           //     console.error("Google Identity Services library not loaded.");
+           //     alert("Google Sign-In library not loaded properly.");
+           // }
+       });
+   }
 
-  return results;
-}
+   const msBtn = document.getElementById('microsoft-signin-btn');
+   if (msBtn) {
+       msBtn.addEventListener('click', () => {
+           alert("Microsoft Sign-In not configured. Replace 'YOUR_MICROSOFT_CLIENT_ID' in the code.");
+           // const msalConfig = { auth: { clientId: "YOUR_MICROSOFT_CLIENT_ID", redirectUri: window.location.origin } };
+           // // Check if msal is loaded before using it
+           // if (typeof msal !== 'undefined' && msal.PublicClientApplication) {
+           //     try {
+           //         const msalInstance = new msal.PublicClientApplication(msalConfig);
+           //         msalInstance.loginPopup({ scopes: ["User.Read"] }).then(handleMicrosoftLoginResponse).catch(handleMicrosoftLoginError);
+           //     } catch (err) {
+           //          console.error("Error initializing MSAL:", err);
+           //          alert("Failed to initialize Microsoft Sign-In.");
+           //     }
+           // } else {
+           //     console.error("MSAL library not loaded.");
+           //     alert("Microsoft Sign-In library (MSAL) not loaded properly.");
+           // }
+       });
+   }
 
-/***************************************************
- * Google / MS sign-in from original snippet
- ***************************************************/
-document.getElementById('google-signin-btn').addEventListener('click', () => {
-  google.accounts.id.initialize({
-    client_id: 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com',
-    callback: handleGoogleCredentialResponse
-  });
-  google.accounts.id.prompt();
+// **THIS IS THE CLOSING BRACKET FOR DOMContentLoaded**
 });
+
+
+// Placeholder handlers for Sign-in buttons (defined outside DOMContentLoaded)
 function handleGoogleCredentialResponse(response) {
   console.log('Google Credential Response:', response);
-  document.getElementById('user-info').textContent = 'Signed in with Google';
+  // Update UI - Make sure 'user-info' element exists in your HTML
+  const userInfoDiv = document.getElementById('user-info');
+  if(userInfoDiv) userInfoDiv.textContent = 'Signed in with Google';
 }
-
-const msalConfig = {
-  auth: {
-    clientId: "YOUR_MICROSOFT_CLIENT_ID",
-    redirectUri: window.location.origin
-  }
-};
-const msalInstance = new msal.PublicClientApplication(msalConfig);
-document.getElementById('microsoft-signin-btn').addEventListener('click', () => {
-  msalInstance.loginPopup({ scopes: ["User.Read"] })
-    .then(loginResponse => {
-      console.log('Microsoft Login Response:', loginResponse);
-      document.getElementById('user-info').textContent = 'Signed in as: ' + loginResponse.account.username;
-    })
-    .catch(error => {
-      console.error('Microsoft Login Error:', error);
-    });
-});
+function handleMicrosoftLoginResponse(loginResponse) {
+  console.log('Microsoft Login Response:', loginResponse);
+   // Update UI - Make sure 'user-info' element exists in your HTML
+  const userInfoDiv = document.getElementById('user-info');
+  if(userInfoDiv && loginResponse.account) userInfoDiv.textContent = 'Signed in as: ' + loginResponse.account.username;
+}
+function handleMicrosoftLoginError(error) {
+  console.error('Microsoft Login Error:', error);
+   alert('Microsoft login failed. See console for details.');
+}
