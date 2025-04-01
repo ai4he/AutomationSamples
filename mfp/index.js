@@ -1150,6 +1150,7 @@ function buildEpicorInventoryTable() {
         <th>Product Code</th>
         <th>Quantity</th>
         <th>Base Price</th>
+        <th>Currency</th>
         <th>Status</th>
       </tr>
     </thead>
@@ -1164,6 +1165,7 @@ function buildEpicorInventoryTable() {
           <td>${it.ProdCodeDescription || '-'}</td>
           <td>${(it.Quantity !== undefined && it.Quantity !== null) ? it.Quantity : '-'}</td>
           <td>${(it.BasePrice !== undefined && it.BasePrice !== null) ? it.BasePrice : '-'}</td>
+          <td>${(it.CurrencyCode !== undefined && it.CurrencyCode !== null) ? it.CurrencyCode : '-'}</td>
           <td>${it.InActive ? '<span class="text-error">Inactive</span>' : '<span class="text-success">Active</span>'}</td>
         </tr>
       `).join('')}
@@ -1207,7 +1209,7 @@ async function fetchSalesData(partNumbers) {
               OrderDate: line.OrderHedOrderDate,
               OrderQty: line.OrderQty,
               UnitPrice: line.UnitPrice,
-              Currency: line.Currency || '',
+              CurrencyCode: line.CurrencyCode || '',
               RequestDate: line.RequestDate,
               NeedByDate: line.NeedByDate
             });
@@ -1281,7 +1283,7 @@ function buildSalesTable() {
           <td data-date="${it.OrderDate || ''}">${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
           <td>${it.OrderQty || '-'}</td>
           <td>${it.UnitPrice || '-'}</td>
-          <td>${it.Currency || '-'}</td>
+          <td>${it.CurrencyCode || '-'}</td>
           <td>${it.RequestDate ? new Date(it.RequestDate).toLocaleDateString() : '-'}</td>
           <td>${it.NeedByDate ? new Date(it.NeedByDate).toLocaleDateString() : '-'}</td>
         </tr>
