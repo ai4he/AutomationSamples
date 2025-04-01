@@ -1,3 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Production Code</title>
+  <style>
+    /* Keep your existing styles or add as needed */
+    .table-container {
+      overflow-x: auto;
+      margin-bottom: 1rem;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+      cursor: pointer;
+    }
+    .loading {
+      display: none;
+      color: #999;
+      font-style: italic;
+      margin-bottom: 0.5rem;
+    }
+    .text-error {
+      color: red;
+      font-weight: bold;
+    }
+    .text-success {
+      color: green;
+      font-weight: bold;
+    }
+    .product-image {
+      max-width: 80px;
+      max-height: 80px;
+      object-fit: contain;
+    }
+    .alternative-numbers-list {
+      list-style: none;
+      padding-left: 0;
+    }
+    .alternative-number {
+      margin: 5px 0;
+    }
+    .search-stopped-message p, .search-ended-message p {
+      margin: 0;
+    }
+    .subtabs {
+      margin-bottom: 1rem;
+    }
+    .subtab-button {
+      display: inline-block;
+      margin-right: 5px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    .subtab-button.active {
+      background-color: #ddd;
+      font-weight: bold;
+    }
+    .subtab-content {
+      display: none;
+    }
+    .subtab-content.active {
+      display: block;
+    }
+    /* Tab content styling, just example */
+    .tab-content.active {
+      display: block;
+    }
+  </style>
+</head>
+
+<body>
+<!-- Your HTML layout with tabs, etc. Goes here. We'll assume 
+     the structure is the same from your posted code, 
+     focusing on the JS changes below. -->
+
+<!-- Some relevant elements (part-numbers, search button, etc.) -->
+<input type="text" id="part-numbers" placeholder="Enter Part Number" />
+<button onclick="handleSearch()">Search</button>
+<span id="loading-spinner" style="display:none;">Loading...</span>
+<button id="stop-search-btn" style="display:none;" onclick="stopSearch()">Stop</button>
+
+<!-- Model / prompt -->
+<select id="llm-model">
+  <option value="gemini" selected>Gemini</option>
+  <option value="gpt-4">GPT-4</option>
+  <!-- etc. -->
+</select>
+<input type="text" id="prompt" placeholder="Optional prompt..." />
+
+<!-- A place to show user sign in info, not strictly relevant -->
+<div id="user-info"></div>
+<button id="google-signin-btn">Sign in with Google</button>
+<button id="microsoft-signin-btn">Sign in with Microsoft</button>
+
+<!-- Toggle checkboxes for each data source -->
+<div>
+  <label><input type="checkbox" id="toggle-inventory" checked> Epicor Inventory</label>
+  <label><input type="checkbox" id="toggle-brokerbin" checked> BrokerBin</label>
+  <label><input type="checkbox" id="toggle-tdsynnex" checked> TDSynnex</label>
+  <label><input type="checkbox" id="toggle-ingram" checked> Ingram</label>
+  <label><input type="checkbox" id="toggle-amazon-connector" checked> AmazonConnector</label>
+  <label><input type="checkbox" id="toggle-ebay-connector" checked> eBayConnector</label>
+  <label><input type="checkbox" id="toggle-amazon" checked> Amazon</label>
+  <label><input type="checkbox" id="toggle-ebay" checked> eBay</label>
+  <label><input type="checkbox" id="toggle-lenovo" checked> Lenovo</label>
+</div>
+
+<!-- Tabs: alternative-numbers, summary-content, analysis-content, etc. -->
+<div id="alternative-numbers" class="tab-content active"></div>
+<div id="summary-content" class="tab-content"></div>
+
+<div id="inventory-content" class="tab-content">
+  <div class="loading">Loading Epicor inventory...</div>
+  <div class="inventory-results"></div>
+</div>
+
+<div class="brokerbin-results tab-content">
+  <div class="loading">Loading BrokerBin...</div>
+  <div class="results-container"></div>
+</div>
+
+<div class="tdsynnex-results tab-content">
+  <div class="loading">Loading TDSynnex...</div>
+  <div class="results-container"></div>
+</div>
+
+<div id="distributors-content" class="tab-content">
+  <div class="loading">Loading Ingram...</div>
+  <div class="ingram-results">
+    <div class="results-container"></div>
+  </div>
+</div>
+
+<div class="amazon-connector-results tab-content">
+  <div class="loading">Loading AmazonConnector...</div>
+  <div class="results-container"></div>
+</div>
+
+<div class="ebay-connector-results tab-content">
+  <div class="loading">Loading eBayConnector...</div>
+  <div class="results-container"></div>
+</div>
+
+<div class="amazon-results tab-content">
+  <div class="loading">Loading Amazon...</div>
+  <div class="results-container"></div>
+</div>
+
+<div class="ebay-results tab-content">
+  <div class="loading">Loading eBay...</div>
+  <div class="results-container"></div>
+</div>
+
+<div id="lenovo-content" class="tab-content">
+  <!-- sub tabs go here -->
+  <div id="lenovo-subtabs" class="subtabs"></div>
+  <div id="lenovo-subcontent"></div>
+</div>
+
+<div id="sales-content" class="tab-content">
+  <div class="loading">Loading Sales...</div>
+  <div class="sales-results"></div>
+</div>
+
+<div id="purchases-content" class="tab-content">
+  <div class="loading">Loading Purchases...</div>
+  <div class="purchases-results"></div>
+</div>
+
+<div id="analysis-content" class="tab-content">
+  <div class="analyze-result-text"></div>
+  <div id="chat-container-analysis"></div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://alcdn.msauth.net/browser/2.22.0/js/msal-browser.min.js" integrity="sha384-Qr0Nf/x7D8Co2T2FAMjjc4E0Nkl66U6EMyzN/dRNBK+iZkTDgIQZcx9NWiztLg6G" crossorigin="anonymous"></script>
+
+<script>
 /***************************************************
  * Configuration Variables
  ***************************************************/
@@ -34,8 +221,7 @@ let pausedSearchState = {
   onNewAltsCallback: null
 };
 
-// Stores the entire conversation as an array of message objects:
-// e.g. [ { role: "user", content: "Hello" }, { role: "assistant", content: "Hi!" }, ... ]
+// Stores the entire conversation as an array of message objects
 let conversationHistory = [];
 
 // We'll also store a reference to the chat container so we can re-render the conversation easily
@@ -198,8 +384,6 @@ function sortTableByColumn(table, columnIndex, asc = true) {
       // Try to parse as dates
       const aDate = new Date(aText);
       const bDate = new Date(bText);
-      
-      // Check if both strings parsed as valid dates
       if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
         return asc ? aDate - bDate : bDate - aDate;
       }
@@ -225,7 +409,8 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
   document.querySelectorAll('.tab-button').forEach(button => button.classList.remove('active'));
   document.getElementById(tabId).classList.add('active');
-  document.querySelector(`button[onclick="switchTab('${tabId}')"]`).classList.add('active');
+  const tabBtn = document.querySelector(`button[onclick="switchTab('${tabId}')"]`);
+  if (tabBtn) tabBtn.classList.add('active');
 }
 
 /***************************************************
@@ -237,14 +422,22 @@ async function getAlternativePartNumbers(partNumber) {
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    const data = await response.json();
+    // Safe parse:
+    const text = await response.text();
+    if (!text.trim()) {
+      console.warn("Empty response from get-parts for", partNumber);
+      return { original: partNumber, description: '', category: '', alternatives: [] };
+    }
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      console.warn("Error parsing JSON from get-parts for", partNumber, parseErr);
+      return { original: partNumber, description: '', category: '', alternatives: [] };
+    }
+
     if (!data || !data[0]) {
-      return {
-        original: partNumber,
-        description: '',
-        category: '',
-        alternatives: []
-      };
+      return { original: partNumber, description: '', category: '', alternatives: [] };
     }
     const record = data[0];
     const description = record.Description || '';
@@ -286,10 +479,6 @@ async function getAlternativePartNumbers(partNumber) {
 /**
  * Launches alternative expansions in the background, 
  * so we can do them in parallel with the main search.
- *
- * @param {string} baseNumber - The initial part number to expand
- * @param {Array} finalAlts   - The shared array where discovered alt objects go
- * @param {Function} onNewAlts - Callback invoked whenever new alt(s) appear
  */
 function startExpansions(baseNumber, finalAlts, onNewAlts) {
   // Reset the global counter and flags
@@ -306,26 +495,20 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
   // Run gatherCombinatoryAlternatives in the background
   gatherCombinatoryAlternatives(baseNumber, 0, visited, finalAlts, onNewAlts)
     .then(() => {
-      // Once recursion completes, expansions are done
       expansionsInProgress = false;
-      
       // If we're in paused state and haven't shown the button yet, do it now
       if (limitedSearchMode && altCountFound >= initialAltLimit && 
           !document.getElementById('continue-search-btn')) {
-        // Save the search state for continuation
         pausedSearchState = {
           isActive: true,
           baseNumber: baseNumber,
-          visited: new Set(visited), // Make a copy
+          visited: new Set(visited),
           finalAlts: finalAlts,
           onNewAltsCallback: onNewAlts
         };
-        
-        // Show the continue button
         addContinueSearchButton();
       }
-      
-      checkIfAllDone();  // might hide spinner + call analysis if activeRequests=0
+      checkIfAllDone();
     })
     .catch(err => {
       console.error('Expansion error:', err);
@@ -371,7 +554,6 @@ function addContinueSearchButton() {
   
   continueBtn.addEventListener('click', function() {
     console.log("Continue button clicked - resuming search");
-    
     // Remove UI elements
     continueBtn.remove();
     const msgDiv = document.getElementById('continue-search-message');
@@ -381,21 +563,16 @@ function addContinueSearchButton() {
     if (pausedSearchState.isActive) {
       // Switch to unlimited search mode
       limitedSearchMode = false;
-      
-      // Mark search as in progress again
       expansionsInProgress = true;
       
       // Show spinner again
       const spinner = document.getElementById('loading-spinner');
       if (spinner) spinner.style.display = 'inline-block';
       
-      // Get the saved state
+      // Resume expansions
       const { baseNumber, visited, finalAlts, onNewAltsCallback } = pausedSearchState;
-      
-      // Continue the search from where we left off
       gatherCombinatoryAlternatives(baseNumber, 0, visited, finalAlts, onNewAltsCallback)
         .then(() => {
-          // Once recursion completes, expansions are done
           expansionsInProgress = false;
           checkIfAllDone();
         })
@@ -411,37 +588,30 @@ function addContinueSearchButton() {
 }
 
 /***************************************************
- * Recursive Gathering of Alt Parts to configNestedLevel
+ * Recursive Gathering of Alt Parts
  ***************************************************/
 async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, result, onNewAlts) {
-  // Check for stop conditions immediately
   if (stopSearchRequested) {
     console.log("Stopping search - user requested stop");
     return;
   }
-  
-  // Check if we need to pause the search (in limited mode and reached the limit)
+  // Check if we need to pause in limited mode
   if (limitedSearchMode && altCountFound >= initialAltLimit) {
     return;
   }
   
-  // Avoid revisiting parts
   const upperBase = baseNumber.trim().toUpperCase();
   if (visited.has(upperBase)) return;
   visited.add(upperBase);
 
   try {
-    // Get alternatives for this part
     const { alternatives } = await getAlternativePartNumbers(baseNumber);
     let newlyAdded = [];
     
-    // Add alternatives (considering the limit)
     for (const alt of alternatives) {
-      // Check if we've reached the limit
       if (limitedSearchMode && altCountFound >= initialAltLimit) {
         break;
       }
-      
       const altUpper = alt.value.trim().toUpperCase();
       if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
         result.push(alt);
@@ -449,35 +619,27 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
         altCountFound++;
         console.log(`Found alternative #${altCountFound}: ${alt.type} - ${alt.value}`);
         
-        // If we've reached the limit, add the continue button
         if (limitedSearchMode && altCountFound >= initialAltLimit) {
-          // Save the search state for continuation
           pausedSearchState = {
             isActive: true,
             baseNumber: baseNumber,
-            visited: new Set(visited), // Make a copy
+            visited: new Set(visited),
             finalAlts: result,
             onNewAltsCallback: onNewAlts
           };
-          
-          // Process this batch before pausing
           if (newlyAdded.length > 0 && onNewAlts) {
             await onNewAlts(newlyAdded);
           }
-          
-          // Show the continue button
           addContinueSearchButton();
           return;
         }
       }
     }
     
-    // Process any newly added alternatives
     if (newlyAdded.length > 0 && onNewAlts) {
       await onNewAlts(newlyAdded);
     }
 
-    // Determine if we should go deeper
     let goDeeper = false;
     if (configNestedLevel === -1) {
       goDeeper = true;
@@ -485,16 +647,12 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
       goDeeper = currentLevel < configNestedLevel;
     }
     
-    // Only continue deeper if we should and haven't been limited
     if (goDeeper && (!limitedSearchMode || altCountFound < initialAltLimit)) {
       for (const alt of alternatives) {
-        // Check limit before recursion
         if (limitedSearchMode && altCountFound >= initialAltLimit) {
           return;
         }
         if (stopSearchRequested) return;
-        
-        // Recursive search with the next part
         await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
       }
     }
@@ -504,7 +662,7 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
 }
 
 /***************************************************
- * Spinner, expansions, and final analysis
+ * checkIfAllDone & final analysis
  ***************************************************/
 function checkIfAllDone() {
   if (expansionsInProgress) return;
@@ -513,7 +671,6 @@ function checkIfAllDone() {
 
   analysisAlreadyCalled = true;
 
-  // if we reach here => expansions done + no active requests => finalize
   const spinner = document.getElementById('loading-spinner');
   const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'none';
@@ -523,16 +680,13 @@ function checkIfAllDone() {
 }
 
 async function performFinalAnalysis() {
-  // One last summary update before analysis
   updateSummaryTab();
 
   try {
-    // Gather results from your existing aggregator logic
     const analysisData = gatherResultsForAnalysis();
     const selectedModel = document.getElementById('llm-model').value;
     const promptText = document.getElementById('prompt').value;
 
-    // Prepare query URL for the initial analysis, same as before
     const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
 
     const response = await fetch(analyzeUrl, {
@@ -540,7 +694,15 @@ async function performFinalAnalysis() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(analysisData)
     });
-    const analyzeResult = await response.json();
+    // Safe parse:
+    const rawText = await response.text();
+    let analyzeResult;
+    try {
+      analyzeResult = JSON.parse(rawText);
+    } catch(e) {
+      console.warn('Error parsing analysis JSON:', e, rawText);
+      analyzeResult = [];
+    }
 
     let analyzeResultText = '';
     if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
@@ -552,40 +714,32 @@ async function performFinalAnalysis() {
       .replaceAll("```html", '')
       .replaceAll("```", '');
 
-    // Parse HTML content properly
-try {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(analyzeResultText, 'text/html');
-  if (doc.body && doc.body.innerHTML) {
-    analyzeResultText = doc.body.innerHTML;
-  }
-} catch (e) {
-  console.warn('Error parsing HTML content:', e);
-}
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(analyzeResultText, 'text/html');
+      if (doc.body && doc.body.innerHTML) {
+        analyzeResultText = doc.body.innerHTML;
+      }
+    } catch (e) {
+      console.warn('Error parsing HTML content:', e);
+    }
 
-    // Store the user prompt and the LLM's reply in our conversation array
-    // The user's initial prompt:
+    // Add to conversation
     conversationHistory.push({
       role: 'user',
       content: promptText || '(No prompt provided)'
     });
-    // The model's first reply:
     conversationHistory.push({
       role: 'assistant',
       content: analyzeResultText
     });
 
-    // Update the analysis tab with the result
+    // Update analysis tab
     const analyzeResultTextDiv = document.querySelector('#analysis-content .analyze-result-text');
     if (analyzeResultTextDiv) {
       analyzeResultTextDiv.innerHTML = '';
     }
-
-    // Initialize the conversation UI in the analysis tab
     initializeConversationUI();
-
-    // REMOVED: Switch to the analysis tab to show the results
-    // switchTab('analysis');
 
   } catch (err) {
     console.error('Analyze data error:', err);
@@ -593,32 +747,25 @@ try {
 }
 
 function initializeConversationUI() {
-  // Create a container for the conversation if not already created
   chatContainer = document.getElementById('chat-container-analysis');
   if (!chatContainer) {
     console.error('Chat container element not found in analysis tab');
     return;
   }
-
-  // Render the conversation so far + input
   renderConversationUI();
 }
 
 function renderConversationUI() {
   if (!chatContainer) return;
-
-  // 1) Build the HTML for current messages
   let chatHTML = '<div class="chat-messages">';
   conversationHistory.forEach(msg => {
     if (msg.role === 'assistant') {
-      // model's reply
       chatHTML += `
         <div class="chat-message assistant">
           <strong>Assistant:</strong> ${msg.content}
         </div>
       `;
     } else {
-      // user
       chatHTML += `
         <div class="chat-message user">
           <strong>You:</strong> ${msg.content}
@@ -628,30 +775,22 @@ function renderConversationUI() {
   });
   chatHTML += '</div>';
 
-  // 2) Add an input area to continue the conversation
   chatHTML += `
     <div class="chat-input-area" style="margin-top: 10px;">
       <input type="text" id="chat-input" placeholder="Type your question..." style="width:80%;">
       <button id="chat-send-btn" style="width:18%;">Send</button>
     </div>
   `;
-
-  // Replace the chat container content
   chatContainer.innerHTML = chatHTML;
 
-  // 2a) Immediately scroll chat to the bottom
   const messagesDiv = chatContainer.querySelector('.chat-messages');
   if (messagesDiv) {
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
   }
-
-  // 3) Add an event listener for the "Send" button
   const sendBtn = document.getElementById('chat-send-btn');
   if (sendBtn) {
     sendBtn.addEventListener('click', handleUserChatSubmit);
   }
-
-  // Also handle "Enter" key in the input
   const inputField = document.getElementById('chat-input');
   if (inputField) {
     inputField.addEventListener('keydown', (e) => {
@@ -665,47 +804,34 @@ function renderConversationUI() {
 function handleUserChatSubmit() {
   const inputField = document.getElementById('chat-input');
   if (!inputField) return;
-
   const userMessage = inputField.value.trim();
   if (!userMessage) return;
-
-  // Add the user's new message to the conversation
-  conversationHistory.push({
-    role: 'user',
-    content: userMessage
-  });
-
-  // Clear the input
+  conversationHistory.push({ role: 'user', content: userMessage });
   inputField.value = '';
-
-  // Re-render so the user sees their message
   renderConversationUI();
-
-  // Send the entire conversation to the endpoint for the next assistant reply
   sendChatMessageToLLM();
 }
 
 async function sendChatMessageToLLM() {
   try {
-    // We'll reuse the same model param from the UI
     const selectedModel = document.getElementById('llm-model').value;
-
-    // Convert the entire conversation array to JSON
     const conversationJSON = encodeURIComponent(JSON.stringify(conversationHistory));
-
-    // Build the endpoint (same as your 'analyze-data' but with added ?history=)
     const url = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${conversationJSON}`;
-
-    // We can still pass the aggregator results if needed:
     const analysisData = gatherResultsForAnalysis();
 
-    // POST the aggregator data as before, but rely on `history` to pass conversation
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(analysisData)
     });
-    const result = await response.json();
+    const rawText = await response.text();
+    let result;
+    try {
+      result = JSON.parse(rawText);
+    } catch(e) {
+      console.warn('Error parsing chat JSON:', e, rawText);
+      result = [];
+    }
 
     let assistantReply = '';
     if (Array.isArray(result) && result.length > 0 && result[0].text) {
@@ -713,16 +839,14 @@ async function sendChatMessageToLLM() {
     } else {
       assistantReply = JSON.stringify(result);
     }
+    assistantReply = assistantReply
+      .replaceAll("```html", '')
+      .replaceAll("```", '');
 
-    // Add the new assistant reply to the conversation
     conversationHistory.push({
       role: 'assistant',
       content: assistantReply
-        .replaceAll("```html", '')
-        .replaceAll("```", '')
     });
-
-    // Re-render the chat
     renderConversationUI();
   } catch (err) {
     console.error('sendChatMessageToLLM error:', err);
@@ -730,13 +854,10 @@ async function sendChatMessageToLLM() {
 }
 
 /***************************************************
- * The main handleSearch
+ * Main handleSearch
  ***************************************************/
 async function handleSearch() {
-  // Reset the stop search flag
   stopSearchRequested = false;
-  
-  // Reset search state
   limitedSearchMode = true;
   altCountFound = 0;
   pausedSearchState = {
@@ -746,15 +867,11 @@ async function handleSearch() {
     finalAlts: [],
     onNewAltsCallback: null
   };
-  
-  // Ensure that final analysis can happen again for each fresh search
   analysisAlreadyCalled = false;
   conversationHistory = [];
 
-  // 1) Clean UI for new search
   cleanupUI();
 
-  // 2) Get part number
   const partNumberInput = document.getElementById('part-numbers');
   if (!partNumberInput) {
     alert('part number input not found');
@@ -766,28 +883,23 @@ async function handleSearch() {
     return;
   }
 
-  // 3) Reset aggregator and counters
+  // Reset aggregator
   Object.keys(searchResults).forEach(k => {
     searchResults[k] = [];
   });
   activeRequestsCount = 0;
-  expansionsInProgress = false;  // Will set to 'true' if we do expansions
+  expansionsInProgress = false;
 
-  // 4) Show spinner
   const spinner = document.getElementById('loading-spinner');
   const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'inline-block';
   if (stopBtn) stopBtn.style.display = 'inline-block';
 
-  // We'll store discovered alternative parts
   const finalAlternatives = [];
-
-  // For partial UI updates
   let topDescription = '';
   let topCategory = '';
   let topOriginal = partNumber;
 
-  // Helper that re-renders <div id="alternative-numbers"> 
   function updateAlternativeNumbersUI() {
     const altDiv = document.getElementById('alternative-numbers');
     if (!altDiv) return;
@@ -811,7 +923,7 @@ async function handleSearch() {
     altDiv.innerHTML = html;
     altDiv.classList.add('active');
     
-    // If we're in paused state and need to show the button, do it now
+    // If we're in paused state and need to show the button
     if (limitedSearchMode && altCountFound >= initialAltLimit && 
         !document.getElementById('continue-search-btn') &&
         pausedSearchState.isActive) {
@@ -819,18 +931,20 @@ async function handleSearch() {
     }
   }
 
-  // Tracks which alt part numbers we've already "searched"
+  // Track which alt part numbers we've already "searched"
   const alreadySearched = new Set();
 
-  // Callback for newly discovered alt parts.  
   async function onNewAlts(newlyAdded) {
-    // Check if search should be stopped
     if (stopSearchRequested) return;
-    
-    // 1) Update the alt UI
     updateAlternativeNumbersUI();
 
-    // 2) For each new alt, if not searched yet, do so
+    // If we've paused or we're at the limit, do not proceed with new endpoint searches
+    if (pausedSearchState.isActive && limitedSearchMode) {
+      console.log("Search is paused or limited. Skipping new alt endpoint calls.");
+      return;
+    }
+
+    // For each new alt
     const freshParts = [];
     for (const alt of newlyAdded) {
       const altUpper = alt.value.trim().toUpperCase();
@@ -840,27 +954,21 @@ async function handleSearch() {
       }
     }
     if (freshParts.length > 0) {
-      // Launch endpoint searches for these new parts
       await executeEndpointSearches(freshParts);
     }
   }
 
   try {
-    // 1) Fetch top-level data (to get Description/Category, etc.)
+    // Top-level data for description, etc.
     const topData = await getAlternativePartNumbers(partNumber);
     topOriginal = topData.original;
     topDescription = topData.description;
     topCategory = topData.category;
-
-    // Show description immediately
     updateAlternativeNumbersUI();
 
-    // 2) If we want alternative expansions, start them in parallel
     if (configUseAlternatives) {
-      // Kick off expansions in the background (no await)
       startExpansions(topOriginal, finalAlternatives, onNewAlts);
     } else {
-      // If alt is disabled, just mention it in the UI
       const altDiv = document.getElementById('alternative-numbers');
       if (altDiv) {
         altDiv.innerHTML = '<p>Alternative search is disabled.</p>';
@@ -868,22 +976,18 @@ async function handleSearch() {
       }
     }
 
-    // 3) Immediately search the user's original part
+    // Immediately search the original part
     alreadySearched.add(topOriginal.trim().toUpperCase());
-    // We do NOT wait for expansions to finish
     await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
 
-    // 4) Possibly do a final check if expansions might be done immediately
     checkIfAllDone();
-
   } catch (err) {
     console.error('handleSearch error:', err);
   }
 }
 
 /***************************************************
- * A helper to do parallel endpoint searches for a 
- * given array of {number, source}
+ * A helper to do parallel endpoint searches
  ***************************************************/
 async function executeEndpointSearches(partNumbers) {
   if (!partNumbers || partNumbers.length === 0 || stopSearchRequested) return;
@@ -919,10 +1023,8 @@ async function executeEndpointSearches(partNumbers) {
   tasks.push(fetchSalesData(partNumbers).finally(() => updateSummaryTab()));
   tasks.push(fetchPurchasesData(partNumbers).finally(() => updateSummaryTab()));
 
-  // We do not always put Lenovo in here, but let's add it too if needed:
+  // Lenovo
   if (document.getElementById('toggle-lenovo').checked) {
-    // We'll call it once after the others
-    // or you can put it directly in the tasks
     tasks.push(fetchLenovoData(partNumbers));
   }
 
@@ -930,11 +1032,8 @@ async function executeEndpointSearches(partNumbers) {
 }
 
 /***************************************************
- * Now define each fetch function, aggregator style
- * then rebuild the entire table from aggregator
+ * TDSynnex
  ***************************************************/
-
-// 1) TDSynnex
 async function fetchTDSynnexData(partNumbers) {
   if (stopSearchRequested) return;
   activeRequestsCount++;
@@ -949,6 +1048,10 @@ async function fetchTDSynnexData(partNumbers) {
         const res = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
         const xmlText = await res.text();
+        if (!xmlText.trim()) {
+          console.warn("Empty XML response from TDSynnex for", number);
+          continue;
+        }
         const xmlDoc = parseXML(xmlText);
         const priceList = xmlDoc.getElementsByTagName('PriceAvailabilityList')[0];
         if (!priceList) continue;
@@ -972,7 +1075,6 @@ async function fetchTDSynnexData(partNumbers) {
         console.warn('TDSynnex fetch error for', number, err);
       }
     }
-    // aggregator
     searchResults.tdsynnex.push(...newItems);
     buildTDSynnexTable();
   } catch (err) {
@@ -989,13 +1091,11 @@ function buildTDSynnexTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // Filter out items with zero quantity
   const allItems = searchResults.tdsynnex;
   const filteredItems = allItems.filter(item => {
     const qty = parseInt(item.totalQuantity, 10);
     return !isNaN(qty) && qty > 0;
   });
-  
   if (filteredItems.length === 0) return;
 
   const table = document.createElement('table');
@@ -1031,11 +1131,12 @@ function buildTDSynnexTable() {
   container.className = 'table-container';
   container.appendChild(table);
   resultsDiv.appendChild(container);
-
   makeTableSortable(table);
 }
 
-// 2) Ingram
+/***************************************************
+ * Ingram
+ ***************************************************/
 async function fetchDistributorData(partNumbers) {
   if (stopSearchRequested) return;
   activeRequestsCount++;
@@ -1050,7 +1151,21 @@ async function fetchDistributorData(partNumbers) {
       try {
         const res = await fetch(`https://${serverDomain}/webhook/ingram-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        const data = await res.json();
+
+        // Safe JSON parse
+        const text = await res.text();
+        if (!text.trim()) {
+          console.warn('Ingram search returned empty body for', number);
+          continue;
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (err) {
+          console.warn('Ingram error parsing JSON for', number, err);
+          continue;
+        }
+        
         const resultsWithSource = data.map(obj => ({ ...obj, sourcePartNumber: source }));
         newItems.push(...resultsWithSource);
       } catch (err) {
@@ -1115,11 +1230,12 @@ function buildIngramTable() {
   container.className = 'table-container';
   container.appendChild(table);
   resultsDiv.appendChild(container);
-
   makeTableSortable(table);
 }
 
-// 3) BrokerBin
+/***************************************************
+ * BrokerBin
+ ***************************************************/
 async function fetchBrokerBinData(partNumbers) {
   if (stopSearchRequested) return;
   activeRequestsCount++;
@@ -1134,7 +1250,20 @@ async function fetchBrokerBinData(partNumbers) {
       try {
         const res = await fetch(`https://${serverDomain}/webhook/brokerbin-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        const data = await res.json();
+
+        const text = await res.text();
+        if (!text.trim()) {
+          console.warn('BrokerBin empty response for', number);
+          continue;
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(parseErr) {
+          console.warn('BrokerBin parse error for', number, parseErr);
+          continue;
+        }
+
         const withSrc = data.map(obj => ({ ...obj, sourcePartNumber: source }));
         newItems.push(...withSrc);
       } catch (err) {
@@ -1200,11 +1329,12 @@ function buildBrokerBinTable() {
   container.className = 'table-container';
   container.appendChild(table);
   resultsDiv.appendChild(container);
-
   makeTableSortable(table);
 }
 
-// 4) Epicor Inventory
+/***************************************************
+ * Epicor Inventory
+ ***************************************************/
 async function fetchInventoryData(partNumbers) {
   if (stopSearchRequested) return;
   activeRequestsCount++;
@@ -1219,7 +1349,20 @@ async function fetchInventoryData(partNumbers) {
       try {
         const res = await fetch(`https://${serverDomain}/webhook/epicor-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        const data = await res.json();
+
+        const text = await res.text();
+        if (!text.trim()) {
+          console.warn('Epicor inventory empty response for', number);
+          continue;
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(parseErr) {
+          console.warn('Epicor inventory parse error for', number, parseErr);
+          continue;
+        }
+
         const withSrc = data.map(obj => ({ ...obj, sourcePartNumber: source }));
         newItems.push(...withSrc);
       } catch (err) {
@@ -1240,22 +1383,17 @@ async function fetchInventoryData(partNumbers) {
   }
 }
 
-// Epicor Search
 function buildEpicorInventoryTable() {
   const resultsDiv = document.querySelector('#inventory-content .inventory-results');
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // Filter out items where:
-  // 1) Company or PartNum are empty
-  // 2) Quantity is missing or zero (so we only show > 0)
   const allItems = searchResults.epicor;
   const filteredItems = allItems.filter(it =>
     it.Company && it.Company.trim() !== '' &&
     it.PartNum && it.PartNum.trim() !== '' &&
     it.Quantity && Number(it.Quantity) > 0
   );
-
   if (filteredItems.length === 0) return;
 
   const table = document.createElement('table');
@@ -1293,11 +1431,12 @@ function buildEpicorInventoryTable() {
   container.className = 'table-container';
   container.appendChild(table);
   resultsDiv.appendChild(container);
-
   makeTableSortable(table);
 }
 
-// 5) Sales
+/***************************************************
+ * Sales
+ ***************************************************/
 async function fetchSalesData(partNumbers) {
   if (stopSearchRequested) return;
   activeRequestsCount++;
@@ -1312,9 +1451,20 @@ async function fetchSalesData(partNumbers) {
       try {
         const res = await fetch(`https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        const data = await res.json();
 
-        // Only record lines that appear in OrderDtlPA
+        const text = await res.text();
+        if (!text.trim()) {
+          console.warn('Epicor sales empty response for', number);
+          continue;
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(parseErr) {
+          console.warn('Epicor sales parse error for', number, parseErr);
+          continue;
+        }
+
         data.forEach(entry => {
           const details = entry?.returnObj?.OrderDtlPA || [];
           details.forEach(line => {
@@ -1338,7 +1488,6 @@ async function fetchSalesData(partNumbers) {
         console.warn('Sales fetch error for', number, err);
       }
     }
-
     searchResults.sales.push(...newItems);
     buildSalesTable();
   } catch (err) {
@@ -1361,19 +1510,13 @@ function buildSalesTable() {
   const items = searchResults.sales;
   if (items.length === 0) return;
 
-  // Pre-sort by date (newest first)
   const sortedItems = [...items].sort((a, b) => {
-    // Parse dates properly
     const dateA = a.OrderDate ? new Date(a.OrderDate) : null;
     const dateB = b.OrderDate ? new Date(b.OrderDate) : null;
-    
-    // Handle invalid dates
     if (!dateA && !dateB) return 0;
-    if (!dateA) return 1; // null dates to the end
+    if (!dateA) return 1;
     if (!dateB) return -1;
-    
-    // Sort newest first (descending)
-    return dateB - dateA;
+    return dateB - dateA; 
   });
 
   const table = document.createElement('table');
@@ -1417,18 +1560,18 @@ function buildSalesTable() {
   container.className = 'table-container';
   container.appendChild(table);
   resultsDiv.appendChild(container);
-
   makeTableSortable(table);
-  
-  // Mark the Order Date header as sorted
+
   const headers = table.querySelectorAll("th");
-  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
+  const orderDateColumnIndex = 7;
   if (headers[orderDateColumnIndex]) {
     headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
   }
 }
 
-// 6) Purchases
+/***************************************************
+ * Purchases
+ ***************************************************/
 async function fetchPurchasesData(partNumbers) {
   if (stopSearchRequested) return;
   activeRequestsCount++;
@@ -1443,10 +1586,21 @@ async function fetchPurchasesData(partNumbers) {
       try {
         const res = await fetch(`https://${serverDomain}/webhook/epicor-purchases?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        const data = await res.json();
+
+        const text = await res.text();
+        if (!text.trim()) {
+          console.warn('Epicor purchases empty response for', number);
+          continue;
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(parseErr) {
+          console.warn('Epicor purchases parse error for', number, parseErr);
+          continue;
+        }
 
         data.forEach(entry => {
-          // Only record lines that appear in PAPurchasedBefore
           const purchasedItems = entry?.returnObj?.PAPurchasedBefore || [];
           if (purchasedItems.length > 0) {
             purchasedItems.forEach(line => {
@@ -1460,26 +1614,19 @@ async function fetchPurchasesData(partNumbers) {
                 ReceiptDate: line.ReceiptDate,
                 OrderDate: line.OrderDate,
                 DueDate: line.DueDate,
-                // Extra fields for clarity
                 IsAdvisor: false,
                 PartDescription: line.PartDescription || '',
                 PurchasedBefore: true
               });
             });
           }
-          // (Removed fallback: do not add PurchaseAdvisor lines if PAPurchasedBefore is empty)
         });
       } catch (err) {
         console.warn('Purchases fetch error for', number, err);
       }
     }
-
-    // Merge into the global aggregator
     searchResults.purchases.push(...newItems);
-
-    // Build the table
     buildPurchasesTable();
-
   } catch (err) {
     console.error('fetchPurchasesData error:', err);
     if (resultsDiv) {
@@ -1497,26 +1644,18 @@ function buildPurchasesTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // First, filter out items that have no meaningful part number (empty or missing)
   const allItems = searchResults.purchases;
   const filteredItems = allItems.filter(it =>
     it.PartNum && it.PartNum.trim() !== ''
   );
-
   if (filteredItems.length === 0) return;
-  
-  // Pre-sort by date (newest first)
+
   const sortedItems = [...filteredItems].sort((a, b) => {
-    // Parse dates properly
     const dateA = a.OrderDate ? new Date(a.OrderDate) : null;
     const dateB = b.OrderDate ? new Date(b.OrderDate) : null;
-    
-    // Handle invalid dates
     if (!dateA && !dateB) return 0;
-    if (!dateA) return 1; // null dates to the end
+    if (!dateA) return 1;
     if (!dateB) return -1;
-    
-    // Sort newest first (descending)
     return dateB - dateA;
   });
 
@@ -1557,26 +1696,24 @@ function buildPurchasesTable() {
       `).join('')}
     </tbody>
   `;
-  
   const container = document.createElement('div');
   container.className = 'table-container';
   container.appendChild(table);
   resultsDiv.appendChild(container);
-
   makeTableSortable(table);
-  
-  // Mark the Order Date header as sorted
+
   const headers = table.querySelectorAll("th");
-  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
+  const orderDateColumnIndex = 7;
   if (headers[orderDateColumnIndex]) {
     headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
   }
 }
 
-// 7) AmazonConnector
+/***************************************************
+ * AmazonConnector
+ ***************************************************/
 async function fetchAmazonConnectorData(partNumbers) {
   if (stopSearchRequested) return;
-  if (!document.getElementById('toggle-amazon-connector').checked) return;
   activeRequestsCount++;
   const loading = document.querySelector('.amazon-connector-results .loading');
   const resultsDiv = document.querySelector('.amazon-connector-results .results-container');
@@ -1589,7 +1726,20 @@ async function fetchAmazonConnectorData(partNumbers) {
       try {
         const resp = await fetch(`https://${serverDomain}/webhook/amazon-search?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
-        const data = await resp.json();
+
+        const text = await resp.text();
+        if (!text.trim()) {
+          console.warn('AmazonConnector empty response for', number);
+          continue;
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(parseErr) {
+          console.warn('AmazonConnector parse error for', number, parseErr);
+          continue;
+        }
+
         data.forEach(obj => newItems.push({ ...obj, sourcePartNumber: source }));
       } catch (err) {
         console.warn('AmazonConnector error', err);
@@ -1658,10 +1808,11 @@ function buildAmazonConnectorTable() {
   makeTableSortable(table);
 }
 
-// 8) eBayConnector
+/***************************************************
+ * eBayConnector
+ ***************************************************/
 async function fetchEbayConnectorData(partNumbers) {
   if (stopSearchRequested) return;
-  if (!document.getElementById('toggle-ebay-connector').checked) return;
   activeRequestsCount++;
   const loading = document.querySelector('.ebay-connector-results .loading');
   const resultsDiv = document.querySelector('.ebay-connector-results .results-container');
@@ -1674,7 +1825,20 @@ async function fetchEbayConnectorData(partNumbers) {
       try {
         const resp = await fetch(`https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
-        const data = await resp.json();
+
+        const text = await resp.text();
+        if (!text.trim()) {
+          console.warn('eBayConnector empty response for', number);
+          continue;
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(parseErr) {
+          console.warn('eBayConnector parse error for', number, parseErr);
+          continue;
+        }
+
         data.forEach(obj => newItems.push({ ...obj, sourcePartNumber: source }));
       } catch (err) {
         console.warn('eBayConnector error', err);
@@ -1722,7 +1886,7 @@ function buildEbayConnectorTable() {
           <td>${it.sourcePartNumber}</td>
           <td class="image-cell">
             ${it.images && it.images.length > 0 
-              ? `<img src="${it.images[0]}" alt="${it.title}" class="product-image">` 
+              ? `<img src="${it.images[0]}" alt="${it.title}" class="product-image">`
               : '-'}
           </td>
           <td><a href="${it.url}" target="_blank">${it.title}</a></td>
@@ -1739,14 +1903,14 @@ function buildEbayConnectorTable() {
   container.className = 'table-container';
   container.appendChild(table);
   resultsDiv.appendChild(container);
-
   makeTableSortable(table);
 }
 
-// 9) AmazonScraper
+/***************************************************
+ * AmazonScraper
+ ***************************************************/
 async function fetchAmazonData(partNumbers) {
   if (stopSearchRequested) return;
-  if (!document.getElementById('toggle-amazon').checked) return;
   activeRequestsCount++;
   const loading = document.querySelector('.amazon-results .loading');
   const resultsDiv = document.querySelector('.amazon-results .results-container');
@@ -1759,7 +1923,20 @@ async function fetchAmazonData(partNumbers) {
       try {
         const resp = await fetch(`https://${serverDomain}/webhook/amazon-scraper?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
-        const data = await resp.json();
+
+        const text = await resp.text();
+        if (!text.trim()) {
+          console.warn('AmazonScraper empty response for', number);
+          continue;
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(parseErr) {
+          console.warn('AmazonScraper parse error for', number, parseErr);
+          continue;
+        }
+
         if (Array.isArray(data) && data.length > 0) {
           const { title = [], price = [], image = [], link = [] } = data[0];
           for (let i = 0; i < title.length; i++) {
@@ -1833,10 +2010,11 @@ function buildAmazonScraperTable() {
   makeTableSortable(table);
 }
 
-// 10) eBayScraper
+/***************************************************
+ * eBayScraper
+ ***************************************************/
 async function fetchEbayData(partNumbers) {
   if (stopSearchRequested) return;
-  if (!document.getElementById('toggle-ebay').checked) return;
   activeRequestsCount++;
   const loading = document.querySelector('.ebay-results .loading');
   const resultsDiv = document.querySelector('.ebay-results .results-container');
@@ -1849,7 +2027,20 @@ async function fetchEbayData(partNumbers) {
       try {
         const resp = await fetch(`https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
-        const data = await resp.json();
+
+        const text = await resp.text();
+        if (!text.trim()) {
+          console.warn('ebayScraper empty response for', number);
+          continue;
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(parseErr) {
+          console.warn('ebayScraper parse error for', number, parseErr);
+          continue;
+        }
+
         if (Array.isArray(data) && data.length > 0) {
           const { title = [], price = [], image = [], link = [] } = data[0];
           for (let i = 0; i < title.length; i++) {
@@ -1923,9 +2114,9 @@ function buildEbayScraperTable() {
   makeTableSortable(table);
 }
 
-/**
- * Build or update the Lenovo UI from all data in searchResults.lenovo
- */
+/***************************************************
+ * Lenovo
+ ***************************************************/
 function buildLenovoUI() {
   const lenovoContentDiv = document.getElementById('lenovo-content');
   if (!lenovoContentDiv) return;
@@ -1933,7 +2124,6 @@ function buildLenovoUI() {
   let subtabs = document.getElementById('lenovo-subtabs');
   let subcontent = document.getElementById('lenovo-subcontent');
 
-  // If these elements don't exist, create them
   if (!subtabs) {
     subtabs = document.createElement('div');
     subtabs.id = 'lenovo-subtabs';
@@ -1946,20 +2136,16 @@ function buildLenovoUI() {
     lenovoContentDiv.appendChild(subcontent);
   }
 
-  // Clear existing UI
   subtabs.innerHTML = '';
   subcontent.innerHTML = '';
 
-  // If we have no accumulated results, show a message
   const allResults = searchResults.lenovo;
   if (!allResults || allResults.length === 0) {
     subtabs.innerHTML = '<div class="error">No Lenovo data found</div>';
     return;
   }
 
-  // Build UI for each doc
   allResults.forEach((doc, index) => {
-    // Each doc gets a subtab button
     const subtabButton = document.createElement('button');
     subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
     const title = doc.title || 'Untitled Document';
@@ -1972,7 +2158,6 @@ function buildLenovoUI() {
     subtabButton.onclick = () => switchLenovoSubtab(index);
     subtabs.appendChild(subtabButton);
 
-    // Build content area
     const contentDiv = document.createElement('div');
     contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
     contentDiv.setAttribute('data-subtab-index', index);
@@ -1986,11 +2171,6 @@ function buildLenovoUI() {
   });
 }
 
-/**
- * Modified fetchLenovoData to accumulate results into searchResults.lenovo
- * and then buildLenovoUI from that aggregator. Even if new calls return empty,
- * existing data remains displayed.
- */
 async function fetchLenovoData(partNumbers) {
   if (stopSearchRequested) return;
   if (!document.getElementById('toggle-lenovo').checked) return;
@@ -2002,27 +2182,33 @@ async function fetchLenovoData(partNumbers) {
       try {
         const response = await fetch(`https://${serverDomain}/webhook/lenovo-scraper?item=${encodeURIComponent(number)}`);
         if (!response.ok) continue;
-        const data = await response.json();
+
+        const text = await response.text();
+        if (!text.trim()) {
+          console.warn("Lenovo empty response for", number);
+          continue;
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(parseErr) {
+          console.warn("Lenovo parse error for", number, parseErr);
+          continue;
+        }
+
         if (data?.[0]?.data?.length > 0) {
-          // Filter out empty content docs
           const docs = data[0].data
             .filter(doc => doc && doc.content && doc.content.trim() !== '')
             .map(doc => ({ ...doc, sourcePartNumber: source }));
-          // Append these results to our global aggregator
           searchResults.lenovo.push(...docs);
         }
       } catch (error) {
         console.warn(`Lenovo error for ${number}:`, error);
       }
     }
-
-    // Now build the UI from the entire aggregator
     buildLenovoUI();
-
   } catch (err) {
     console.error('Lenovo data fetch error:', err);
-    // If there's absolutely no data after the error,
-    // we can show an error message. Otherwise, keep what we have.
     if (!searchResults.lenovo.length) {
       const subtabs = document.getElementById('lenovo-subtabs');
       if (subtabs) {
@@ -2038,8 +2224,10 @@ async function fetchLenovoData(partNumbers) {
 function switchLenovoSubtab(index) {
   document.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
-  document.querySelectorAll('.subtab-button')[index].classList.add('active');
-  document.querySelector(`.subtab-content[data-subtab-index="${index}"]`).classList.add('active');
+  const btn = document.querySelectorAll('.subtab-button')[index];
+  if (btn) btn.classList.add('active');
+  const content = document.querySelector(`.subtab-content[data-subtab-index="${index}"]`);
+  if (content) content.classList.add('active');
 }
 
 function decodeUnicodeEscapes(str) {
@@ -2056,16 +2244,10 @@ function updateSummaryTab() {
   const summaryDiv = document.getElementById('summary-content');
   if (!summaryDiv) return;
 
-  // Check if search was stopped
   const searchStopped = stopSearchRequested;
-  
-  // Check if search is complete
   const searchEnded = analysisAlreadyCalled && !searchStopped;
-  
-  // PREPARE NOTIFICATIONS
+
   let notifications = '';
-  
-  // Add stopped message if needed
   if (searchStopped) {
     notifications += `
       <div class="search-stopped-message" style="padding: 10px; background-color: #ffecec; border: 1px solid #f5c6cb; border-radius: 4px; margin-bottom: 15px;">
@@ -2073,8 +2255,6 @@ function updateSummaryTab() {
       </div>
     `;
   }
-  
-  // Add completed message if needed
   if (searchEnded) {
     notifications += `
       <div class="search-ended-message" style="padding: 10px; background-color: #e6f7e6; border: 1px solid #c3e6cb; border-radius: 4px; margin-bottom: 15px;">
@@ -2083,7 +2263,6 @@ function updateSummaryTab() {
     `;
   }
 
-  // Generate content with toggle checks
   const anyEnabled = (
     document.getElementById('toggle-inventory').checked ||
     document.getElementById('toggle-brokerbin').checked ||
@@ -2094,43 +2273,36 @@ function updateSummaryTab() {
     document.getElementById('toggle-amazon').checked ||
     document.getElementById('toggle-ebay').checked
   );
-  
+
   let summaryContent = '';
   if (!anyEnabled) {
     summaryContent = 'No search results yet.';
   } else {
     summaryContent = generateSummaryTableHtml();
   }
-
-  // Combine notifications with content
   summaryDiv.innerHTML = notifications + summaryContent;
 }
 
-// Generate summary table with filtering for epicor items matching inventory filtering
 function generateSummaryTableHtml() {
   function createSummaryTable(key, label) {
     const dataArray = searchResults[key] || [];
     if (!dataArray.length) return '';
 
-    // Special handling for epicor - filter out items with zero quantity
     let filteredDataArray = dataArray;
     if (key === 'epicor') {
       filteredDataArray = dataArray.filter(item => 
         item.Quantity && Number(item.Quantity) > 0
       );
-      if (filteredDataArray.length === 0) return '';
+      if (!filteredDataArray.length) return '';
     }
-    
-    // Special handling for tdsynnex - filter out items with zero quantity
     if (key === 'tdsynnex') {
       filteredDataArray = dataArray.filter(item => {
         const qty = parseInt(item.totalQuantity, 10);
         return !isNaN(qty) && qty > 0;
       });
-      if (filteredDataArray.length === 0) return '';
+      if (!filteredDataArray.length) return '';
     }
 
-    // group by sourcePartNumber
     const grouped = {};
     filteredDataArray.forEach(item => {
       const pnum = item.sourcePartNumber || 'Unknown';
@@ -2166,7 +2338,6 @@ function generateSummaryTableHtml() {
             priceVal = parseFloat(it.price);
             break;
           case 'epicor':
-            // For Epicor (inventory) we use the BasePrice field
             priceVal = parseFloat(it.BasePrice);
             break;
         }
@@ -2209,7 +2380,6 @@ function generateSummaryTableHtml() {
   }
 
   let summaryHTML = '';
-
   if (document.getElementById('toggle-inventory').checked) {
     summaryHTML += createSummaryTable('epicor', 'Epicor (Inventory)');
   }
@@ -2280,7 +2450,7 @@ function gatherResultsForAnalysis() {
 }
 
 /***************************************************
- * Google / MS sign-in from original snippet
+ * Google / MS sign-in from snippet
  ***************************************************/
 document.getElementById('google-signin-btn').addEventListener('click', () => {
   google.accounts.id.initialize({
@@ -2289,6 +2459,7 @@ document.getElementById('google-signin-btn').addEventListener('click', () => {
   });
   google.accounts.id.prompt();
 });
+
 function handleGoogleCredentialResponse(response) {
   console.log('Google Credential Response:', response);
   document.getElementById('user-info').textContent = 'Signed in with Google';
@@ -2311,3 +2482,6 @@ document.getElementById('microsoft-signin-btn').addEventListener('click', () => 
       console.error('Microsoft Login Error:', error);
     });
 });
+</script>
+</body>
+</html>
