@@ -25,7 +25,7 @@ let limitedSearchMode = true;
 // Counter for alternatives found
 let altCountFound = 0;
 
-// State for paused search - stores the exploration state
+// State for paused search - (no continue button now, so we simply stop at 3)
 let pausedSearchState = {
   isActive: false,
   baseNumber: '',
@@ -169,10 +169,10 @@ function parsePrice(str) {
  * Helper: safely parse JSON response
  ***************************************************/
 async function safeJsonParse(response) {
-  // First get the response text
   const text = await response.text();
   if (!text) {
-    throw new Error('Empty response');
+    // Return an empty array if the response is empty.
+    return [];
   }
   try {
     return JSON.parse(text);
@@ -211,23 +211,18 @@ function sortTableByColumn(table, columnIndex, asc = true) {
     
     // Special handling for date columns
     if (isDateColumn) {
-      // Try to parse as dates
       const aDate = new Date(aText);
       const bDate = new Date(bText);
-      
-      // Check if both strings parsed as valid dates
       if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
         return asc ? aDate - bDate : bDate - aDate;
       }
     }
 
-    // Try numeric comparison
     const aNum = parseFloat(aText.replace(/[^0-9.-]/g, ""));
     const bNum = parseFloat(bText.replace(/[^0-9.-]/g, ""));
     if (!isNaN(aNum) && !isNaN(bNum)) {
       return asc ? aNum - bNum : bNum - aNum;
     }
-    // fallback to string
     return asc ? aText.localeCompare(bText) : bText.localeCompare(aText);
   });
 
@@ -267,7 +262,6 @@ async function getAlternativePartNumbers(partNumber) {
     const category = record.Category || '';
     const originalPart = record.ORD && record.ORD.trim() ? record.ORD : partNumber;
 
-    // Build structured alt array
     const alternatives = [];
     if (record.FRU && record.FRU.length > 0) {
       record.FRU.forEach(num => alternatives.push({ type: 'FRU', value: num }));
@@ -300,44 +294,21 @@ async function getAlternativePartNumbers(partNumber) {
 }
 
 /***************************************************
- * Launches alternative expansions in the background, 
- * so we can do them in parallel with the main search.
+ * Launches alternative expansions in the background.
+ * Now, once 3 alternatives are found, the search stops.
  ***************************************************/
 function startExpansions(baseNumber, finalAlts, onNewAlts) {
-  // Reset the global counter and flags
   altCountFound = 0;
   limitedSearchMode = true;
   pausedSearchState.isActive = false;
   
-  // Mark expansions as in progress
   expansionsInProgress = true;
-
-  // We'll track visited parts
   const visited = new Set();
 
-  // Run gatherCombinatoryAlternatives in the background
   gatherCombinatoryAlternatives(baseNumber, 0, visited, finalAlts, onNewAlts)
     .then(() => {
-      // Once recursion completes, expansions are done
       expansionsInProgress = false;
-      
-      // If we're in paused state and haven't shown the button yet, do it now
-      if (limitedSearchMode && altCountFound >= initialAltLimit && 
-          !document.getElementById('continue-search-btn')) {
-        // Save the search state for continuation
-        pausedSearchState = {
-          isActive: true,
-          baseNumber: baseNumber,
-          visited: new Set(visited), // Make a copy
-          finalAlts: finalAlts,
-          onNewAltsCallback: onNewAlts
-        };
-        
-        // Show the continue button
-        addContinueSearchButton();
-      }
-      
-      checkIfAllDone();  // might hide spinner + call analysis if activeRequests=0
+      checkIfAllDone();
     })
     .catch(err => {
       console.error('Expansion error:', err);
@@ -347,109 +318,27 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
 }
 
 /***************************************************
- * Function to add continue search button
- ***************************************************/
-function addContinueSearchButton() {
-  const altDiv = document.getElementById('alternative-numbers');
-  if (!altDiv) return;
-  
-  // Remove existing button if any
-  const existingBtn = document.getElementById('continue-search-btn');
-  if (existingBtn) existingBtn.remove();
-  
-  // Remove existing message if any
-  const existingMsg = document.getElementById('continue-search-message');
-  if (existingMsg) existingMsg.remove();
-  
-  // Create continue button with improved styling
-  const continueBtn = document.createElement('button');
-  continueBtn.id = 'continue-search-btn';
-  continueBtn.textContent = 'Continue Searching for More Parts';
-  continueBtn.style.marginTop = '15px';
-  continueBtn.style.backgroundColor = '#4CAF50';
-  continueBtn.style.padding = '10px 20px';
-  continueBtn.style.fontSize = '16px';
-  continueBtn.style.fontWeight = 'bold';
-  continueBtn.style.width = '100%';
-  continueBtn.style.border = '2px solid #2e7d32';
-  
-  // Add a message above the button
-  const messageDiv = document.createElement('div');
-  messageDiv.id = 'continue-search-message';
-  messageDiv.innerHTML = '<p style="color:#4CAF50; font-weight:bold; margin-top:15px;">' + 
-                        'Initial search completed with ' + altCountFound + ' alternatives. ' + 
-                        'Click below to find more.</p>';
-  altDiv.appendChild(messageDiv);
-  
-  continueBtn.addEventListener('click', function() {
-    console.log("Continue button clicked - resuming search");
-    
-    // Remove UI elements
-    continueBtn.remove();
-    const msgDiv = document.getElementById('continue-search-message');
-    if (msgDiv) msgDiv.remove();
-    
-    // Resume search if we have saved state
-    if (pausedSearchState.isActive) {
-      // Switch to unlimited search mode
-      limitedSearchMode = false;
-      
-      // Mark search as in progress again
-      expansionsInProgress = true;
-      
-      // Show spinner again
-      const spinner = document.getElementById('loading-spinner');
-      if (spinner) spinner.style.display = 'inline-block';
-      
-      // Get the saved state
-      const { baseNumber, visited, finalAlts, onNewAltsCallback } = pausedSearchState;
-      
-      // Continue the search from where we left off
-      gatherCombinatoryAlternatives(baseNumber, 0, visited, finalAlts, onNewAltsCallback)
-        .then(() => {
-          // Once recursion completes, expansions are done
-          expansionsInProgress = false;
-          checkIfAllDone();
-        })
-        .catch(err => {
-          console.error('Expansion continuation error:', err);
-          expansionsInProgress = false;
-          checkIfAllDone();
-        });
-    }
-  });
-  
-  altDiv.appendChild(continueBtn);
-}
-
-/***************************************************
  * Recursive Gathering of Alt Parts to configNestedLevel
  ***************************************************/
 async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, result, onNewAlts) {
-  // Check for stop conditions immediately
   if (stopSearchRequested) {
     console.log("Stopping search - user requested stop");
     return;
   }
   
-  // Check if we need to pause the search (in limited mode and reached the limit)
   if (limitedSearchMode && altCountFound >= initialAltLimit) {
     return;
   }
   
-  // Avoid revisiting parts
   const upperBase = baseNumber.trim().toUpperCase();
   if (visited.has(upperBase)) return;
   visited.add(upperBase);
 
   try {
-    // Get alternatives for this part
     const { alternatives } = await getAlternativePartNumbers(baseNumber);
     let newlyAdded = [];
     
-    // Add alternatives (considering the limit)
     for (const alt of alternatives) {
-      // Check if we've reached the limit
       if (limitedSearchMode && altCountFound >= initialAltLimit) {
         break;
       }
@@ -460,36 +349,19 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
         newlyAdded.push(alt);
         altCountFound++;
         console.log(`Found alternative #${altCountFound}: ${alt.type} - ${alt.value}`);
-        
-        // If we've reached the limit, add the continue button
         if (limitedSearchMode && altCountFound >= initialAltLimit) {
-          // Save the search state for continuation
-          pausedSearchState = {
-            isActive: true,
-            baseNumber: baseNumber,
-            visited: new Set(visited), // Make a copy
-            finalAlts: result,
-            onNewAltsCallback: onNewAlts
-          };
-          
-          // Process this batch before pausing
           if (newlyAdded.length > 0 && onNewAlts) {
             await onNewAlts(newlyAdded);
           }
-          
-          // Show the continue button
-          addContinueSearchButton();
-          return;
+          return; // Stop further recursion once limit is reached.
         }
       }
     }
     
-    // Process any newly added alternatives
     if (newlyAdded.length > 0 && onNewAlts) {
       await onNewAlts(newlyAdded);
     }
 
-    // Determine if we should go deeper
     let goDeeper = false;
     if (configNestedLevel === -1) {
       goDeeper = true;
@@ -497,16 +369,12 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
       goDeeper = currentLevel < configNestedLevel;
     }
     
-    // Only continue deeper if we should and haven't been limited
     if (goDeeper && (!limitedSearchMode || altCountFound < initialAltLimit)) {
       for (const alt of alternatives) {
-        // Check limit before recursion
         if (limitedSearchMode && altCountFound >= initialAltLimit) {
           return;
         }
         if (stopSearchRequested) return;
-        
-        // Recursive search with the next part
         await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
       }
     }
@@ -525,7 +393,6 @@ function checkIfAllDone() {
 
   analysisAlreadyCalled = true;
 
-  // if we reach here => expansions done + no active requests => finalize
   const spinner = document.getElementById('loading-spinner');
   const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'none';
@@ -535,16 +402,13 @@ function checkIfAllDone() {
 }
 
 async function performFinalAnalysis() {
-  // One last summary update before analysis
   updateSummaryTab();
 
   try {
-    // Gather results from your existing aggregator logic
     const analysisData = gatherResultsForAnalysis();
     const selectedModel = document.getElementById('llm-model').value;
     const promptText = document.getElementById('prompt').value;
 
-    // Prepare query URL for the initial analysis, same as before
     const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
 
     const response = await fetch(analyzeUrl, {
@@ -564,7 +428,6 @@ async function performFinalAnalysis() {
       .replaceAll("```html", '')
       .replaceAll("```", '');
 
-    // Parse HTML content properly
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(analyzeResultText, 'text/html');
@@ -575,62 +438,47 @@ async function performFinalAnalysis() {
       console.warn('Error parsing HTML content:', e);
     }
 
-    // Store the user prompt and the LLM's reply in our conversation array
-    // The user's initial prompt:
     conversationHistory.push({
       role: 'user',
       content: promptText || '(No prompt provided)'
     });
-    // The model's first reply:
     conversationHistory.push({
       role: 'assistant',
       content: analyzeResultText
     });
 
-    // Update the analysis tab with the result
     const analyzeResultTextDiv = document.querySelector('#analysis-content .analyze-result-text');
     if (analyzeResultTextDiv) {
       analyzeResultTextDiv.innerHTML = '';
     }
 
-    // Initialize the conversation UI in the analysis tab
     initializeConversationUI();
-
-    // REMOVED: Switch to the analysis tab to show the results
-    // switchTab('analysis');
-
   } catch (err) {
     console.error('Analyze data error:', err);
   }
 }
 
 function initializeConversationUI() {
-  // Create a container for the conversation if not already created
   chatContainer = document.getElementById('chat-container-analysis');
   if (!chatContainer) {
     console.error('Chat container element not found in analysis tab');
     return;
   }
-
-  // Render the conversation so far + input
   renderConversationUI();
 }
 
 function renderConversationUI() {
   if (!chatContainer) return;
 
-  // 1) Build the HTML for current messages
   let chatHTML = '<div class="chat-messages">';
   conversationHistory.forEach(msg => {
     if (msg.role === 'assistant') {
-      // model's reply
       chatHTML += `
         <div class="chat-message assistant">
           <strong>Assistant:</strong> ${msg.content}
         </div>
       `;
     } else {
-      // user
       chatHTML += `
         <div class="chat-message user">
           <strong>You:</strong> ${msg.content}
@@ -640,7 +488,6 @@ function renderConversationUI() {
   });
   chatHTML += '</div>';
 
-  // 2) Add an input area to continue the conversation
   chatHTML += `
     <div class="chat-input-area" style="margin-top: 10px;">
       <input type="text" id="chat-input" placeholder="Type your question..." style="width:80%;">
@@ -648,22 +495,18 @@ function renderConversationUI() {
     </div>
   `;
 
-  // Replace the chat container content
   chatContainer.innerHTML = chatHTML;
 
-  // 2a) Immediately scroll chat to the bottom
   const messagesDiv = chatContainer.querySelector('.chat-messages');
   if (messagesDiv) {
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
   }
 
-  // 3) Add an event listener for the "Send" button
   const sendBtn = document.getElementById('chat-send-btn');
   if (sendBtn) {
     sendBtn.addEventListener('click', handleUserChatSubmit);
   }
 
-  // Also handle "Enter" key in the input
   const inputField = document.getElementById('chat-input');
   if (inputField) {
     inputField.addEventListener('keydown', (e) => {
@@ -681,37 +524,23 @@ function handleUserChatSubmit() {
   const userMessage = inputField.value.trim();
   if (!userMessage) return;
 
-  // Add the user's new message to the conversation
   conversationHistory.push({
     role: 'user',
     content: userMessage
   });
 
-  // Clear the input
   inputField.value = '';
-
-  // Re-render so the user sees their message
   renderConversationUI();
-
-  // Send the entire conversation to the endpoint for the next assistant reply
   sendChatMessageToLLM();
 }
 
 async function sendChatMessageToLLM() {
   try {
-    // We'll reuse the same model param from the UI
     const selectedModel = document.getElementById('llm-model').value;
-
-    // Convert the entire conversation array to JSON
     const conversationJSON = encodeURIComponent(JSON.stringify(conversationHistory));
-
-    // Build the endpoint (same as your 'analyze-data' but with added ?history=)
     const url = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${conversationJSON}`;
-
-    // We can still pass the aggregator results if needed:
     const analysisData = gatherResultsForAnalysis();
 
-    // POST the aggregator data as before, but rely on `history` to pass conversation
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -726,7 +555,6 @@ async function sendChatMessageToLLM() {
       assistantReply = JSON.stringify(result);
     }
 
-    // Add the new assistant reply to the conversation
     conversationHistory.push({
       role: 'assistant',
       content: assistantReply
@@ -734,7 +562,6 @@ async function sendChatMessageToLLM() {
         .replaceAll("```", '')
     });
 
-    // Re-render the chat
     renderConversationUI();
   } catch (err) {
     console.error('sendChatMessageToLLM error:', err);
@@ -745,10 +572,8 @@ async function sendChatMessageToLLM() {
  * The main handleSearch
  ***************************************************/
 async function handleSearch() {
-  // Reset the stop search flag
   stopSearchRequested = false;
   
-  // Reset search state
   limitedSearchMode = true;
   altCountFound = 0;
   pausedSearchState = {
@@ -759,14 +584,11 @@ async function handleSearch() {
     onNewAltsCallback: null
   };
   
-  // Ensure that final analysis can happen again for each fresh search
   analysisAlreadyCalled = false;
   conversationHistory = [];
 
-  // 1) Clean UI for new search
   cleanupUI();
 
-  // 2) Get part number
   const partNumberInput = document.getElementById('part-numbers');
   if (!partNumberInput) {
     alert('part number input not found');
@@ -778,28 +600,23 @@ async function handleSearch() {
     return;
   }
 
-  // 3) Reset aggregator and counters
   Object.keys(searchResults).forEach(k => {
     searchResults[k] = [];
   });
   activeRequestsCount = 0;
-  expansionsInProgress = false;  // Will set to 'true' if we do expansions
+  expansionsInProgress = false;
 
-  // 4) Show spinner
   const spinner = document.getElementById('loading-spinner');
   const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'inline-block';
   if (stopBtn) stopBtn.style.display = 'inline-block';
 
-  // We'll store discovered alternative parts
   const finalAlternatives = [];
 
-  // For partial UI updates
   let topDescription = '';
   let topCategory = '';
   let topOriginal = partNumber;
 
-  // Helper that re-renders <div id="alternative-numbers"> 
   function updateAlternativeNumbersUI() {
     const altDiv = document.getElementById('alternative-numbers');
     if (!altDiv) return;
@@ -822,27 +639,15 @@ async function handleSearch() {
     }
     altDiv.innerHTML = html;
     altDiv.classList.add('active');
-    
-    // If we're in paused state and need to show the button, do it now
-    if (limitedSearchMode && altCountFound >= initialAltLimit && 
-        !document.getElementById('continue-search-btn') &&
-        pausedSearchState.isActive) {
-      addContinueSearchButton();
-    }
   }
 
-  // Tracks which alt part numbers we've already "searched"
   const alreadySearched = new Set();
 
-  // Callback for newly discovered alt parts.  
   async function onNewAlts(newlyAdded) {
-    // Check if search should be stopped
     if (stopSearchRequested) return;
     
-    // 1) Update the alt UI
     updateAlternativeNumbersUI();
 
-    // 2) For each new alt, if not searched yet, do so
     const freshParts = [];
     for (const alt of newlyAdded) {
       const altUpper = alt.value.trim().toUpperCase();
@@ -852,27 +657,21 @@ async function handleSearch() {
       }
     }
     if (freshParts.length > 0) {
-      // Launch endpoint searches for these new parts
       await executeEndpointSearches(freshParts);
     }
   }
 
   try {
-    // 1) Fetch top-level data (to get Description/Category, etc.)
     const topData = await getAlternativePartNumbers(partNumber);
     topOriginal = topData.original;
     topDescription = topData.description;
     topCategory = topData.category;
 
-    // Show description immediately
     updateAlternativeNumbersUI();
 
-    // 2) If we want alternative expansions, start them in parallel
     if (configUseAlternatives) {
-      // Kick off expansions in the background (no await)
       startExpansions(topOriginal, finalAlternatives, onNewAlts);
     } else {
-      // If alt is disabled, just mention it in the UI
       const altDiv = document.getElementById('alternative-numbers');
       if (altDiv) {
         altDiv.innerHTML = '<p>Alternative search is disabled.</p>';
@@ -880,12 +679,9 @@ async function handleSearch() {
       }
     }
 
-    // 3) Immediately search the user's original part
     alreadySearched.add(topOriginal.trim().toUpperCase());
-    // We do NOT wait for expansions to finish
     await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
 
-    // 4) Possibly do a final check if expansions might be done immediately
     checkIfAllDone();
 
   } catch (err) {
@@ -927,14 +723,10 @@ async function executeEndpointSearches(partNumbers) {
     tasks.push(fetchEbayData(partNumbers).finally(() => updateSummaryTab()));
   }
 
-  // Sales and Purchases
   tasks.push(fetchSalesData(partNumbers).finally(() => updateSummaryTab()));
   tasks.push(fetchPurchasesData(partNumbers).finally(() => updateSummaryTab()));
 
-  // We do not always put Lenovo in here, but let's add it too if needed:
   if (document.getElementById('toggle-lenovo').checked) {
-    // We'll call it once after the others
-    // or you can put it directly in the tasks
     tasks.push(fetchLenovoData(partNumbers));
   }
 
@@ -942,8 +734,7 @@ async function executeEndpointSearches(partNumbers) {
 }
 
 /***************************************************
- * Now define each fetch function, aggregator style
- * then rebuild the entire table from aggregator
+ * Now define each fetch function, aggregator style.
  ***************************************************/
 
 // 1) TDSynnex
@@ -984,7 +775,6 @@ async function fetchTDSynnexData(partNumbers) {
         console.warn('TDSynnex fetch error for', number, err);
       }
     }
-    // aggregator
     searchResults.tdsynnex.push(...newItems);
     buildTDSynnexTable();
   } catch (err) {
@@ -1001,7 +791,6 @@ function buildTDSynnexTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // Filter out items with zero quantity
   const allItems = searchResults.tdsynnex;
   const filteredItems = allItems.filter(item => {
     const qty = parseInt(item.totalQuantity, 10);
@@ -1264,20 +1053,17 @@ async function fetchInventoryData(partNumbers) {
   }
 }
 
-// Epicor Search
 function buildEpicorInventoryTable() {
   const resultsDiv = document.querySelector('#inventory-content .inventory-results');
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // Filter out items where:
-  // 1) Company or PartNum are empty
-  // 2) Quantity is missing or zero (so we only show > 0)
+  // Modified filtering: show items as long as Quantity is defined.
   const allItems = searchResults.epicor;
   const filteredItems = allItems.filter(it =>
     it.Company && it.Company.trim() !== '' &&
     it.PartNum && it.PartNum.trim() !== '' &&
-    it.Quantity && Number(it.Quantity) > 0
+    (it.Quantity !== undefined && it.Quantity !== null)
   );
 
   if (filteredItems.length === 0) return;
@@ -1337,8 +1123,6 @@ async function fetchSalesData(partNumbers) {
         const res = await fetch(`https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
         const data = await res.json();
-
-        // Only record lines that appear in OrderDtlPA
         data.forEach(entry => {
           const details = entry?.returnObj?.OrderDtlPA || [];
           details.forEach(line => {
@@ -1353,6 +1137,7 @@ async function fetchSalesData(partNumbers) {
               OrderDate: line.OrderHedOrderDate,
               OrderQty: line.OrderQty,
               UnitPrice: line.UnitPrice,
+              Currency: line.Currency || '',
               RequestDate: line.RequestDate,
               NeedByDate: line.NeedByDate
             });
@@ -1385,18 +1170,12 @@ function buildSalesTable() {
   const items = searchResults.sales;
   if (items.length === 0) return;
 
-  // Pre-sort by date (newest first)
   const sortedItems = [...items].sort((a, b) => {
-    // Parse dates properly
     const dateA = a.OrderDate ? new Date(a.OrderDate) : null;
     const dateB = b.OrderDate ? new Date(b.OrderDate) : null;
-    
-    // Handle invalid dates
     if (!dateA && !dateB) return 0;
-    if (!dateA) return 1; // null dates to the end
+    if (!dateA) return 1;
     if (!dateB) return -1;
-    
-    // Sort newest first (descending)
     return dateB - dateA;
   });
 
@@ -1414,6 +1193,7 @@ function buildSalesTable() {
         <th data-date="true">Order Date</th>
         <th>Order Qty</th>
         <th>Unit Price</th>
+        <th>Currency</th>
         <th>Request Date</th>
         <th>Need By Date</th>
       </tr>
@@ -1431,6 +1211,7 @@ function buildSalesTable() {
           <td data-date="${it.OrderDate || ''}">${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
           <td>${it.OrderQty || '-'}</td>
           <td>${it.UnitPrice || '-'}</td>
+          <td>${it.Currency || '-'}</td>
           <td>${it.RequestDate ? new Date(it.RequestDate).toLocaleDateString() : '-'}</td>
           <td>${it.NeedByDate ? new Date(it.NeedByDate).toLocaleDateString() : '-'}</td>
         </tr>
@@ -1444,9 +1225,8 @@ function buildSalesTable() {
 
   makeTableSortable(table);
   
-  // Mark the Order Date header as sorted
   const headers = table.querySelectorAll("th");
-  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
+  const orderDateColumnIndex = 7;
   if (headers[orderDateColumnIndex]) {
     headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
   }
@@ -1470,7 +1250,6 @@ async function fetchPurchasesData(partNumbers) {
         const data = await res.json();
 
         data.forEach(entry => {
-          // Only record lines that appear in PAPurchasedBefore
           const purchasedItems = entry?.returnObj?.PAPurchasedBefore || [];
           if (purchasedItems.length > 0) {
             purchasedItems.forEach(line => {
@@ -1480,28 +1259,24 @@ async function fetchPurchasesData(partNumbers) {
                 VendorName: line.VendorName,
                 VendorQty: line.VendorQty,
                 VendorUnitCost: line.VendorUnitCost,
+                Currency: line.Currency || '',
                 PONum: line.PONum,
                 ReceiptDate: line.ReceiptDate,
                 OrderDate: line.OrderDate,
                 DueDate: line.DueDate,
-                // Extra fields for clarity
                 IsAdvisor: false,
                 PartDescription: line.PartDescription || '',
                 PurchasedBefore: true
               });
             });
           }
-          // (Removed fallback: do not add PurchaseAdvisor lines if PAPurchasedBefore is empty)
         });
       } catch (err) {
         console.warn('Purchases fetch error for', number, err);
       }
     }
 
-    // Merge into the global aggregator
     searchResults.purchases.push(...newItems);
-
-    // Build the table
     buildPurchasesTable();
 
   } catch (err) {
@@ -1521,7 +1296,6 @@ function buildPurchasesTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // First, filter out items that have no meaningful part number (empty or missing)
   const allItems = searchResults.purchases;
   const filteredItems = allItems.filter(it =>
     it.PartNum && it.PartNum.trim() !== ''
@@ -1529,18 +1303,12 @@ function buildPurchasesTable() {
 
   if (filteredItems.length === 0) return;
   
-  // Pre-sort by date (newest first)
   const sortedItems = [...filteredItems].sort((a, b) => {
-    // Parse dates properly
     const dateA = a.OrderDate ? new Date(a.OrderDate) : null;
     const dateB = b.OrderDate ? new Date(b.OrderDate) : null;
-    
-    // Handle invalid dates
     if (!dateA && !dateB) return 0;
-    if (!dateA) return 1; // null dates to the end
+    if (!dateA) return 1;
     if (!dateB) return -1;
-    
-    // Sort newest first (descending)
     return dateB - dateA;
   });
 
@@ -1553,6 +1321,7 @@ function buildPurchasesTable() {
         <th>Vendor Name</th>
         <th>Vendor Qty</th>
         <th>Vendor Unit Cost</th>
+        <th>Currency</th>
         <th>PO Number</th>
         <th>Receipt Date</th>
         <th>Order Date</th>
@@ -1570,6 +1339,7 @@ function buildPurchasesTable() {
           <td>${it.VendorName || '-'}</td>
           <td>${it.VendorQty || '-'}</td>
           <td>${it.VendorUnitCost != null ? it.VendorUnitCost : '-'}</td>
+          <td>${it.Currency || '-'}</td>
           <td>${it.PONum || '-'}</td>
           <td>${it.ReceiptDate ? new Date(it.ReceiptDate).toLocaleDateString() : '-'}</td>
           <td data-date="${it.OrderDate || ''}">${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
@@ -1589,9 +1359,8 @@ function buildPurchasesTable() {
 
   makeTableSortable(table);
   
-  // Mark the Order Date header as sorted
   const headers = table.querySelectorAll("th");
-  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
+  const orderDateColumnIndex = 8;
   if (headers[orderDateColumnIndex]) {
     headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
   }
@@ -1957,7 +1726,6 @@ function buildLenovoUI() {
   let subtabs = document.getElementById('lenovo-subtabs');
   let subcontent = document.getElementById('lenovo-subcontent');
 
-  // If these elements don't exist, create them
   if (!subtabs) {
     subtabs = document.createElement('div');
     subtabs.id = 'lenovo-subtabs';
@@ -1970,20 +1738,16 @@ function buildLenovoUI() {
     lenovoContentDiv.appendChild(subcontent);
   }
 
-  // Clear existing UI
   subtabs.innerHTML = '';
   subcontent.innerHTML = '';
 
-  // If we have no accumulated results, show a message
   const allResults = searchResults.lenovo;
   if (!allResults || allResults.length === 0) {
     subtabs.innerHTML = '<div class="error">No Lenovo data found</div>';
     return;
   }
 
-  // Build UI for each doc
   allResults.forEach((doc, index) => {
-    // Each doc gets a subtab button
     const subtabButton = document.createElement('button');
     subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
     const title = doc.title || 'Untitled Document';
@@ -1996,7 +1760,6 @@ function buildLenovoUI() {
     subtabButton.onclick = () => switchLenovoSubtab(index);
     subtabs.appendChild(subtabButton);
 
-    // Build content area
     const contentDiv = document.createElement('div');
     contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
     contentDiv.setAttribute('data-subtab-index', index);
@@ -2012,8 +1775,6 @@ function buildLenovoUI() {
 
 /**
  * Modified fetchLenovoData to accumulate results into searchResults.lenovo
- * and then buildLenovoUI from that aggregator. Even if new calls return empty,
- * existing data remains displayed.
  */
 async function fetchLenovoData(partNumbers) {
   if (stopSearchRequested) return;
@@ -2028,25 +1789,18 @@ async function fetchLenovoData(partNumbers) {
         if (!response.ok) continue;
         const data = await response.json();
         if (data?.[0]?.data?.length > 0) {
-          // Filter out empty content docs
           const docs = data[0].data
             .filter(doc => doc && doc.content && doc.content.trim() !== '')
             .map(doc => ({ ...doc, sourcePartNumber: source }));
-          // Append these results to our global aggregator
           searchResults.lenovo.push(...docs);
         }
       } catch (error) {
         console.warn(`Lenovo error for ${number}:`, error);
       }
     }
-
-    // Now build the UI from the entire aggregator
     buildLenovoUI();
-
   } catch (err) {
     console.error('Lenovo data fetch error:', err);
-    // If there's absolutely no data after the error,
-    // we can show an error message. Otherwise, keep what we have.
     if (!searchResults.lenovo.length) {
       const subtabs = document.getElementById('lenovo-subtabs');
       if (subtabs) {
@@ -2080,16 +1834,11 @@ function updateSummaryTab() {
   const summaryDiv = document.getElementById('summary-content');
   if (!summaryDiv) return;
 
-  // Check if search was stopped
   const searchStopped = stopSearchRequested;
-  
-  // Check if search is complete
   const searchEnded = analysisAlreadyCalled && !searchStopped;
   
-  // PREPARE NOTIFICATIONS
   let notifications = '';
   
-  // Add stopped message if needed
   if (searchStopped) {
     notifications += `
       <div class="search-stopped-message" style="padding: 10px; background-color: #ffecec; border: 1px solid #f5c6cb; border-radius: 4px; margin-bottom: 15px;">
@@ -2098,7 +1847,6 @@ function updateSummaryTab() {
     `;
   }
   
-  // Add completed message if needed
   if (searchEnded) {
     notifications += `
       <div class="search-ended-message" style="padding: 10px; background-color: #e6f7e6; border: 1px solid #c3e6cb; border-radius: 4px; margin-bottom: 15px;">
@@ -2107,7 +1855,6 @@ function updateSummaryTab() {
     `;
   }
 
-  // Generate content with toggle checks
   const anyEnabled = (
     document.getElementById('toggle-inventory').checked ||
     document.getElementById('toggle-brokerbin').checked ||
@@ -2126,26 +1873,20 @@ function updateSummaryTab() {
     summaryContent = generateSummaryTableHtml();
   }
 
-  // Combine notifications with content
   summaryDiv.innerHTML = notifications + summaryContent;
 }
 
-// Generate summary table with filtering for epicor items matching inventory filtering
 function generateSummaryTableHtml() {
   function createSummaryTable(key, label) {
     const dataArray = searchResults[key] || [];
     if (!dataArray.length) return '';
 
-    // Special handling for epicor - filter out items with zero quantity
     let filteredDataArray = dataArray;
     if (key === 'epicor') {
-      filteredDataArray = dataArray.filter(item => 
-        item.Quantity && Number(item.Quantity) > 0
-      );
+      filteredDataArray = dataArray.filter(item => item.Quantity !== undefined && item.Quantity !== null);
       if (filteredDataArray.length === 0) return '';
     }
     
-    // Special handling for tdsynnex - filter out items with zero quantity
     if (key === 'tdsynnex') {
       filteredDataArray = dataArray.filter(item => {
         const qty = parseInt(item.totalQuantity, 10);
@@ -2154,7 +1895,6 @@ function generateSummaryTableHtml() {
       if (filteredDataArray.length === 0) return '';
     }
 
-    // group by sourcePartNumber
     const grouped = {};
     filteredDataArray.forEach(item => {
       const pnum = item.sourcePartNumber || 'Unknown';
@@ -2190,7 +1930,6 @@ function generateSummaryTableHtml() {
             priceVal = parseFloat(it.price);
             break;
           case 'epicor':
-            // For Epicor (inventory) we use the BasePrice field
             priceVal = parseFloat(it.BasePrice);
             break;
         }
