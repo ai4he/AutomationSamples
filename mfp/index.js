@@ -1331,7 +1331,7 @@ async function fetchPurchasesData(partNumbers) {
                 VendorName: line.VendorName,
                 VendorQty: line.VendorQty,
                 VendorUnitCost: line.VendorUnitCost,
-                Currency: line.Currency || '',
+                CurrSymbol: line.CurrSymbol || '',
                 PONum: line.PONum,
                 ReceiptDate: line.ReceiptDate,
                 OrderDate: line.OrderDate,
@@ -1411,7 +1411,7 @@ function buildPurchasesTable() {
           <td>${it.VendorName || '-'}</td>
           <td>${it.VendorQty || '-'}</td>
           <td>${it.VendorUnitCost != null ? it.VendorUnitCost : '-'}</td>
-          <td>${it.Currency || '-'}</td>
+          <td>${it.CurrSymbol || '-'}</td>
           <td>${it.PONum || '-'}</td>
           <td>${it.ReceiptDate ? new Date(it.ReceiptDate).toLocaleDateString() : '-'}</td>
           <td data-date="${it.OrderDate || ''}">${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
