@@ -25,7 +25,7 @@ let limitedSearchMode = true;
 // Counter for alternatives found
 let altCountFound = 0;
 
-// State for paused search - (no continue button now, so we simply stop at 3)
+// State for paused search used for pause/resume functionality
 let pausedSearchState = {
   isActive: false,
   baseNumber: '',
@@ -35,10 +35,9 @@ let pausedSearchState = {
 };
 
 // Stores the entire conversation as an array of message objects:
-// e.g. [ { role: "user", content: "Hello" }, { role: "assistant", content: "Hi!" }, ... ]
 let conversationHistory = [];
 
-// We'll also store a reference to the chat container so we can re-render the conversation easily
+// Reference to the chat container
 let chatContainer = null;
 
 // Prevents repeated calls to performFinalAnalysis
@@ -64,10 +63,10 @@ let searchResults = {
   lenovo: []
 };
 
-// Keep track of how many endpoint requests are currently active
+// Active endpoint request counter
 let activeRequestsCount = 0;
 
-// Flag for whether alternative expansions are still in progress
+// Flag for whether alternative expansions are in progress
 let expansionsInProgress = false;
 
 /***************************************************
@@ -77,13 +76,11 @@ function stopSearch() {
   stopSearchRequested = true;
   console.log("Search stopping requested");
   
-  // Hide spinner
   const spinner = document.getElementById('loading-spinner');
   const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'none';
   if (stopBtn) stopBtn.style.display = 'none';
   
-  // Show a message in the summary tab
   const summaryDiv = document.getElementById('summary-content');
   if (summaryDiv && !summaryDiv.querySelector('.search-stopped-message')) {
     const stoppedMessage = document.createElement('div');
@@ -97,7 +94,6 @@ function stopSearch() {
     summaryDiv.prepend(stoppedMessage);
   }
   
-  // Update the summary with current partial results
   updateSummaryTab();
 }
 
@@ -105,15 +101,12 @@ function stopSearch() {
  * Clean UI for new search
  ***************************************************/
 function cleanupUI() {
-  // Clean alternative numbers
   const altDiv = document.getElementById('alternative-numbers');
   if (altDiv) altDiv.innerHTML = '';
   
-  // Reset summary
   const summaryDiv = document.getElementById('summary-content');
   if (summaryDiv) summaryDiv.innerHTML = '';
   
-  // Clear each vendor's results
   const resultContainers = [
     '.tdsynnex-results .results-container',
     '.ingram-results .results-container',
@@ -132,13 +125,11 @@ function cleanupUI() {
     if (container) container.innerHTML = '';
   });
   
-  // Clear Lenovo tabs
   const lenovoSubtabs = document.getElementById('lenovo-subtabs');
   const lenovoSubcontent = document.getElementById('lenovo-subcontent');
   if (lenovoSubtabs) lenovoSubtabs.innerHTML = '';
   if (lenovoSubcontent) lenovoSubcontent.innerHTML = '';
   
-  // Clear analysis tab
   const analysisDiv = document.getElementById('analysis-content');
   if (analysisDiv) {
     const analyzeResultTextDiv = analysisDiv.querySelector('.analyze-result-text');
@@ -171,7 +162,7 @@ function parsePrice(str) {
 async function safeJsonParse(response) {
   const text = await response.text();
   if (!text) {
-    // Return an empty array if the response is empty.
+    // Return an empty array if response is empty.
     return [];
   }
   try {
@@ -201,7 +192,6 @@ function sortTableByColumn(table, columnIndex, asc = true) {
   const tbody = table.tBodies[0];
   const rows = Array.from(tbody.querySelectorAll("tr"));
   
-  // Get the column header text to determine if it might be a date column
   const headerText = table.querySelector(`th:nth-child(${columnIndex + 1})`).textContent.trim().toLowerCase();
   const isDateColumn = headerText.includes('date') || headerText.includes('time');
 
@@ -209,7 +199,6 @@ function sortTableByColumn(table, columnIndex, asc = true) {
     const aText = a.children[columnIndex].textContent.trim();
     const bText = b.children[columnIndex].textContent.trim();
     
-    // Special handling for date columns
     if (isDateColumn) {
       const aDate = new Date(aText);
       const bDate = new Date(bText);
@@ -294,8 +283,71 @@ async function getAlternativePartNumbers(partNumber) {
 }
 
 /***************************************************
+ * Continue Search Button (Pause/Resume)
+ ***************************************************/
+function addContinueSearchButton() {
+  const altDiv = document.getElementById('alternative-numbers');
+  if (!altDiv) return;
+  
+  // Remove existing button or message if any
+  const existingBtn = document.getElementById('continue-search-btn');
+  if (existingBtn) existingBtn.remove();
+  const existingMsg = document.getElementById('continue-search-message');
+  if (existingMsg) existingMsg.remove();
+  
+  const continueBtn = document.createElement('button');
+  continueBtn.id = 'continue-search-btn';
+  continueBtn.textContent = 'Continue Searching for More Parts';
+  continueBtn.style.marginTop = '15px';
+  continueBtn.style.backgroundColor = '#4CAF50';
+  continueBtn.style.padding = '10px 20px';
+  continueBtn.style.fontSize = '16px';
+  continueBtn.style.fontWeight = 'bold';
+  continueBtn.style.width = '100%';
+  continueBtn.style.border = '2px solid #2e7d32';
+  
+  const messageDiv = document.createElement('div');
+  messageDiv.id = 'continue-search-message';
+  messageDiv.innerHTML = `<p style="color:#4CAF50; font-weight:bold; margin-top:15px;">
+    Initial search completed with ${altCountFound} alternatives. Click below to find more.
+  </p>`;
+  altDiv.appendChild(messageDiv);
+  
+  continueBtn.addEventListener('click', function() {
+    console.log("Continue button clicked - resuming search");
+    continueBtn.remove();
+    const msgDiv = document.getElementById('continue-search-message');
+    if (msgDiv) msgDiv.remove();
+    
+    if (pausedSearchState.isActive) {
+      // Switch to unlimited search mode
+      limitedSearchMode = false;
+      expansionsInProgress = true;
+      
+      const spinner = document.getElementById('loading-spinner');
+      if (spinner) spinner.style.display = 'inline-block';
+      
+      const { baseNumber, visited, finalAlts, onNewAltsCallback } = pausedSearchState;
+      
+      gatherCombinatoryAlternatives(baseNumber, 0, visited, finalAlts, onNewAltsCallback)
+        .then(() => {
+          expansionsInProgress = false;
+          checkIfAllDone();
+        })
+        .catch(err => {
+          console.error('Expansion continuation error:', err);
+          expansionsInProgress = false;
+          checkIfAllDone();
+        });
+    }
+  });
+  
+  altDiv.appendChild(continueBtn);
+}
+
+/***************************************************
  * Launches alternative expansions in the background.
- * Now, once 3 alternatives are found, the search stops.
+ * Pauses after initialAltLimit alternatives are found.
  ***************************************************/
 function startExpansions(baseNumber, finalAlts, onNewAlts) {
   altCountFound = 0;
@@ -318,7 +370,7 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
 }
 
 /***************************************************
- * Recursive Gathering of Alt Parts to configNestedLevel
+ * Recursive Gathering of Alternative Parts
  ***************************************************/
 async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, result, onNewAlts) {
   if (stopSearchRequested) {
@@ -327,6 +379,18 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
   }
   
   if (limitedSearchMode && altCountFound >= initialAltLimit) {
+    // Save state for later resumption
+    pausedSearchState = {
+      isActive: true,
+      baseNumber: baseNumber,
+      visited: new Set(visited), // copy
+      finalAlts: result,
+      onNewAltsCallback: onNewAlts
+    };
+    if (onNewAlts && result.length > 0) {
+      await onNewAlts(result);
+    }
+    addContinueSearchButton();
     return;
   }
   
@@ -353,7 +417,15 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
           if (newlyAdded.length > 0 && onNewAlts) {
             await onNewAlts(newlyAdded);
           }
-          return; // Stop further recursion once limit is reached.
+          pausedSearchState = {
+            isActive: true,
+            baseNumber: baseNumber,
+            visited: new Set(visited),
+            finalAlts: result,
+            onNewAltsCallback: onNewAlts
+          };
+          addContinueSearchButton();
+          return;
         }
       }
     }
@@ -384,7 +456,7 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
 }
 
 /***************************************************
- * Spinner, expansions, and final analysis
+ * Spinner, Expansions, and Final Analysis
  ***************************************************/
 function checkIfAllDone() {
   if (expansionsInProgress) return;
@@ -690,8 +762,7 @@ async function handleSearch() {
 }
 
 /***************************************************
- * A helper to do parallel endpoint searches for a 
- * given array of {number, source}
+ * A helper to do parallel endpoint searches for a given array of {number, source}
  ***************************************************/
 async function executeEndpointSearches(partNumbers) {
   if (!partNumbers || partNumbers.length === 0 || stopSearchRequested) return;
@@ -1058,12 +1129,11 @@ function buildEpicorInventoryTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // Modified filtering: show items as long as Quantity is defined.
+  // Modified filtering: do not drop items based on Quantity.
   const allItems = searchResults.epicor;
   const filteredItems = allItems.filter(it =>
     it.Company && it.Company.trim() !== '' &&
-    it.PartNum && it.PartNum.trim() !== '' &&
-    (it.Quantity !== undefined && it.Quantity !== null)
+    it.PartNum && it.PartNum.trim() !== ''
   );
 
   if (filteredItems.length === 0) return;
@@ -1774,7 +1844,7 @@ function buildLenovoUI() {
 }
 
 /**
- * Modified fetchLenovoData to accumulate results into searchResults.lenovo
+ * Modified fetchLenovoData to accumulate results into searchResults.lenovo.
  */
 async function fetchLenovoData(partNumbers) {
   if (stopSearchRequested) return;
@@ -1882,17 +1952,17 @@ function generateSummaryTableHtml() {
     if (!dataArray.length) return '';
 
     let filteredDataArray = dataArray;
-    if (key === 'epicor') {
-      filteredDataArray = dataArray.filter(item => item.Quantity !== undefined && item.Quantity !== null);
-      if (filteredDataArray.length === 0) return '';
-    }
-    
     if (key === 'tdsynnex') {
       filteredDataArray = dataArray.filter(item => {
         const qty = parseInt(item.totalQuantity, 10);
         return !isNaN(qty) && qty > 0;
       });
       if (filteredDataArray.length === 0) return '';
+    }
+    
+    // For EPICOR, do not filter out zero quantity.
+    if (key === 'epicor') {
+      filteredDataArray = dataArray;
     }
 
     const grouped = {};
