@@ -22,9 +22,6 @@ let initialAltLimit = 3;
 // Flag for whether we're in limited search mode or full search mode
 let limitedSearchMode = true;
 
-// API timeout in milliseconds (adjust as needed)
-const API_TIMEOUT = 8000;
-
 // Counter for alternatives found
 let altCountFound = 0;
 
@@ -169,48 +166,6 @@ function parsePrice(str) {
 }
 
 /***************************************************
- * Enhanced fetch with timeout
- ***************************************************/
-async function fetchWithTimeout(url, options = {}) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
-  
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    return response;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      console.warn(`Request to ${url} timed out after ${API_TIMEOUT}ms`);
-    }
-    throw error;
-  }
-}
-
-/***************************************************
- * Safely parse JSON
- ***************************************************/
-async function safeParseJSON(response) {
-  try {
-    // First get text to validate
-    const text = await response.text();
-    if (!text || text.trim() === '') {
-      return null;
-    }
-    
-    // Now parse the text as JSON
-    return JSON.parse(text);
-  } catch (error) {
-    console.warn("Failed to parse JSON response:", error);
-    return null;
-  }
-}
-
-/***************************************************
  * Table Sorting
  ***************************************************/
 function makeTableSortable(table) {
@@ -278,11 +233,11 @@ function switchTab(tabId) {
  ***************************************************/
 async function getAlternativePartNumbers(partNumber) {
   try {
-    const response = await fetchWithTimeout(`https://${serverDomain}/webhook/get-parts?item=${encodeURIComponent(partNumber)}`);
+    const response = await fetch(`https://${serverDomain}/webhook/get-parts?item=${encodeURIComponent(partNumber)}`);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    const data = await safeParseJSON(response);
+    const data = await response.json();
     if (!data || !data[0]) {
       return {
         original: partNumber,
@@ -580,20 +535,12 @@ async function performFinalAnalysis() {
     // Prepare query URL for the initial analysis, same as before
     const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
 
-    const response = await fetchWithTimeout(analyzeUrl, {
+    const response = await fetch(analyzeUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(analysisData)
     });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const analyzeResult = await safeParseJSON(response);
-    if (!analyzeResult) {
-      throw new Error("Invalid response from analysis endpoint");
-    }
+    const analyzeResult = await response.json();
 
     let analyzeResultText = '';
     if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
@@ -606,15 +553,15 @@ async function performFinalAnalysis() {
       .replaceAll("```", '');
 
     // Parse HTML content properly
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(analyzeResultText, 'text/html');
-      if (doc.body && doc.body.innerHTML) {
-        analyzeResultText = doc.body.innerHTML;
-      }
-    } catch (e) {
-      console.warn('Error parsing HTML content:', e);
-    }
+try {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(analyzeResultText, 'text/html');
+  if (doc.body && doc.body.innerHTML) {
+    analyzeResultText = doc.body.innerHTML;
+  }
+} catch (e) {
+  console.warn('Error parsing HTML content:', e);
+}
 
     // Store the user prompt and the LLM's reply in our conversation array
     // The user's initial prompt:
@@ -753,20 +700,12 @@ async function sendChatMessageToLLM() {
     const analysisData = gatherResultsForAnalysis();
 
     // POST the aggregator data as before, but rely on `history` to pass conversation
-    const response = await fetchWithTimeout(url, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(analysisData)
     });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const result = await safeParseJSON(response);
-    if (!result) {
-      throw new Error("Invalid response from LLM endpoint");
-    }
+    const result = await response.json();
 
     let assistantReply = '';
     if (Array.isArray(result) && result.length > 0 && result[0].text) {
@@ -1007,12 +946,9 @@ async function fetchTDSynnexData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const res = await fetchWithTimeout(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
+        const res = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        
         const xmlText = await res.text();
-        if (!xmlText || xmlText.trim() === '') continue;
-        
         const xmlDoc = parseXML(xmlText);
         const priceList = xmlDoc.getElementsByTagName('PriceAvailabilityList')[0];
         if (!priceList) continue;
@@ -1112,12 +1048,9 @@ async function fetchDistributorData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const res = await fetchWithTimeout(`https://${serverDomain}/webhook/ingram-search?item=${encodeURIComponent(number)}`);
+        const res = await fetch(`https://${serverDomain}/webhook/ingram-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        
-        const data = await safeParseJSON(res);
-        if (!data || !Array.isArray(data)) continue;
-        
+        const data = await res.json();
         const resultsWithSource = data.map(obj => ({ ...obj, sourcePartNumber: source }));
         newItems.push(...resultsWithSource);
       } catch (err) {
@@ -1199,12 +1132,9 @@ async function fetchBrokerBinData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const res = await fetchWithTimeout(`https://${serverDomain}/webhook/brokerbin-search?item=${encodeURIComponent(number)}`);
+        const res = await fetch(`https://${serverDomain}/webhook/brokerbin-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        
-        const data = await safeParseJSON(res);
-        if (!data || !Array.isArray(data)) continue;
-        
+        const data = await res.json();
         const withSrc = data.map(obj => ({ ...obj, sourcePartNumber: source }));
         newItems.push(...withSrc);
       } catch (err) {
@@ -1287,12 +1217,9 @@ async function fetchInventoryData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const res = await fetchWithTimeout(`https://${serverDomain}/webhook/epicor-search?item=${encodeURIComponent(number)}`);
+        const res = await fetch(`https://${serverDomain}/webhook/epicor-search?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        
-        const data = await safeParseJSON(res);
-        if (!data || !Array.isArray(data)) continue;
-        
+        const data = await res.json();
         const withSrc = data.map(obj => ({ ...obj, sourcePartNumber: source }));
         newItems.push(...withSrc);
       } catch (err) {
@@ -1383,11 +1310,9 @@ async function fetchSalesData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const res = await fetchWithTimeout(`https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`);
+        const res = await fetch(`https://${serverDomain}/webhook/epicor-sales?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        
-        const data = await safeParseJSON(res);
-        if (!data || !Array.isArray(data)) continue;
+        const data = await res.json();
 
         // Only record lines that appear in OrderDtlPA
         data.forEach(entry => {
@@ -1516,11 +1441,9 @@ async function fetchPurchasesData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const res = await fetchWithTimeout(`https://${serverDomain}/webhook/epicor-purchases?item=${encodeURIComponent(number)}`);
+        const res = await fetch(`https://${serverDomain}/webhook/epicor-purchases?item=${encodeURIComponent(number)}`);
         if (!res.ok) continue;
-        
-        const data = await safeParseJSON(res);
-        if (!data || !Array.isArray(data)) continue;
+        const data = await res.json();
 
         data.forEach(entry => {
           // Only record lines that appear in PAPurchasedBefore
@@ -1664,12 +1587,9 @@ async function fetchAmazonConnectorData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const resp = await fetchWithTimeout(`https://${serverDomain}/webhook/amazon-search?item=${encodeURIComponent(number)}`);
+        const resp = await fetch(`https://${serverDomain}/webhook/amazon-search?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
-        
-        const data = await safeParseJSON(resp);
-        if (!data || !Array.isArray(data)) continue;
-        
+        const data = await resp.json();
         data.forEach(obj => newItems.push({ ...obj, sourcePartNumber: source }));
       } catch (err) {
         console.warn('AmazonConnector error', err);
@@ -1752,12 +1672,9 @@ async function fetchEbayConnectorData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const resp = await fetchWithTimeout(`https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`);
+        const resp = await fetch(`https://${serverDomain}/webhook/ebay-search?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
-        
-        const data = await safeParseJSON(resp);
-        if (!data || !Array.isArray(data)) continue;
-        
+        const data = await resp.json();
         data.forEach(obj => newItems.push({ ...obj, sourcePartNumber: source }));
       } catch (err) {
         console.warn('eBayConnector error', err);
@@ -1840,21 +1757,20 @@ async function fetchAmazonData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const resp = await fetchWithTimeout(`https://${serverDomain}/webhook/amazon-scraper?item=${encodeURIComponent(number)}`);
+        const resp = await fetch(`https://${serverDomain}/webhook/amazon-scraper?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
-        
-        const data = await safeParseJSON(resp);
-        if (!data || !Array.isArray(data) || data.length === 0) continue;
-        
-        const { title = [], price = [], image = [], link = [] } = data[0];
-        for (let i = 0; i < title.length; i++) {
-          newItems.push({
-            sourcePartNumber: source,
-            title: title[i] || '-',
-            rawPrice: price[i] || '-',
-            image: image[i] || null,
-            link: link[i] || '#'
-          });
+        const data = await resp.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const { title = [], price = [], image = [], link = [] } = data[0];
+          for (let i = 0; i < title.length; i++) {
+            newItems.push({
+              sourcePartNumber: source,
+              title: title[i] || '-',
+              rawPrice: price[i] || '-',
+              image: image[i] || null,
+              link: link[i] || '#'
+            });
+          }
         }
       } catch (err) {
         console.warn('AmazonScraper error', err);
@@ -1931,21 +1847,20 @@ async function fetchEbayData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const resp = await fetchWithTimeout(`https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`);
+        const resp = await fetch(`https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
-        
-        const data = await safeParseJSON(resp);
-        if (!data || !Array.isArray(data) || data.length === 0) continue;
-        
-        const { title = [], price = [], image = [], link = [] } = data[0];
-        for (let i = 0; i < title.length; i++) {
-          newItems.push({
-            sourcePartNumber: source,
-            title: title[i] || '-',
-            rawPrice: price[i] || '-',
-            image: image[i] || null,
-            link: link[i] || '#'
-          });
+        const data = await resp.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const { title = [], price = [], image = [], link = [] } = data[0];
+          for (let i = 0; i < title.length; i++) {
+            newItems.push({
+              sourcePartNumber: source,
+              title: title[i] || '-',
+              rawPrice: price[i] || '-',
+              image: image[i] || null,
+              link: link[i] || '#'
+            });
+          }
         }
       } catch (err) {
         console.warn('ebayScraper error', err);
@@ -2085,19 +2000,17 @@ async function fetchLenovoData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const response = await fetchWithTimeout(`https://${serverDomain}/webhook/lenovo-scraper?item=${encodeURIComponent(number)}`);
+        const response = await fetch(`https://${serverDomain}/webhook/lenovo-scraper?item=${encodeURIComponent(number)}`);
         if (!response.ok) continue;
-        
-        const data = await safeParseJSON(response);
-        if (!data || !Array.isArray(data) || !data[0]?.data?.length > 0) continue;
-        
-        // Filter out empty content docs
-        const docs = data[0].data
-          .filter(doc => doc && doc.content && doc.content.trim() !== '')
-          .map(doc => ({ ...doc, sourcePartNumber: source }));
-          
-        // Append these results to our global aggregator
-        searchResults.lenovo.push(...docs);
+        const data = await response.json();
+        if (data?.[0]?.data?.length > 0) {
+          // Filter out empty content docs
+          const docs = data[0].data
+            .filter(doc => doc && doc.content && doc.content.trim() !== '')
+            .map(doc => ({ ...doc, sourcePartNumber: source }));
+          // Append these results to our global aggregator
+          searchResults.lenovo.push(...docs);
+        }
       } catch (error) {
         console.warn(`Lenovo error for ${number}:`, error);
       }
