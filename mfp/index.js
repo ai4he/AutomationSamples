@@ -20,6 +20,9 @@ let configNestedLevel = 1;
 let initialAltLimit = 3;
 let initialSearchComplete = false;
 
+// Counter for alternatives found - critical for limiting search
+let altCountFound = 0;
+
 // Stores the entire conversation as an array of message objects:
 // e.g. [ { role: "user", content: "Hello" }, { role: "assistant", content: "Hi!" }, ... ]
 let conversationHistory = [];
@@ -231,6 +234,9 @@ async function getAlternativePartNumbers(partNumber) {
  * @param {Function} onNewAlts - Callback invoked whenever new alt(s) appear
  */
 function startExpansions(baseNumber, finalAlts, onNewAlts) {
+  // Reset the global counter
+  altCountFound = 0;
+  
   // Mark expansions as in progress
   expansionsInProgress = true;
   initialSearchComplete = false;
@@ -243,6 +249,13 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
     .then(() => {
       // Once recursion completes, expansions are done
       expansionsInProgress = false;
+      
+      // If we stopped at the limit, add the continue button if not already added
+      if (!initialSearchComplete && altCountFound >= initialAltLimit && 
+          !document.getElementById('continue-search-btn')) {
+        addContinueSearchButton(finalAlts, onNewAlts, visited);
+      }
+      
       checkIfAllDone();  // might hide spinner + call analysis if activeRequests=0
     })
     .catch(err => {
@@ -263,28 +276,56 @@ function addContinueSearchButton(finalAlternatives, updateUICallback, alreadySea
   const existingBtn = document.getElementById('continue-search-btn');
   if (existingBtn) existingBtn.remove();
   
-  // Create continue button
+  // Create continue button with improved styling
   const continueBtn = document.createElement('button');
   continueBtn.id = 'continue-search-btn';
   continueBtn.textContent = 'Continue Searching for More Parts';
   continueBtn.style.marginTop = '15px';
   continueBtn.style.backgroundColor = '#4CAF50';
+  continueBtn.style.padding = '10px 20px';
+  continueBtn.style.fontSize = '16px';
+  continueBtn.style.fontWeight = 'bold';
+  continueBtn.style.width = '100%';
+  continueBtn.style.border = '2px solid #2e7d32';
+  
+  // Add a message above the button
+  const messageDiv = document.createElement('div');
+  messageDiv.id = 'continue-search-message';
+  messageDiv.innerHTML = '<p style="color:#4CAF50; font-weight:bold; margin-top:15px;">Initial search completed with 3 alternatives. Click below to find more.</p>';
+  altDiv.appendChild(messageDiv);
   
   continueBtn.addEventListener('click', function() {
-    // Set flag to allow full search
+    console.log("Continue button clicked - resuming search");
+    
+    // Reset counter and flags to continue search
     initialSearchComplete = true;
-    // Remove the button
+    
+    // Remove UI elements
     continueBtn.remove();
-    // Continue search process
+    const msgDiv = document.getElementById('continue-search-message');
+    if (msgDiv) msgDiv.remove();
+    
+    // Continue search
     const partNumberInput = document.getElementById('part-numbers');
     if (partNumberInput) {
       const partNumber = partNumberInput.value.trim();
       if (partNumber) {
         // Use the existing search functions to continue
-        const visited = new Set(alreadySearched); // Copy the already searched set
+        const visited = new Set();
+        alreadySearched.forEach(part => visited.add(part));
         
         // Start recursive search again from the original part number
-        gatherCombinatoryAlternatives(partNumber, 0, visited, finalAlternatives, updateUICallback);
+        expansionsInProgress = true;
+        gatherCombinatoryAlternatives(partNumber, 0, visited, finalAlternatives, updateUICallback)
+          .then(() => {
+            expansionsInProgress = false;
+            checkIfAllDone();
+          })
+          .catch(err => {
+            console.error('Expansion continuation error:', err);
+            expansionsInProgress = false;
+            checkIfAllDone();
+          });
       }
     }
   });
@@ -296,67 +337,85 @@ function addContinueSearchButton(finalAlternatives, updateUICallback, alreadySea
  * Recursive Gathering of Alt Parts to configNestedLevel
  ***************************************************/
 async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, result, onNewAlts) {
-  // Check if search should be stopped
+  // Check for stop conditions immediately
   if (stopSearchRequested) {
+    console.log("Stopping search - user requested stop");
     return;
   }
-
-  // If we've already hit the limit and not in full search mode, don't go further
-  if (!initialSearchComplete && result.length >= initialAltLimit) {
+  
+  // Stop if we've already found enough alternatives and not in full search mode
+  if (!initialSearchComplete && altCountFound >= initialAltLimit) {
+    console.log(`Already found ${altCountFound} alternatives, stopping search`);
     return;
   }
-
+  
+  // Avoid revisiting parts
   const upperBase = baseNumber.trim().toUpperCase();
   if (visited.has(upperBase)) return;
   visited.add(upperBase);
 
-  const { alternatives } = await getAlternativePartNumbers(baseNumber);
-  let newlyAdded = [];
-  
-  // Only add alternatives until we reach the limit
-  for (const alt of alternatives) {
-    // Stop adding if we've reached the limit and not in full search
-    if (!initialSearchComplete && result.length >= initialAltLimit) {
-      break;
-    }
+  try {
+    // Get alternatives for this part
+    const { alternatives } = await getAlternativePartNumbers(baseNumber);
+    let newlyAdded = [];
     
-    const altUpper = alt.value.trim().toUpperCase();
-    if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
-      result.push(alt);
-      newlyAdded.push(alt);
-    }
-  }
-  
-  // If we have new alternatives, call the callback
-  if (newlyAdded.length > 0 && onNewAlts) {
-    await onNewAlts(newlyAdded);
-  }
-
-  // After adding alternatives, check if we've reached the limit
-  if (!initialSearchComplete && result.length >= initialAltLimit) {
-    addContinueSearchButton(result, onNewAlts, visited);
-    return; // Stop search
-  }
-
-  let goDeeper = false;
-  if (configNestedLevel === -1) {
-    goDeeper = true;
-  } else if (configNestedLevel > 0) {
-    goDeeper = currentLevel < configNestedLevel;
-  }
-  
-  // Only go deeper if appropriate and we haven't hit the limit
-  if (goDeeper && (initialSearchComplete || result.length < initialAltLimit)) {
+    // Add alternatives (without exceeding the limit)
     for (const alt of alternatives) {
-      if (stopSearchRequested) return; // Check before each recursive call
-      
-      // Skip recursion if we've hit the limit
-      if (!initialSearchComplete && result.length >= initialAltLimit) {
+      // Emergency brake - stop if we hit the limit
+      if (!initialSearchComplete && altCountFound >= initialAltLimit) {
+        console.log(`Hit limit of ${initialAltLimit} alternatives, breaking loop`);
         break;
       }
       
-      await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
+      const altUpper = alt.value.trim().toUpperCase();
+      if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
+        result.push(alt);
+        newlyAdded.push(alt);
+        altCountFound++; // Increment global counter
+        console.log(`Found alternative #${altCountFound}: ${alt.type} - ${alt.value}`);
+        
+        // Hard stop if we've reached the limit
+        if (!initialSearchComplete && altCountFound >= initialAltLimit) {
+          // Process this batch and stop
+          if (newlyAdded.length > 0 && onNewAlts) {
+            await onNewAlts(newlyAdded);
+          }
+          console.log(`Reached limit of ${initialAltLimit} alternatives, stopping search`);
+          return; // Stop immediately
+        }
+      }
     }
+    
+    // Process any newly added alternatives
+    if (newlyAdded.length > 0 && onNewAlts) {
+      await onNewAlts(newlyAdded);
+    }
+
+    // Only continue deeper if:
+    // 1. We're allowed to go deeper based on configNestedLevel
+    // 2. We haven't hit the alternatives limit OR we're in full search mode
+    let goDeeper = false;
+    if (configNestedLevel === -1) {
+      goDeeper = true;
+    } else if (configNestedLevel > 0) {
+      goDeeper = currentLevel < configNestedLevel;
+    }
+    
+    if (goDeeper && (initialSearchComplete || altCountFound < initialAltLimit)) {
+      for (const alt of alternatives) {
+        // Emergency brake - check again before recursion
+        if (!initialSearchComplete && altCountFound >= initialAltLimit) {
+          console.log("Reached limit before recursion, stopping");
+          return;
+        }
+        if (stopSearchRequested) return;
+        
+        // Recursive search with the next part
+        await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
+      }
+    }
+  } catch (err) {
+    console.error(`Error in gatherCombinatoryAlternatives for ${baseNumber}:`, err);
   }
 }
 
@@ -595,6 +654,9 @@ async function handleSearch() {
   
   // Reset the initialSearchComplete flag
   initialSearchComplete = false;
+  
+  // Reset the counter for alternatives found
+  altCountFound = 0;
   
   // Ensure that final analysis can happen again for each fresh search
   analysisAlreadyCalled = false;
@@ -1210,6 +1272,21 @@ function buildSalesTable() {
   const items = searchResults.sales;
   if (items.length === 0) return;
 
+  // Pre-sort by date (newest first)
+  const sortedItems = [...items].sort((a, b) => {
+    // Parse dates properly
+    const dateA = a.OrderDate ? new Date(a.OrderDate) : null;
+    const dateB = b.OrderDate ? new Date(b.OrderDate) : null;
+    
+    // Handle invalid dates
+    if (!dateA && !dateB) return 0;
+    if (!dateA) return 1; // null dates to the end
+    if (!dateB) return -1;
+    
+    // Sort newest first (descending)
+    return dateB - dateA;
+  });
+
   const table = document.createElement('table');
   table.innerHTML = `
     <thead>
@@ -1229,7 +1306,7 @@ function buildSalesTable() {
       </tr>
     </thead>
     <tbody>
-      ${items.map(it => `
+      ${sortedItems.map(it => `
         <tr>
           <td>${it.sourcePartNumber}</td>
           <td>${it.PartNum || '-'}</td>
@@ -1238,7 +1315,7 @@ function buildSalesTable() {
           <td>${it.OrderLine || '-'}</td>
           <td>${it.CustomerID || '-'}</td>
           <td>${it.CustomerName || '-'}</td>
-          <td>${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
+          <td data-date="${it.OrderDate || ''}">${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
           <td>${it.OrderQty || '-'}</td>
           <td>${it.UnitPrice || '-'}</td>
           <td>${it.RequestDate ? new Date(it.RequestDate).toLocaleDateString() : '-'}</td>
@@ -1254,12 +1331,9 @@ function buildSalesTable() {
 
   makeTableSortable(table);
   
-  // Sort by Order Date (newest first) by default
-  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
-  sortTableByColumn(table, orderDateColumnIndex, false); // false = descending
-  
   // Mark the Order Date header as sorted
   const headers = table.querySelectorAll("th");
+  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
   if (headers[orderDateColumnIndex]) {
     headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
   }
@@ -1341,6 +1415,21 @@ function buildPurchasesTable() {
   );
 
   if (filteredItems.length === 0) return;
+  
+  // Pre-sort by date (newest first)
+  const sortedItems = [...filteredItems].sort((a, b) => {
+    // Parse dates properly
+    const dateA = a.OrderDate ? new Date(a.OrderDate) : null;
+    const dateB = b.OrderDate ? new Date(b.OrderDate) : null;
+    
+    // Handle invalid dates
+    if (!dateA && !dateB) return 0;
+    if (!dateA) return 1; // null dates to the end
+    if (!dateB) return -1;
+    
+    // Sort newest first (descending)
+    return dateB - dateA;
+  });
 
   const table = document.createElement('table');
   table.innerHTML = `
@@ -1361,7 +1450,7 @@ function buildPurchasesTable() {
       </tr>
     </thead>
     <tbody>
-      ${filteredItems.map(it => `
+      ${sortedItems.map(it => `
         <tr>
           <td>${it.sourcePartNumber}</td>
           <td>${it.PartNum || '-'}</td>
@@ -1370,7 +1459,7 @@ function buildPurchasesTable() {
           <td>${it.VendorUnitCost != null ? it.VendorUnitCost : '-'}</td>
           <td>${it.PONum || '-'}</td>
           <td>${it.ReceiptDate ? new Date(it.ReceiptDate).toLocaleDateString() : '-'}</td>
-          <td>${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
+          <td data-date="${it.OrderDate || ''}">${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
           <td>${it.DueDate ? new Date(it.DueDate).toLocaleDateString() : '-'}</td>
           <td>${it.IsAdvisor ? 'Yes' : 'No'}</td>
           <td>${it.PartDescription || '-'}</td>
@@ -1387,12 +1476,9 @@ function buildPurchasesTable() {
 
   makeTableSortable(table);
   
-  // Sort by Order Date (newest first) by default
-  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
-  sortTableByColumn(table, orderDateColumnIndex, false); // false = descending
-  
   // Mark the Order Date header as sorted
   const headers = table.querySelectorAll("th");
+  const orderDateColumnIndex = 7; // Index of the Order Date column (0-based)
   if (headers[orderDateColumnIndex]) {
     headers[orderDateColumnIndex].setAttribute("data-sort-order", "desc");
   }
