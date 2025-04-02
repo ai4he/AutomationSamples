@@ -16,23 +16,17 @@ let configUseAlternatives = true;
 // -1 => infinite expansions until no new parts discovered
 let configNestedLevel = 1;
 
-// Maximum number of alternative parts to find initially
+// (The initialAltLimit is no longer used for pausing.)
 let initialAltLimit = 3;
 
-// Flag for whether we're in limited search mode or full search mode
-let limitedSearchMode = true;
+// The search runs continuously; no pause/resume mode.
+let limitedSearchMode = false;
 
-// Counter for alternatives found
+// Counter for alternatives found (used only for logging)
 let altCountFound = 0;
 
-// State for paused search used for pause/resume functionality
-let pausedSearchState = {
-  isActive: false,
-  baseNumber: '',
-  visited: new Set(),
-  finalAlts: [],
-  onNewAltsCallback: null
-};
+// No paused search state is kept now.
+// let pausedSearchState = { ... }  <-- REMOVED
 
 // Stores the entire conversation as an array of message objects:
 let conversationHistory = [];
@@ -162,7 +156,6 @@ function parsePrice(str) {
 async function safeJsonParse(response) {
   const text = await response.text();
   if (!text) {
-    // Return an empty array if response is empty.
     return [];
   }
   try {
@@ -283,77 +276,12 @@ async function getAlternativePartNumbers(partNumber) {
 }
 
 /***************************************************
- * Continue Search Button (Pause/Resume)
- ***************************************************/
-function addContinueSearchButton() {
-  const altDiv = document.getElementById('alternative-numbers');
-  if (!altDiv) return;
-  
-  // Remove existing button or message if any
-  const existingBtn = document.getElementById('continue-search-btn');
-  if (existingBtn) existingBtn.remove();
-  const existingMsg = document.getElementById('continue-search-message');
-  if (existingMsg) existingMsg.remove();
-  
-  const continueBtn = document.createElement('button');
-  continueBtn.id = 'continue-search-btn';
-  continueBtn.textContent = 'Continue Searching for More Parts';
-  continueBtn.style.marginTop = '15px';
-  continueBtn.style.backgroundColor = '#4CAF50';
-  continueBtn.style.padding = '10px 20px';
-  continueBtn.style.fontSize = '16px';
-  continueBtn.style.fontWeight = 'bold';
-  continueBtn.style.width = '100%';
-  continueBtn.style.border = '2px solid #2e7d32';
-  
-  const messageDiv = document.createElement('div');
-  messageDiv.id = 'continue-search-message';
-  messageDiv.innerHTML = `<p style="color:#4CAF50; font-weight:bold; margin-top:15px;">
-    Initial search completed with ${altCountFound} alternatives. Click below to find more.
-  </p>`;
-  altDiv.appendChild(messageDiv);
-  
-  continueBtn.addEventListener('click', function() {
-    console.log("Continue button clicked - resuming search");
-    continueBtn.remove();
-    const msgDiv = document.getElementById('continue-search-message');
-    if (msgDiv) msgDiv.remove();
-    
-    if (pausedSearchState.isActive) {
-      // Switch to unlimited search mode
-      limitedSearchMode = false;
-      expansionsInProgress = true;
-      
-      const spinner = document.getElementById('loading-spinner');
-      if (spinner) spinner.style.display = 'inline-block';
-      
-      const { baseNumber, visited, finalAlts, onNewAltsCallback } = pausedSearchState;
-      
-      gatherCombinatoryAlternatives(baseNumber, 0, visited, finalAlts, onNewAltsCallback)
-        .then(() => {
-          expansionsInProgress = false;
-          checkIfAllDone();
-        })
-        .catch(err => {
-          console.error('Expansion continuation error:', err);
-          expansionsInProgress = false;
-          checkIfAllDone();
-        });
-    }
-  });
-  
-  altDiv.appendChild(continueBtn);
-}
-
-/***************************************************
- * Launches alternative expansions in the background.
- * Pauses after initialAltLimit alternatives are found.
+ * Alternative Expansions (No Pause/Resume)
+ * The recursion now runs to completion (unless stopped).
  ***************************************************/
 function startExpansions(baseNumber, finalAlts, onNewAlts) {
   altCountFound = 0;
-  limitedSearchMode = true;
-  pausedSearchState.isActive = false;
-  
+  // limitedSearchMode is now always false (full search)
   expansionsInProgress = true;
   const visited = new Set();
 
@@ -378,22 +306,6 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
     return;
   }
   
-  if (limitedSearchMode && altCountFound >= initialAltLimit) {
-    // Save state for later resumption
-    pausedSearchState = {
-      isActive: true,
-      baseNumber: baseNumber,
-      visited: new Set(visited), // copy
-      finalAlts: result,
-      onNewAltsCallback: onNewAlts
-    };
-    if (onNewAlts && result.length > 0) {
-      await onNewAlts(result);
-    }
-    addContinueSearchButton();
-    return;
-  }
-  
   const upperBase = baseNumber.trim().toUpperCase();
   if (visited.has(upperBase)) return;
   visited.add(upperBase);
@@ -403,30 +315,12 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
     let newlyAdded = [];
     
     for (const alt of alternatives) {
-      if (limitedSearchMode && altCountFound >= initialAltLimit) {
-        break;
-      }
-      
       const altUpper = alt.value.trim().toUpperCase();
       if (!result.some(r => r.value.trim().toUpperCase() === altUpper)) {
         result.push(alt);
         newlyAdded.push(alt);
         altCountFound++;
         console.log(`Found alternative #${altCountFound}: ${alt.type} - ${alt.value}`);
-        if (limitedSearchMode && altCountFound >= initialAltLimit) {
-          if (newlyAdded.length > 0 && onNewAlts) {
-            await onNewAlts(newlyAdded);
-          }
-          pausedSearchState = {
-            isActive: true,
-            baseNumber: baseNumber,
-            visited: new Set(visited),
-            finalAlts: result,
-            onNewAltsCallback: onNewAlts
-          };
-          addContinueSearchButton();
-          return;
-        }
       }
     }
     
@@ -441,11 +335,8 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
       goDeeper = currentLevel < configNestedLevel;
     }
     
-    if (goDeeper && (!limitedSearchMode || altCountFound < initialAltLimit)) {
+    if (goDeeper) {
       for (const alt of alternatives) {
-        if (limitedSearchMode && altCountFound >= initialAltLimit) {
-          return;
-        }
         if (stopSearchRequested) return;
         await gatherCombinatoryAlternatives(alt.value, currentLevel + 1, visited, result, onNewAlts);
       }
@@ -646,15 +537,8 @@ async function sendChatMessageToLLM() {
 async function handleSearch() {
   stopSearchRequested = false;
   
-  limitedSearchMode = true;
+  limitedSearchMode = false; // Full search mode, no pause/resume.
   altCountFound = 0;
-  pausedSearchState = {
-    isActive: false,
-    baseNumber: '',
-    visited: new Set(),
-    finalAlts: [],
-    onNewAltsCallback: null
-  };
   
   analysisAlreadyCalled = false;
   conversationHistory = [];
@@ -699,7 +583,7 @@ async function handleSearch() {
     `;
     if (finalAlternatives.length > 0) {
       html += `
-        <h4>Alternative Part Numbers Found (up to level ${configNestedLevel === -1 ? '∞' : configNestedLevel}):</h4>
+        <h4>Alternative Part Numbers Found:</h4>
         <ul class="alternative-numbers-list">
           ${finalAlternatives.map(a => `
             <li class="alternative-number"><span>${a.type}: ${a.value}</span></li>
@@ -1129,7 +1013,7 @@ function buildEpicorInventoryTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // Modified filtering: do not drop items based on Quantity.
+  // Modified filtering: show all items for EPICOR.
   const allItems = searchResults.epicor;
   const filteredItems = allItems.filter(it =>
     it.Company && it.Company.trim() !== '' &&
@@ -1150,7 +1034,6 @@ function buildEpicorInventoryTable() {
         <th>Product Code</th>
         <th>Quantity</th>
         <th>Base Price</th>
-        <th>Currency</th>
         <th>Status</th>
       </tr>
     </thead>
@@ -1165,7 +1048,6 @@ function buildEpicorInventoryTable() {
           <td>${it.ProdCodeDescription || '-'}</td>
           <td>${(it.Quantity !== undefined && it.Quantity !== null) ? it.Quantity : '-'}</td>
           <td>${(it.BasePrice !== undefined && it.BasePrice !== null) ? it.BasePrice : '-'}</td>
-          <td>${(it.CurrencyCode !== undefined && it.CurrencyCode !== null) ? it.CurrencyCode : '-'}</td>
           <td>${it.InActive ? '<span class="text-error">Inactive</span>' : '<span class="text-success">Active</span>'}</td>
         </tr>
       `).join('')}
@@ -1209,7 +1091,7 @@ async function fetchSalesData(partNumbers) {
               OrderDate: line.OrderHedOrderDate,
               OrderQty: line.OrderQty,
               UnitPrice: line.UnitPrice,
-              CurrencyCode: line.CurrencyCode || '',
+              Currency: line.Currency || '',
               RequestDate: line.RequestDate,
               NeedByDate: line.NeedByDate
             });
@@ -1283,7 +1165,7 @@ function buildSalesTable() {
           <td data-date="${it.OrderDate || ''}">${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
           <td>${it.OrderQty || '-'}</td>
           <td>${it.UnitPrice || '-'}</td>
-          <td>${it.CurrencyCode || '-'}</td>
+          <td>${it.Currency || '-'}</td>
           <td>${it.RequestDate ? new Date(it.RequestDate).toLocaleDateString() : '-'}</td>
           <td>${it.NeedByDate ? new Date(it.NeedByDate).toLocaleDateString() : '-'}</td>
         </tr>
@@ -1331,7 +1213,7 @@ async function fetchPurchasesData(partNumbers) {
                 VendorName: line.VendorName,
                 VendorQty: line.VendorQty,
                 VendorUnitCost: line.VendorUnitCost,
-                CurrSymbol: line.CurrSymbol || '',
+                Currency: line.Currency || '',
                 PONum: line.PONum,
                 ReceiptDate: line.ReceiptDate,
                 OrderDate: line.OrderDate,
@@ -1411,7 +1293,7 @@ function buildPurchasesTable() {
           <td>${it.VendorName || '-'}</td>
           <td>${it.VendorQty || '-'}</td>
           <td>${it.VendorUnitCost != null ? it.VendorUnitCost : '-'}</td>
-          <td>${it.CurrSymbol || '-'}</td>
+          <td>${it.Currency || '-'}</td>
           <td>${it.PONum || '-'}</td>
           <td>${it.ReceiptDate ? new Date(it.ReceiptDate).toLocaleDateString() : '-'}</td>
           <td data-date="${it.OrderDate || ''}">${it.OrderDate ? new Date(it.OrderDate).toLocaleDateString() : '-'}</td>
@@ -1962,7 +1844,7 @@ function generateSummaryTableHtml() {
       if (filteredDataArray.length === 0) return '';
     }
     
-    // For EPICOR, do not filter out zero quantity.
+    // For EPICOR, show all records.
     if (key === 'epicor') {
       filteredDataArray = dataArray;
     }
