@@ -16,6 +16,19 @@
       padding: 10px;
       background: rgba(255,255,255,0.9);
     }
+    /* Styling for the nested level selector */
+    #nested-level-selector {
+      padding: 5px;
+      font-size: 14px;
+      margin: 5px 0;
+    }
+    /* Styling for the analysis progress indicator */
+    #analysis-progress {
+      font-weight: bold;
+      color: #4CAF50;
+      margin-bottom: 10px;
+      display: none;
+    }
   </style>
   
   <!-- Google Identity Services -->
@@ -57,6 +70,16 @@
           <textarea id="prompt" rows="2" cols="25" placeholder="Enter your prompt here">Provide a buy and sell price recommendation
           </textarea>
         </div>
+      </div>
+      
+      <!-- Nested Level Option -->
+      <div id="search-options" style="margin-top: 10px;">
+        <label for="nested-level-selector">Nested Level:</label>
+        <select id="nested-level-selector">
+          <option value="0" selected>0 - Direct Alternatives Only</option>
+          <option value="1">1 - One Level Deeper</option>
+          <option value="-1">Infinite Expansion</option>
+        </select>
       </div>
       
       <div id="alternative-numbers" class="alternative-numbers">
@@ -205,6 +228,10 @@
     <div id="analysis" class="tab-content">
       <div id="analysis-content">
         <h3>Analysis Summary</h3>
+        <!-- Analysis Progress Indicator -->
+        <div id="analysis-progress">
+          Analysis in progress…
+        </div>
         <div class="analyze-result-text"></div>
         <div id="chat-container-analysis"></div>
       </div>
