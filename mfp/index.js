@@ -11,21 +11,22 @@ var llmModel = "gemini";
 // If false => skip alt part number logic entirely
 let configUseAlternatives = true;
 
-// 0 => only direct alternatives of the typed part
-// 1 => (default) one level deeper expansions
-// -1 => infinite expansions until no new parts discovered
-let configNestedLevel = 1;
+// Default nested level is now 0 (only direct alternatives)
+let configNestedLevel = 0;
 
-// (The initialAltLimit is no longer used for pausing.)
+// This value can be overridden by the UI element with id "nested-level-selector"
+// (0 = direct alternatives; 1 = one level deeper; -1 = infinite expansion)
+
+// This variable is still used for logging purposes.
 let initialAltLimit = 3;
 
-// The search runs continuously; no pause/resume mode.
+// For this version we are not using pause/resume. The search will run to completion (or until stopped).
 let limitedSearchMode = false;
 
 // Counter for alternatives found (used only for logging)
 let altCountFound = 0;
 
-// No paused search state is kept now.
+// We are no longer using a paused search state.
 // let pausedSearchState = { ... }  <-- REMOVED
 
 // Stores the entire conversation as an array of message objects:
@@ -57,7 +58,7 @@ let searchResults = {
   lenovo: []
 };
 
-// Active endpoint request counter
+// Keep track of how many endpoint requests are currently active
 let activeRequestsCount = 0;
 
 // Flag for whether alternative expansions are in progress
@@ -276,12 +277,11 @@ async function getAlternativePartNumbers(partNumber) {
 }
 
 /***************************************************
- * Alternative Expansions (No Pause/Resume)
- * The recursion now runs to completion (unless stopped).
+ * Alternative Expansions
+ * (The recursion now runs to completion, unless stopped.)
  ***************************************************/
 function startExpansions(baseNumber, finalAlts, onNewAlts) {
   altCountFound = 0;
-  // limitedSearchMode is now always false (full search)
   expansionsInProgress = true;
   const visited = new Set();
 
@@ -297,9 +297,6 @@ function startExpansions(baseNumber, finalAlts, onNewAlts) {
     });
 }
 
-/***************************************************
- * Recursive Gathering of Alternative Parts
- ***************************************************/
 async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, result, onNewAlts) {
   if (stopSearchRequested) {
     console.log("Stopping search - user requested stop");
@@ -365,13 +362,19 @@ function checkIfAllDone() {
 }
 
 async function performFinalAnalysis() {
+  // Show progress indicator for analysis
+  const analysisProgress = document.getElementById('analysis-progress');
+  if (analysisProgress) {
+    analysisProgress.style.display = 'block';
+    analysisProgress.textContent = "Analysis in progress…";
+  }
+
   updateSummaryTab();
 
   try {
     const analysisData = gatherResultsForAnalysis();
     const selectedModel = document.getElementById('llm-model').value;
     const promptText = document.getElementById('prompt').value;
-
     const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
 
     const response = await fetch(analyzeUrl, {
@@ -418,6 +421,11 @@ async function performFinalAnalysis() {
     initializeConversationUI();
   } catch (err) {
     console.error('Analyze data error:', err);
+  } finally {
+    // Hide progress indicator when done
+    if (analysisProgress) {
+      analysisProgress.style.display = 'none';
+    }
   }
 }
 
@@ -535,9 +543,16 @@ async function sendChatMessageToLLM() {
  * The main handleSearch
  ***************************************************/
 async function handleSearch() {
-  stopSearchRequested = false;
+  // Read nested level option from UI if present; default to 0.
+  const nestedLevelInput = document.getElementById('nested-level-selector');
+  if (nestedLevelInput) {
+    configNestedLevel = parseInt(nestedLevelInput.value, 10);
+  } else {
+    configNestedLevel = 0;
+  }
   
-  limitedSearchMode = false; // Full search mode, no pause/resume.
+  stopSearchRequested = false;
+  limitedSearchMode = false; // full search mode
   altCountFound = 0;
   
   analysisAlreadyCalled = false;
@@ -1013,7 +1028,7 @@ function buildEpicorInventoryTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // Modified filtering: show all items for EPICOR.
+  // Modified filtering: show all EPICOR items that have Company and PartNum.
   const allItems = searchResults.epicor;
   const filteredItems = allItems.filter(it =>
     it.Company && it.Company.trim() !== '' &&
@@ -1670,9 +1685,9 @@ function buildEbayScraperTable() {
   makeTableSortable(table);
 }
 
-/**
- * Build or update the Lenovo UI from all data in searchResults.lenovo
- */
+/***************************************************
+ * Lenovo UI and Data Fetching
+ ***************************************************/
 function buildLenovoUI() {
   const lenovoContentDiv = document.getElementById('lenovo-content');
   if (!lenovoContentDiv) return;
@@ -1727,9 +1742,6 @@ function buildLenovoUI() {
   });
 }
 
-/**
- * Modified fetchLenovoData to accumulate results into searchResults.lenovo.
- */
 async function fetchLenovoData(partNumbers) {
   if (stopSearchRequested) return;
   if (!document.getElementById('toggle-lenovo').checked) return;
