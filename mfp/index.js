@@ -27,7 +27,6 @@ let limitedSearchMode = false;
 let altCountFound = 0;
 
 // We are no longer using a paused search state.
-// let pausedSearchState = { ... }  <-- REMOVED
 
 // Stores the entire conversation as an array of message objects:
 let conversationHistory = [];
@@ -422,7 +421,6 @@ async function performFinalAnalysis() {
   } catch (err) {
     console.error('Analyze data error:', err);
   } finally {
-    // Hide progress indicator when done
     if (analysisProgress) {
       analysisProgress.style.display = 'none';
     }
@@ -543,7 +541,6 @@ async function sendChatMessageToLLM() {
  * The main handleSearch
  ***************************************************/
 async function handleSearch() {
-  // Read nested level option from UI if present; default to 0.
   const nestedLevelInput = document.getElementById('nested-level-selector');
   if (nestedLevelInput) {
     configNestedLevel = parseInt(nestedLevelInput.value, 10);
@@ -552,7 +549,7 @@ async function handleSearch() {
   }
   
   stopSearchRequested = false;
-  limitedSearchMode = false; // full search mode
+  limitedSearchMode = false;
   altCountFound = 0;
   
   analysisAlreadyCalled = false;
@@ -1028,7 +1025,6 @@ function buildEpicorInventoryTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // Modified filtering: show all EPICOR items that have Company and PartNum.
   const allItems = searchResults.epicor;
   const filteredItems = allItems.filter(it =>
     it.Company && it.Company.trim() !== '' &&
@@ -1856,7 +1852,6 @@ function generateSummaryTableHtml() {
       if (filteredDataArray.length === 0) return '';
     }
     
-    // For EPICOR, show all records.
     if (key === 'epicor') {
       filteredDataArray = dataArray;
     }
@@ -2007,34 +2002,59 @@ function gatherResultsForAnalysis() {
 
   return results;
 }
-// ----- Manual Login Functionality -----
-// Hard-coded credentials for validation
-const MANUAL_USERNAME = "MFPTestUser@mfptech.com";
-const MANUAL_PASSWORD = "K*744127034889ug";
 
-// Function to perform manual login and validate credentials
-function manualLogin() {
-  const usernameInput = document.getElementById('manual-username');
-  const passwordInput = document.getElementById('manual-password');
-  if (!usernameInput || !passwordInput) {
-    console.error("Manual login inputs not found.");
-    return;
+/***************************************************
+ * Authentication Section
+ ***************************************************/
+/* Wrap authentication code so it runs after DOM is loaded */
+document.addEventListener('DOMContentLoaded', function() {
+  // Microsoft Sign-In
+  const msalConfig = {
+    auth: {
+      clientId: "REAL_MICROSOFT_CLIENT_ID", // Replace with your actual client ID
+      redirectUri: window.location.origin
+    }
+  };
+  const msalInstance = new msal.PublicClientApplication(msalConfig);
+  document.getElementById('microsoft-signin-btn').addEventListener('click', () => {
+    msalInstance.loginPopup({ scopes: ["User.Read"] })
+      .then(loginResponse => {
+        console.log('Microsoft Login Response:', loginResponse);
+        document.getElementById('user-info').textContent = 'Signed in as: ' + loginResponse.account.username;
+        // Hide the authentication overlay on successful login
+        document.getElementById('auth-overlay').classList.add('logged-in');
+      })
+      .catch(error => {
+        console.error('Microsoft Login Error:', error);
+      });
+  });
+
+  // ----- Manual Login Functionality -----
+  // Hard-coded credentials for validation
+  const MANUAL_USERNAME = "MFPTestUser@mfptech.com";
+  const MANUAL_PASSWORD = "K*744127034889ug";
+
+  function manualLogin() {
+    const usernameInput = document.getElementById('manual-username');
+    const passwordInput = document.getElementById('manual-password');
+    if (!usernameInput || !passwordInput) {
+      console.error("Manual login inputs not found.");
+      return;
+    }
+    
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+    
+    if (username === MANUAL_USERNAME && password === MANUAL_PASSWORD) {
+      document.getElementById('user-info').textContent = `Signed in as: ${username}`;
+      console.log("Manual login successful.");
+      // Hide the authentication overlay on successful login
+      document.getElementById('auth-overlay').classList.add('logged-in');
+    } else {
+      alert("Login failed. Please check your username and password.");
+      console.log("Manual login failed.");
+    }
   }
   
-  const username = usernameInput.value.trim();
-  const password = passwordInput.value;
-  
-  // Validate credentials
-  if (username === MANUAL_USERNAME && password === MANUAL_PASSWORD) {
-    document.getElementById('user-info').textContent = `Signed in as: ${username}`;
-    console.log("Manual login successful.");
-    // Hide the authentication modal on successful login
-    document.getElementById('auth-container').classList.add('logged-in');
-  } else {
-    alert("Login failed. Please check your username and password.");
-    console.log("Manual login failed.");
-  }
-}
-
-// Attach event listener to the manual login button
-document.getElementById('manual-login-btn').addEventListener('click', manualLogin);
+  document.getElementById('manual-login-btn').addEventListener('click', manualLogin);
+});
