@@ -2003,33 +2003,8 @@ function gatherResultsForAnalysis() {
   return results;
 }
 
-/***************************************************
- * Authentication Section
- ***************************************************/
-/* Wrap authentication code so it runs after DOM is loaded */
 document.addEventListener('DOMContentLoaded', function() {
-  // Microsoft Sign-In
-  const msalConfig = {
-    auth: {
-      clientId: "REAL_MICROSOFT_CLIENT_ID", // Replace with your actual client ID
-      redirectUri: window.location.origin
-    }
-  };
-  const msalInstance = new msal.PublicClientApplication(msalConfig);
-  document.getElementById('microsoft-signin-btn').addEventListener('click', () => {
-    msalInstance.loginPopup({ scopes: ["User.Read"] })
-      .then(loginResponse => {
-        console.log('Microsoft Login Response:', loginResponse);
-        document.getElementById('user-info').textContent = 'Signed in as: ' + loginResponse.account.username;
-        // Hide the authentication overlay on successful login
-        document.getElementById('auth-overlay').classList.add('logged-in');
-      })
-      .catch(error => {
-        console.error('Microsoft Login Error:', error);
-      });
-  });
-
-  // ----- Manual Login Functionality -----
+  // ----- Manual Login Functionality Only -----
   // Hard-coded credentials for validation
   const MANUAL_USERNAME = "MFPTestUser@mfptech.com";
   const MANUAL_PASSWORD = "K*744127034889ug";
