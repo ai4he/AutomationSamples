@@ -2040,3 +2040,36 @@ document.getElementById('microsoft-signin-btn').addEventListener('click', () => 
       console.error('Microsoft Login Error:', error);
     });
 });
+// ----- Manual Login Functionality -----
+
+// Hard-coded credentials
+const MANUAL_USERNAME = "MFPTestUser@mfptech.com";
+const MANUAL_PASSWORD = "K*744127034889ug";
+
+// Function to perform manual login
+function manualLogin() {
+  // Get the username and password from the input fields
+  const usernameInput = document.getElementById('manual-username');
+  const passwordInput = document.getElementById('manual-password');
+  if (!usernameInput || !passwordInput) {
+    console.error("Manual login inputs not found.");
+    return;
+  }
+  
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value;
+  
+  if (username === MANUAL_USERNAME && password === MANUAL_PASSWORD) {
+    document.getElementById('user-info').textContent = `Signed in as: ${username}`;
+    console.log("Manual login successful.");
+    // Optionally hide the login form
+    document.getElementById('manual-login-form').style.display = 'none';
+  } else {
+    alert("Login failed. Please check your username and password.");
+    console.log("Manual login failed.");
+  }
+}
+
+// Attach event listener to the manual login button
+document.getElementById('manual-login-btn').addEventListener('click', manualLogin);
+
