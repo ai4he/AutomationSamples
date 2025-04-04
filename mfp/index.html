@@ -10,26 +10,44 @@
   
   <!-- Inline Styles for Background and Layout -->
   <style>
-    /* Authentication container */
+    /* Set a full-page background image */
+    body {
+      background: url('your-background-image.jpg') no-repeat center center fixed;
+      background-size: cover;
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+    
+    /* Authentication modal styling */
     #auth-container {
-      text-align: right;
-      padding: 10px;
-      background: rgba(255,255,255,0.9);
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 255, 255, 0.85);
+      padding: 20px 30px;
+      border-radius: 8px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      text-align: center;
+      max-width: 320px;
+      width: 90%;
+      z-index: 1000;
     }
-    /* Styling for the nested level selector */
-    #nested-level-selector {
-      padding: 5px;
-      font-size: 14px;
-      margin: 5px 0;
-    }
-    /* Styling for the analysis progress indicator */
-    #analysis-progress {
-      font-weight: bold;
-      color: #4CAF50;
-      margin-bottom: 10px;
+    /* Hide the auth modal once the user logs in */
+    #auth-container.logged-in {
       display: none;
     }
-    /* Optional styling for the manual login form */
+    
+    /* Social login buttons styling */
+    .social-logins button {
+      margin: 5px;
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    
+    /* Manual login form styling */
     #manual-login-form {
       margin-top: 10px;
       text-align: left;
@@ -37,11 +55,53 @@
     #manual-login-form label {
       display: inline-block;
       width: 80px;
+      font-size: 14px;
     }
     #manual-login-form input {
+      width: 100%;
+      padding: 8px;
+      margin: 5px 0;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+    #manual-login-form button {
+      width: 100%;
+      padding: 10px;
+      background: #4CAF50;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    #manual-login-form button:hover {
+      background: #45a049;
+    }
+    
+    /* User info styling */
+    #user-info {
+      display: block;
+      margin-top: 10px;
+      font-weight: bold;
+      color: #333;
+    }
+    
+    /* Styling for nested level selector */
+    #nested-level-selector {
       padding: 5px;
       font-size: 14px;
-      margin-bottom: 5px;
+      margin: 5px 0;
+    }
+    
+    /* Styling for analysis progress indicator */
+    #analysis-progress {
+      font-weight: bold;
+      color: #4CAF50;
+      margin-bottom: 10px;
+      display: none;
     }
   </style>
   
@@ -51,24 +111,28 @@
   <script src="https://alcdn.msauth.net/browser/2.28.0/js/msal-browser.min.js"></script>
 </head>
 <body>
-  <!-- Authentication UI -->
-  <div id="auth-container" style="display:block;">
-    <button id="google-signin-btn">Sign in with Google</button>
-    <button id="microsoft-signin-btn">Sign in with Microsoft</button>
-    <span id="user-info" style="margin-left: 10px;"></span>
-    
-    <!-- Manual Login Form -->
-    <form id="manual-login-form" onsubmit="event.preventDefault(); manualLogin();">
-      <label for="manual-username">Username:</label>
-      <input type="text" id="manual-username" placeholder="Enter username" required>
-      <br>
-      <label for="manual-password">Password:</label>
-      <input type="password" id="manual-password" placeholder="Enter password" required>
-      <br>
-      <button type="submit" id="manual-login-btn">Login</button>
-    </form>
+  <!-- Authentication Modal -->
+  <div id="auth-container">
+    <h3>Please Log In</h3>
+    <div class="social-logins">
+      <button id="google-signin-btn">Sign in with Google</button>
+      <button id="microsoft-signin-btn">Sign in with Microsoft</button>
+    </div>
+    <div class="manual-login">
+      <form id="manual-login-form" onsubmit="event.preventDefault(); manualLogin();">
+        <label for="manual-username">Username:</label>
+        <input type="text" id="manual-username" placeholder="Enter username" required>
+        <br>
+        <label for="manual-password">Password:</label>
+        <input type="password" id="manual-password" placeholder="Enter password" required>
+        <br>
+        <button type="submit" id="manual-login-btn">Login</button>
+      </form>
+    </div>
+    <span id="user-info"></span>
   </div>
   
+  <!-- Main Content -->
   <div class="container">
     <div class="card">
       <h2>
@@ -92,7 +156,8 @@
         </div>
         <div class="prompt-column">
           <label for="prompt">Prompt</label>
-          <textarea id="prompt" rows="2" cols="25" placeholder="Enter your prompt here">Provide a buy and sell price recommendation
+          <textarea id="prompt" rows="2" cols="25" placeholder="Enter your prompt here">
+Provide a buy and sell price recommendation
           </textarea>
         </div>
       </div>
