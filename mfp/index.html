@@ -10,15 +10,18 @@
   
   <!-- Inline Styles for Background and Layout -->
   <style>
-    /* Set a full-page background image */
+    /* 
+      Make sure 'myBackground.jpg' is in the same folder or adjust path.
+      If you have a different background, replace the filename accordingly.
+    */
     body {
-      background: url('your-background-image.jpg') no-repeat center center fixed;
-      background-size: cover;
       margin: 0;
       padding: 0;
       font-family: Arial, sans-serif;
+      background: url('myBackground.jpg') no-repeat center center fixed;
+      background-size: cover;
     }
-    
+
     /* Authentication modal styling */
     #auth-container {
       position: absolute;
@@ -38,7 +41,7 @@
     #auth-container.logged-in {
       display: none;
     }
-    
+
     /* Social login buttons styling */
     .social-logins button {
       margin: 5px;
@@ -46,7 +49,7 @@
       font-size: 14px;
       cursor: pointer;
     }
-    
+
     /* Manual login form styling */
     #manual-login-form {
       margin-top: 10px;
@@ -80,7 +83,7 @@
     #manual-login-form button:hover {
       background: #45a049;
     }
-    
+
     /* User info styling */
     #user-info {
       display: block;
@@ -88,14 +91,14 @@
       font-weight: bold;
       color: #333;
     }
-    
+
     /* Styling for nested level selector */
     #nested-level-selector {
       padding: 5px;
       font-size: 14px;
       margin: 5px 0;
     }
-    
+
     /* Styling for analysis progress indicator */
     #analysis-progress {
       font-weight: bold;
