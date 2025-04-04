@@ -29,6 +29,20 @@
       margin-bottom: 10px;
       display: none;
     }
+    /* Optional styling for the manual login form */
+    #manual-login-form {
+      margin-top: 10px;
+      text-align: left;
+    }
+    #manual-login-form label {
+      display: inline-block;
+      width: 80px;
+    }
+    #manual-login-form input {
+      padding: 5px;
+      font-size: 14px;
+      margin-bottom: 5px;
+    }
   </style>
   
   <!-- Google Identity Services -->
@@ -38,10 +52,21 @@
 </head>
 <body>
   <!-- Authentication UI -->
-  <div id="auth-container" style="display:none;">
+  <div id="auth-container" style="display:block;">
     <button id="google-signin-btn">Sign in with Google</button>
     <button id="microsoft-signin-btn">Sign in with Microsoft</button>
     <span id="user-info" style="margin-left: 10px;"></span>
+    
+    <!-- Manual Login Form -->
+    <form id="manual-login-form" onsubmit="event.preventDefault(); manualLogin();">
+      <label for="manual-username">Username:</label>
+      <input type="text" id="manual-username" placeholder="Enter username" required>
+      <br>
+      <label for="manual-password">Password:</label>
+      <input type="password" id="manual-password" placeholder="Enter password" required>
+      <br>
+      <button type="submit" id="manual-login-btn">Login</button>
+    </form>
   </div>
   
   <div class="container">
