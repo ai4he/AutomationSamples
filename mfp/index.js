@@ -2007,48 +2007,13 @@ function gatherResultsForAnalysis() {
 
   return results;
 }
-
-/***************************************************
- * Google / MS sign-in from original snippet
- ***************************************************/
-document.getElementById('google-signin-btn').addEventListener('click', () => {
-  google.accounts.id.initialize({
-    client_id: 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com',
-    callback: handleGoogleCredentialResponse
-  });
-  google.accounts.id.prompt();
-});
-function handleGoogleCredentialResponse(response) {
-  console.log('Google Credential Response:', response);
-  document.getElementById('user-info').textContent = 'Signed in with Google';
-}
-
-const msalConfig = {
-  auth: {
-    clientId: "YOUR_MICROSOFT_CLIENT_ID",
-    redirectUri: window.location.origin
-  }
-};
-const msalInstance = new msal.PublicClientApplication(msalConfig);
-document.getElementById('microsoft-signin-btn').addEventListener('click', () => {
-  msalInstance.loginPopup({ scopes: ["User.Read"] })
-    .then(loginResponse => {
-      console.log('Microsoft Login Response:', loginResponse);
-      document.getElementById('user-info').textContent = 'Signed in as: ' + loginResponse.account.username;
-    })
-    .catch(error => {
-      console.error('Microsoft Login Error:', error);
-    });
-});
 // ----- Manual Login Functionality -----
-
-// Hard-coded credentials
+// Hard-coded credentials for validation
 const MANUAL_USERNAME = "MFPTestUser@mfptech.com";
 const MANUAL_PASSWORD = "K*744127034889ug";
 
-// Function to perform manual login
+// Function to perform manual login and validate credentials
 function manualLogin() {
-  // Get the username and password from the input fields
   const usernameInput = document.getElementById('manual-username');
   const passwordInput = document.getElementById('manual-password');
   if (!usernameInput || !passwordInput) {
@@ -2059,11 +2024,12 @@ function manualLogin() {
   const username = usernameInput.value.trim();
   const password = passwordInput.value;
   
+  // Validate credentials
   if (username === MANUAL_USERNAME && password === MANUAL_PASSWORD) {
     document.getElementById('user-info').textContent = `Signed in as: ${username}`;
     console.log("Manual login successful.");
-    // Optionally hide the login form
-    document.getElementById('manual-login-form').style.display = 'none';
+    // Hide the authentication modal on successful login
+    document.getElementById('auth-container').classList.add('logged-in');
   } else {
     alert("Login failed. Please check your username and password.");
     console.log("Manual login failed.");
@@ -2072,4 +2038,3 @@ function manualLogin() {
 
 // Attach event listener to the manual login button
 document.getElementById('manual-login-btn').addEventListener('click', manualLogin);
-
