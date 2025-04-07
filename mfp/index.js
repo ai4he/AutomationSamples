@@ -1843,6 +1843,7 @@ function generateSummaryTableHtml() {
     const dataArray = searchResults[key] || [];
     if (!dataArray.length) return '';
 
+    // For TDSynnex specifically, filter out items with zero quantity
     let filteredDataArray = dataArray;
     if (key === 'tdsynnex') {
       filteredDataArray = dataArray.filter(item => {
@@ -1850,10 +1851,6 @@ function generateSummaryTableHtml() {
         return !isNaN(qty) && qty > 0;
       });
       if (filteredDataArray.length === 0) return '';
-    }
-    
-    if (key === 'epicor') {
-      filteredDataArray = dataArray;
     }
 
     const grouped = {};
@@ -1863,6 +1860,13 @@ function generateSummaryTableHtml() {
       grouped[pnum].push(item);
     });
 
+    function parsePrice(str) {
+      if (!str) return null;
+      const numeric = parseFloat(str.replace(/[^\d.]/g, ''));
+      return isNaN(numeric) ? null : numeric;
+    }
+
+    // Finds the lowest price among all items for a given part
     function findBestPrice(items) {
       let minPrice = null;
       items.forEach(it => {
@@ -1906,13 +1910,31 @@ function generateSummaryTableHtml() {
     let rows = '';
     for (const part in grouped) {
       const bestPrice = findBestPrice(grouped[part]);
-      rows += `
-        <tr>
-          <td>${part}</td>
-          <td>${grouped[part].length}</td>
-          <td>${bestPrice != null ? '$' + bestPrice.toFixed(2) : '-'}</td>
-        </tr>
-      `;
+
+      // For EPICOR (inventory), sum the total quantity instead of counting rows
+      if (key === 'epicor') {
+        const totalQuantity = grouped[part].reduce((sum, it) => {
+          const qty = parseFloat(it.Quantity);
+          return sum + (isNaN(qty) ? 0 : qty);
+        }, 0);
+
+        rows += `
+          <tr>
+            <td>${part}</td>
+            <td>${totalQuantity}</td>
+            <td>${bestPrice != null ? '$' + bestPrice.toFixed(2) : '-'}</td>
+          </tr>
+        `;
+      } else {
+        // For other sources, continue to display "items found" as before
+        rows += `
+          <tr>
+            <td>${part}</td>
+            <td>${grouped[part].length}</td>
+            <td>${bestPrice != null ? '$' + bestPrice.toFixed(2) : '-'}</td>
+          </tr>
+        `;
+      }
     }
 
     return `
@@ -1921,7 +1943,7 @@ function generateSummaryTableHtml() {
         <thead>
           <tr>
             <th>Part Number</th>
-            <th>Items Found</th>
+            <th>${key === 'epicor' ? 'Total Quantity' : 'Items Found'}</th>
             <th>Best Price</th>
           </tr>
         </thead>
@@ -1934,33 +1956,42 @@ function generateSummaryTableHtml() {
 
   let summaryHTML = '';
 
+  // Inventory (Epicor)
   if (document.getElementById('toggle-inventory').checked) {
     summaryHTML += createSummaryTable('epicor', 'Epicor (Inventory)');
   }
+  // BrokerBin
   if (document.getElementById('toggle-brokerbin').checked) {
     summaryHTML += createSummaryTable('brokerbin', 'BrokerBin');
   }
+  // TDSynnex
   if (document.getElementById('toggle-tdsynnex').checked) {
     summaryHTML += createSummaryTable('tdsynnex', 'TDSynnex');
   }
+  // Ingram
   if (document.getElementById('toggle-ingram').checked) {
     summaryHTML += createSummaryTable('ingram', 'Ingram');
   }
+  // AmazonConnector
   if (document.getElementById('toggle-amazon-connector').checked) {
     summaryHTML += createSummaryTable('amazonConnector', 'AmazonConnector');
   }
+  // eBayConnector
   if (document.getElementById('toggle-ebay-connector').checked) {
     summaryHTML += createSummaryTable('ebayConnector', 'eBayConnector');
   }
+  // Amazon
   if (document.getElementById('toggle-amazon').checked) {
     summaryHTML += createSummaryTable('amazon', 'Amazon');
   }
+  // eBay
   if (document.getElementById('toggle-ebay').checked) {
     summaryHTML += createSummaryTable('ebay', 'eBay');
   }
 
   return summaryHTML.trim() || 'No search results yet.';
 }
+
 
 /***************************************************
  * Gathers final results for LLM analysis
