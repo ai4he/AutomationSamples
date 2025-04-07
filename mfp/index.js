@@ -1102,7 +1102,7 @@ async function fetchSalesData(partNumbers) {
               OrderDate: line.OrderHedOrderDate,
               OrderQty: line.OrderQty,
               UnitPrice: line.UnitPrice,
-              Currency: line.currency || line.Currency || '',
+              Currency: line.CurrencyCode || '',
               RequestDate: line.RequestDate,
               NeedByDate: line.NeedByDate
             });
@@ -1224,7 +1224,7 @@ async function fetchPurchasesData(partNumbers) {
                 VendorName: line.VendorName,
                 VendorQty: line.VendorQty,
                 VendorUnitCost: line.VendorUnitCost,
-                Currency: line.currency || line.Currency || '',
+                Currency: line.BaseCurrSymbol || line.CurrSymbol || '',
                 PONum: line.PONum,
                 ReceiptDate: line.ReceiptDate,
                 OrderDate: line.OrderDate,
