@@ -2062,5 +2062,52 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
+  // Attach manual login event
   document.getElementById('manual-login-btn').addEventListener('click', manualLogin);
+
+  // ----- Corporate Login via Azure Implementation -----
+  // Configure MSAL for Azure login.
+  // Replace YOUR_AZURE_CLIENT_ID and YOUR_TENANT_ID with your actual Azure credentials.
+  const msalConfig = {
+      auth: {
+          clientId: "YOUR_AZURE_CLIENT_ID",
+          authority: "https://login.microsoftonline.com/YOUR_TENANT_ID",
+          redirectUri: window.location.origin
+      }
+  };
+
+  const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+  /**
+   * azureLogin triggers the corporate authentication popup.
+   * It uses MSAL to log in the user and, on success, updates the UI with the verified email.
+   */
+  function azureLogin() {
+      const loginRequest = {
+          scopes: ["User.Read"] // Adjust scopes as needed
+      };
+
+      msalInstance.loginPopup(loginRequest)
+          .then((loginResponse) => {
+              // On successful login, update the user info and hide the authentication overlay.
+              const account = loginResponse.account;
+              document.getElementById('user-info').textContent = `Signed in as: ${account.username}`;
+              document.getElementById('auth-overlay').classList.add('logged-in');
+              console.log("Azure login successful:", loginResponse);
+          })
+          .catch((error) => {
+              console.error("Azure login failed:", error);
+              alert("Azure login failed. Please try again.");
+          });
+  }
+
+  // Attach the Azure login function to a new button in the social logins container.
+  const socialLoginsContainer = document.querySelector('.social-logins');
+  if (socialLoginsContainer) {
+      const azureButton = document.createElement('button');
+      azureButton.textContent = "Corporate Login via Azure";
+      azureButton.style.marginRight = "10px"; // Optional: adjust styling as needed
+      azureButton.addEventListener('click', azureLogin);
+      socialLoginsContainer.appendChild(azureButton);
+  }
 });
