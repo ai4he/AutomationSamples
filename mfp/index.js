@@ -2034,4 +2034,33 @@ function gatherResultsForAnalysis() {
   return results;
 }
 
+document.addEventListener('DOMContentLoaded', function() {
+  // ----- Manual Login Functionality Only -----
+  // Hard-coded credentials for validation
+  const MANUAL_USERNAME = "MFPTestUser@mfptech.com";
+  const MANUAL_PASSWORD = "K*744127034889ug";
+
+  function manualLogin() {
+    const usernameInput = document.getElementById('manual-username');
+    const passwordInput = document.getElementById('manual-password');
+    if (!usernameInput || !passwordInput) {
+      console.error("Manual login inputs not found.");
+      return;
+    }
+    
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+    
+    if (username === MANUAL_USERNAME && password === MANUAL_PASSWORD) {
+      document.getElementById('user-info').textContent = `Signed in as: ${username}`;
+      console.log("Manual login successful.");
+      // Hide the authentication overlay on successful login
+      document.getElementById('auth-overlay').classList.add('logged-in');
+    } else {
+      alert("Login failed. Please check your username and password.");
+      console.log("Manual login failed.");
+    }
+  }
+  
+  document.getElementById('manual-login-btn').addEventListener('click', manualLogin);
 });
