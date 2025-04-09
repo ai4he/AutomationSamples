@@ -2033,35 +2033,29 @@ function gatherResultsForAnalysis() {
 
   return results;
 }
-
 document.addEventListener('DOMContentLoaded', function() {
-  // ----- Manual Login Functionality Only -----
-  // Hard-coded credentials for validation
-  const MANUAL_USERNAME = "MFPTestUser@mfptech.com";
-  const MANUAL_PASSWORD = "K*744127034889ug";
-
-
-  function manualLogin() {
-    const usernameInput = document.getElementById('manual-username');
-    const passwordInput = document.getElementById('manual-password');
-    if (!usernameInput || !passwordInput) {
-      console.error("Manual login inputs not found.");
-      return;
+  // Microsoft Sign-In: (Replace the placeholder with your actual client ID)
+  const msalConfig = {
+    auth: {
+      clientId: "55d42531-ba08-4025-9b11-2edfa204e8fc",  // ← Replace with your actual client ID from Azure AD
+      redirectUri: window.location.origin
+      // Optionally, add an authority if you want to restrict sign-in to your tenant:
+      // authority: "https://login.microsoftonline.com/YOUR_TENANT_ID"
     }
-    
-    const username = usernameInput.value.trim();
-    const password = passwordInput.value;
-    
-    if (username === MANUAL_USERNAME && password === MANUAL_PASSWORD) {
-      document.getElementById('user-info').textContent = `Signed in as: ${username}`;
-      console.log("Manual login successful.");
-      // Hide the authentication overlay on successful login
-      document.getElementById('auth-overlay').classList.add('logged-in');
-    } else {
-      alert("Login failed. Please check your username and password.");
-      console.log("Manual login failed.");
-    }
-  }
+  };
+  const msalInstance = new msal.PublicClientApplication(msalConfig);
   
-  document.getElementById('manual-login-btn').addEventListener('click', manualLogin);
+  // Attach event listener to the Microsoft sign-in button
+  document.getElementById('microsoft-signin-btn').addEventListener('click', function() {
+    msalInstance.loginPopup({ scopes: ["User.Read"] })
+      .then(loginResponse => {
+        console.log("Microsoft Login Response:", loginResponse);
+        document.getElementById('user-info').textContent = "Signed in as: " + loginResponse.account.username;
+        // Hide the authentication overlay once the login is successful
+        document.getElementById('auth-overlay').classList.add("logged-in");
+      })
+      .catch(error => {
+        console.error("Microsoft Login Error:", error);
+      });
+  });
 });
