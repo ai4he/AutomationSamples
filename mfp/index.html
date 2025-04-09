@@ -8,7 +8,7 @@
   <!-- External CSS -->
   <link rel="stylesheet" type="text/css" href="index.css" />
   
-  <!-- Inline Styles for Authentication Overlay & Modal (background is preserved from your external CSS) -->
+  <!-- Inline Styles for Authentication Overlay & Modal -->
   <style>
     /* Authentication overlay covers the entire viewport */
     #auth-overlay {
@@ -23,92 +23,67 @@
       justify-content: center;
       z-index: 1000;
     }
-    /* Hide the overlay when logged in */
+    /* When the overlay has the "logged-in" class, hide it */
     #auth-overlay.logged-in {
       display: none;
     }
-    /* Authentication modal styling */
+    /* Authentication modal (the login box) styling */
     #auth-container {
       background: rgba(255, 255, 255, 0.85);
       padding: 20px 30px;
       border-radius: 8px;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
       text-align: center;
       max-width: 320px;
       width: 90%;
     }
-    /* Email login form styling */
-    #email-login-form {
-      margin-top: 10px;
-      text-align: left;
-    }
-    #email-login-form input {
-      width: 100%;
-      padding: 8px;
-      margin: 5px 0;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      box-sizing: border-box;
-      font-size: 14px;
-    }
-    #email-login-form button {
-      width: 100%;
-      padding: 10px;
-      background: #4CAF50;
+    /* Style for the Microsoft login button */
+    #microsoft-signin-btn {
+      padding: 10px 20px;
+      font-size: 16px;
+      background: #0078d4;
       color: #fff;
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      margin-top: 10px;
-      font-size: 14px;
     }
-    #email-login-form button:hover {
-      background: #45a049;
+    #microsoft-signin-btn:hover {
+      background: #005a9e;
     }
-    /* Message styling */
-    #login-message {
+    /* Style for user information display */
+    #user-info {
       display: block;
       margin-top: 10px;
       font-weight: bold;
       color: #333;
     }
-    /* The rest of your inline styles (for nested level selector, analysis progress, etc.) remain the same */
-    #nested-level-selector {
-      padding: 5px;
-      font-size: 14px;
-      margin: 5px 0;
-    }
-    #analysis-progress {
-      font-weight: bold;
-      color: #4CAF50;
-      margin-bottom: 10px;
-      display: none;
-    }
   </style>
+  
+  <!-- Microsoft Authentication Library (MSAL) -->
+  <script src="https://alcdn.msauth.net/browser/2.28.0/js/msal-browser.min.js"></script>
 </head>
 <body>
   <!-- Authentication Overlay -->
   <div id="auth-overlay">
     <div id="auth-container">
       <h3>Please Log In</h3>
-      <!-- Email Login Form -->
-      <form id="email-login-form" onsubmit="event.preventDefault(); sendLoginEmail();">
-        <input type="email" id="login-email" placeholder="Corporate Email" required />
-        <button type="submit" id="email-login-btn">Send Login Link</button>
-      </form>
-      <span id="login-message"></span>
+      <button id="microsoft-signin-btn">Sign in with Microsoft</button>
+      <span id="user-info"></span>
     </div>
   </div>
   
-  <!-- Main Content (unchanged) -->
+  <!-- The rest of your content remains unchanged -->
   <div class="container">
     <div class="card">
       <h2>
         <img src="MINT.png" alt="MINT – MFP Intelligent Neural Technology" />
         <span id="loading-spinner" class="spinner" style="display:none; margin-left:10px;"></span>
       </h2>
+      
       <label for="part-numbers">Part Number</label>
       <input type="text" id="part-numbers" placeholder="Enter part number" />
+      
+      <!-- Model and Prompt Row -->
       <div class="model-prompt-row">
         <div class="model-column">
           <label for="llm-model">Model</label>
@@ -124,6 +99,8 @@ Provide a buy and sell price recommendation
           </textarea>
         </div>
       </div>
+      
+      <!-- Nested Level Option -->
       <div id="search-options" style="margin-top: 10px;">
         <label for="nested-level-selector">Nested Level:</label>
         <select id="nested-level-selector">
@@ -132,11 +109,15 @@ Provide a buy and sell price recommendation
           <option value="-1">Infinite Expansion</option>
         </select>
       </div>
+      
       <div id="alternative-numbers" class="alternative-numbers"></div>
+      
       <div class="button-group">
         <button onclick="handleSearch()">Search</button>
         <button id="stop-search-btn" style="display:none;" onclick="stopSearch()">Stop</button>
       </div>
+      
+      <!-- Data Sources Section -->
       <div class="endpoints-toggle">
         <h4>Data Sources:</h4>
         <div class="checkbox-group">
@@ -152,6 +133,8 @@ Provide a buy and sell price recommendation
         </div>
       </div>
     </div>
+    
+    <!-- Tab Navigation -->
     <div class="tabs">
       <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
       <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
@@ -162,15 +145,19 @@ Provide a buy and sell price recommendation
       <button class="tab-button" onclick="switchTab('purchases')">Purchases</button>
       <button class="tab-button" onclick="switchTab('analysis')">Analysis</button>
     </div>
+    
+    <!-- Tab Contents (unchanged) -->
     <div id="summary" class="tab-content active">
       <div id="summary-content">No search results yet.</div>
     </div>
+    
     <div id="lenovo" class="tab-content">
       <div id="lenovo-content">
         <div class="subtabs" id="lenovo-subtabs"></div>
         <div id="lenovo-subcontent"></div>
       </div>
     </div>
+    
     <div id="distributors" class="tab-content">
       <div id="distributors-content">
         <div class="loading" style="display: none;">Loading distributor data...</div>
@@ -190,6 +177,7 @@ Provide a buy and sell price recommendation
         </div>
       </div>
     </div>
+    
     <div id="marketplaces" class="tab-content">
       <div id="marketplaces-content">
         <div class="ebay-results">
@@ -214,24 +202,28 @@ Provide a buy and sell price recommendation
         </div>
       </div>
     </div>
+    
     <div id="inventory" class="tab-content">
       <div id="inventory-content">
         <div class="loading" style="display: none;">Loading inventory data...</div>
         <div class="inventory-results"></div>
       </div>
     </div>
+    
     <div id="sales" class="tab-content">
       <div id="sales-content">
         <div class="loading" style="display:none;">Loading sales data...</div>
         <div class="sales-results"></div>
       </div>
     </div>
+    
     <div id="purchases" class="tab-content">
       <div id="purchases-content">
         <div class="loading" style="display:none;">Loading purchases data...</div>
         <div class="purchases-results"></div>
       </div>
     </div>
+    
     <div id="analysis" class="tab-content">
       <div id="analysis-content">
         <h3>Analysis Summary</h3>
