@@ -2033,16 +2033,18 @@ function gatherResultsForAnalysis() {
 
   return results;
 }
+
 document.addEventListener('DOMContentLoaded', function() {
-  // Microsoft Sign-In: (Replace the placeholder with your actual client ID)
+  // Microsoft Sign-In using MSAL (OAuth)
   const msalConfig = {
     auth: {
-      clientId: "55d42531-ba08-4025-9b11-2edfa204e8fc",  // ← Replace with your actual client ID from Azure AD
-      redirectUri: window.location.origin
-      // Optionally, add an authority if you want to restrict sign-in to your tenant:
+      clientId: "55d42531-ba08-4025-9b11-2edfa204e8fc", // Replace with your actual Azure AD client ID (a GUID)
+      redirectUri: window.location.origin,
+      // Optional: To restrict sign-in to your tenant, uncomment the next line and replace YOUR_TENANT_ID with your tenant's ID.
       // authority: "https://login.microsoftonline.com/YOUR_TENANT_ID"
     }
   };
+  
   const msalInstance = new msal.PublicClientApplication(msalConfig);
   
   // Attach event listener to the Microsoft sign-in button
@@ -2051,11 +2053,18 @@ document.addEventListener('DOMContentLoaded', function() {
       .then(loginResponse => {
         console.log("Microsoft Login Response:", loginResponse);
         document.getElementById('user-info').textContent = "Signed in as: " + loginResponse.account.username;
-        // Hide the authentication overlay once the login is successful
+        // Hide the authentication overlay upon successful login
         document.getElementById('auth-overlay').classList.add("logged-in");
       })
       .catch(error => {
         console.error("Microsoft Login Error:", error);
+        alert("Microsoft login failed. Please try again or contact support.");
       });
   });
+  
+  // (If you need additional code for your application initialization, it goes below this block.)
+  
+  /***************************************************
+   * Your remaining application code (search, UI, endpoints, chat, etc.) remains unchanged.
+   ***************************************************/
 });
