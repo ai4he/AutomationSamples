@@ -2038,22 +2038,22 @@ document.addEventListener('DOMContentLoaded', function() {
   // Microsoft Sign-In using MSAL (OAuth)
   const msalConfig = {
     auth: {
-      clientId: "55d42531-ba08-4025-9b11-2edfa204e8fc", // Replace with your actual Azure AD client ID (a GUID)
-      redirectUri: window.location.origin,
-      // Optional: To restrict sign-in to your tenant, uncomment the next line and replace YOUR_TENANT_ID with your tenant's ID.
+      clientId: "55d42531-ba08-4025-9b11-2edfa204e8fc",  // Replace with your actual Azure AD client ID
+      redirectUri: window.location.origin
+      // If you want to restrict sign-in to a specific tenant, add:
       // authority: "https://login.microsoftonline.com/YOUR_TENANT_ID"
     }
   };
-  
+
   const msalInstance = new msal.PublicClientApplication(msalConfig);
-  
+
   // Attach event listener to the Microsoft sign-in button
   document.getElementById('microsoft-signin-btn').addEventListener('click', function() {
     msalInstance.loginPopup({ scopes: ["User.Read"] })
       .then(loginResponse => {
         console.log("Microsoft Login Response:", loginResponse);
         document.getElementById('user-info').textContent = "Signed in as: " + loginResponse.account.username;
-        // Hide the authentication overlay upon successful login
+        // Hide the authentication overlay on successful login
         document.getElementById('auth-overlay').classList.add("logged-in");
       })
       .catch(error => {
@@ -2061,10 +2061,10 @@ document.addEventListener('DOMContentLoaded', function() {
         alert("Microsoft login failed. Please try again or contact support.");
       });
   });
-  
-  // (If you need additional code for your application initialization, it goes below this block.)
-  
+
   /***************************************************
-   * Your remaining application code (search, UI, endpoints, chat, etc.) remains unchanged.
+   * Your remaining application code (configuration variables,
+   * UI functions, endpoint fetch functions, search logic, chat functionality, etc.)
+   * remains unchanged.
    ***************************************************/
 });
