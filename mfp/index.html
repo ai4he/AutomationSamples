@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MINT – MFP Intelligent Neural Technology</title>
   
   <!-- External CSS -->
-  <link rel="stylesheet" type="text/css" href="index.css">
+  <link rel="stylesheet" type="text/css" href="index.css" />
   
-  <!-- Inline Styles for Authentication Overlay & UI Adjustments (background remains as defined in your external CSS) -->
+  <!-- Inline Styles for Authentication Overlay & Modal (background is preserved from your external CSS) -->
   <style>
     /* Authentication overlay covers the entire viewport */
     #auth-overlay {
@@ -17,13 +17,13 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0, 0, 0, 0.5);
+      background: rgba(0, 0, 0, 0.5); /* semi-transparent dark background */
       display: flex;
       align-items: center;
       justify-content: center;
       z-index: 1000;
     }
-    /* Hide overlay when logged in */
+    /* Hide the overlay when logged in */
     #auth-overlay.logged-in {
       display: none;
     }
@@ -32,24 +32,17 @@
       background: rgba(255, 255, 255, 0.85);
       padding: 20px 30px;
       border-radius: 8px;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
       text-align: center;
       max-width: 320px;
       width: 90%;
     }
-    /* Social logins styling */
-    .social-logins button {
-      margin: 5px;
-      padding: 8px 12px;
-      font-size: 14px;
-      cursor: pointer;
-    }
-    /* Manual login form styling */
-    #manual-login-form {
+    /* Email login form styling */
+    #email-login-form {
       margin-top: 10px;
       text-align: left;
     }
-    #manual-login-form input {
+    #email-login-form input {
       width: 100%;
       padding: 8px;
       margin: 5px 0;
@@ -58,7 +51,7 @@
       box-sizing: border-box;
       font-size: 14px;
     }
-    #manual-login-form button {
+    #email-login-form button {
       width: 100%;
       padding: 10px;
       background: #4CAF50;
@@ -69,23 +62,22 @@
       margin-top: 10px;
       font-size: 14px;
     }
-    #manual-login-form button:hover {
+    #email-login-form button:hover {
       background: #45a049;
     }
-    /* User info styling */
-    #user-info {
+    /* Message styling */
+    #login-message {
       display: block;
       margin-top: 10px;
       font-weight: bold;
       color: #333;
     }
-    /* Nested level selector styling (unchanged) */
+    /* The rest of your inline styles (for nested level selector, analysis progress, etc.) remain the same */
     #nested-level-selector {
       padding: 5px;
       font-size: 14px;
       margin: 5px 0;
     }
-    /* Analysis progress indicator styling (unchanged) */
     #analysis-progress {
       font-weight: bold;
       color: #4CAF50;
@@ -93,27 +85,18 @@
       display: none;
     }
   </style>
-  
-  <!-- Microsoft Authentication Library (MSAL) -->
-  <script src="https://alcdn.msauth.net/browser/2.28.0/js/msal-browser.min.js"></script>
 </head>
 <body>
   <!-- Authentication Overlay -->
   <div id="auth-overlay">
     <div id="auth-container">
       <h3>Please Log In</h3>
-      <div class="social-logins">
-      </div>
-      <div class="manual-login">
-        <form id="manual-login-form" onsubmit="event.preventDefault(); manualLogin();">
-          <input type="text" id="manual-username" placeholder="Username" required>
-          <br>
-          <input type="password" id="manual-password" placeholder="Password" required>
-          <br>
-          <button type="submit" id="manual-login-btn">Login</button>
-        </form>
-      </div>
-      <span id="user-info"></span>
+      <!-- Email Login Form -->
+      <form id="email-login-form" onsubmit="event.preventDefault(); sendLoginEmail();">
+        <input type="email" id="login-email" placeholder="Corporate Email" required />
+        <button type="submit" id="email-login-btn">Send Login Link</button>
+      </form>
+      <span id="login-message"></span>
     </div>
   </div>
   
@@ -121,19 +104,16 @@
   <div class="container">
     <div class="card">
       <h2>
-        <img src="MINT.png" alt="MINT – MFP Intelligent Neural Technology">
+        <img src="MINT.png" alt="MINT – MFP Intelligent Neural Technology" />
         <span id="loading-spinner" class="spinner" style="display:none; margin-left:10px;"></span>
       </h2>
-      
       <label for="part-numbers">Part Number</label>
       <input type="text" id="part-numbers" placeholder="Enter part number" />
-      
-      <!-- Model and Prompt Row -->
       <div class="model-prompt-row">
         <div class="model-column">
           <label for="llm-model">Model</label>
           <select id="llm-model">
-            <option value="gemini" selected>Google Gemini (cloud)</option>
+            <option value="gemini" selected>Gemini Flash 2.0 (cloud)</option>
             <option value="ollama">Local Model (local)</option>
           </select>
         </div>
@@ -144,8 +124,6 @@ Provide a buy and sell price recommendation
           </textarea>
         </div>
       </div>
-      
-      <!-- Nested Level Option -->
       <div id="search-options" style="margin-top: 10px;">
         <label for="nested-level-selector">Nested Level:</label>
         <select id="nested-level-selector">
@@ -154,15 +132,11 @@ Provide a buy and sell price recommendation
           <option value="-1">Infinite Expansion</option>
         </select>
       </div>
-      
       <div id="alternative-numbers" class="alternative-numbers"></div>
-      
       <div class="button-group">
         <button onclick="handleSearch()">Search</button>
         <button id="stop-search-btn" style="display:none;" onclick="stopSearch()">Stop</button>
       </div>
-      
-      <!-- Data Sources Section -->
       <div class="endpoints-toggle">
         <h4>Data Sources:</h4>
         <div class="checkbox-group">
@@ -178,8 +152,6 @@ Provide a buy and sell price recommendation
         </div>
       </div>
     </div>
-    
-    <!-- Tab Navigation -->
     <div class="tabs">
       <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
       <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
@@ -190,19 +162,15 @@ Provide a buy and sell price recommendation
       <button class="tab-button" onclick="switchTab('purchases')">Purchases</button>
       <button class="tab-button" onclick="switchTab('analysis')">Analysis</button>
     </div>
-    
-    <!-- Tab Contents -->
     <div id="summary" class="tab-content active">
       <div id="summary-content">No search results yet.</div>
     </div>
-    
     <div id="lenovo" class="tab-content">
       <div id="lenovo-content">
         <div class="subtabs" id="lenovo-subtabs"></div>
         <div id="lenovo-subcontent"></div>
       </div>
     </div>
-    
     <div id="distributors" class="tab-content">
       <div id="distributors-content">
         <div class="loading" style="display: none;">Loading distributor data...</div>
@@ -222,7 +190,6 @@ Provide a buy and sell price recommendation
         </div>
       </div>
     </div>
-    
     <div id="marketplaces" class="tab-content">
       <div id="marketplaces-content">
         <div class="ebay-results">
@@ -247,34 +214,28 @@ Provide a buy and sell price recommendation
         </div>
       </div>
     </div>
-    
     <div id="inventory" class="tab-content">
       <div id="inventory-content">
         <div class="loading" style="display: none;">Loading inventory data...</div>
         <div class="inventory-results"></div>
       </div>
     </div>
-
     <div id="sales" class="tab-content">
       <div id="sales-content">
         <div class="loading" style="display:none;">Loading sales data...</div>
         <div class="sales-results"></div>
       </div>
     </div>
-
     <div id="purchases" class="tab-content">
       <div id="purchases-content">
         <div class="loading" style="display:none;">Loading purchases data...</div>
         <div class="purchases-results"></div>
       </div>
     </div>
-    
     <div id="analysis" class="tab-content">
       <div id="analysis-content">
         <h3>Analysis Summary</h3>
-        <div id="analysis-progress">
-          Analysis in progress…
-        </div>
+        <div id="analysis-progress">Analysis in progress…</div>
         <div class="analyze-result-text"></div>
         <div id="chat-container-analysis"></div>
       </div>
