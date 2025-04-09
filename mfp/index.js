@@ -2037,6 +2037,9 @@ function gatherResultsForAnalysis() {
 document.addEventListener('DOMContentLoaded', function() {
   // ----- Manual Login Functionality Only -----
   // Hard-coded credentials for validation
+  const MANUAL_USERNAME = "MFPTestUser@mfptech.com";
+  const MANUAL_PASSWORD = "K*744127034889ug";
+
 
   function manualLogin() {
     const usernameInput = document.getElementById('manual-username');
