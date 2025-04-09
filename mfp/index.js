@@ -2035,12 +2035,20 @@ function gatherResultsForAnalysis() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-  // Microsoft Sign-In using MSAL (OAuth) with tenant-specific authority
   const msalConfig = {
     auth: {
       clientId: "55d42531-ba08-4025-9b11-2edfa204e8fc", // Your actual client ID
-      authority: "https://login.microsoftonline.com/9d2b3197-d8d2-43f1-9c75-478b57832274", // Replace YOUR_TENANT_ID with your actual tenant ID
-       redirectUri: "https://haielab.org/AutomationSamples/mfp/index.html" // Exactly as registered in Azure AD
+      authority: "https://login.microsoftonline.com/9d2b3197-d8d2-43f1-9c75-478b57832274", // Your tenant-specific endpoint
+      redirectUri: "https://haielab.org/AutomationSamples/mfp/index.html"
+    },
+    system: {
+      loggerOptions: {
+        loggerCallback: (level, message, containsPii) => {
+          console.log(message);
+        },
+        piiLoggingEnabled: false,
+        logLevel: msal.LogLevel.Verbose
+      }
     }
   };
 
@@ -2051,7 +2059,6 @@ document.addEventListener('DOMContentLoaded', function() {
       .then(loginResponse => {
         console.log("Microsoft Login Response:", loginResponse);
         document.getElementById('user-info').textContent = "Signed in as: " + loginResponse.account.username;
-        // Hide the authentication overlay on successful login
         document.getElementById('auth-overlay').classList.add("logged-in");
       })
       .catch(error => {
