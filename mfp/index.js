@@ -556,7 +556,8 @@ async function handleSearch() {
   conversationHistory = [];
 
   cleanupUI();
-
+  switchTab('summary');
+  
   const partNumberInput = document.getElementById('part-numbers');
   if (!partNumberInput) {
     alert('part number input not found');
