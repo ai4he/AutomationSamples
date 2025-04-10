@@ -2140,7 +2140,7 @@ document.addEventListener('DOMContentLoaded', function() {
     auth: {
       clientId: "55d42531-ba08-4025-9b11-2edfa204e8fc", // Your app's client ID
       authority: "https://login.microsoftonline.com/9d2b3197-d8d2-43f1-9c75-478b57832274", // Your tenant ID
-      redirectUri: "https://www.mfptech.com/mint/" // Must match exactly what is registered in Azure
+      redirectUri: "https://mfptech.com/mint/" // Must match exactly what is registered in Azure
     },
     system: {
       loggerOptions: {
