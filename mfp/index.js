@@ -719,41 +719,74 @@ async function fetchTDSynnexData(partNumbers) {
       try {
         console.log(`TDSynnex: Fetching data for ${number}`);
         const res = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
+        
+        // If the request wasn't successful or returned an error status
         if (!res.ok) {
           console.warn(`TDSynnex: HTTP error ${res.status} for ${number}`);
+          // Still record this part as "not found"
+          newItems.push({
+            sourcePartNumber: source,
+            synnexSKU: '-',
+            mfgPN: number,
+            description: '-',
+            status: "Not found",
+            price: '-',
+            totalQuantity: '0',
+            upcCode: '-',
+            warehouses: []
+          });
           continue;
         }
+        
         const xmlText = await res.text();
-        
-        // Add debug logging to see the raw XML response
-        console.log(`TDSynnex raw XML for ${number}:`, xmlText);
-        
         const xmlDoc = parseXML(xmlText);
-        
-        // Debug the XML structure
-        console.log("XML Document structure:", xmlDoc);
-        
         const priceList = xmlDoc.getElementsByTagName('PriceAvailabilityList')[0];
-        console.log("PriceAvailabilityList exists:", !!priceList);
         
         if (!priceList) {
           console.warn("TDSynnex: No PriceAvailabilityList found for", number);
+          // Record this part as "not found"
+          newItems.push({
+            sourcePartNumber: source,
+            synnexSKU: '-',
+            mfgPN: number,
+            description: '-',
+            status: "Not found",
+            price: '-',
+            totalQuantity: '0',
+            upcCode: '-',
+            warehouses: []
+          });
           continue;
         }
 
-        // Let's check what child elements are available
-        const childNodes = Array.from(priceList.children).map(node => node.nodeName);
-        console.log("PriceAvailability child nodes:", childNodes);
+        // Get status from the XML
+        const status = xmlDoc.querySelector('status')?.textContent || "Unknown";
+        
+        // If status is "Not found", still record this part
+        if (status === "Not found") {
+          newItems.push({
+            sourcePartNumber: source,
+            synnexSKU: xmlDoc.querySelector('synnexSKU')?.textContent || '-',
+            mfgPN: xmlDoc.querySelector('mfgPN')?.textContent || number,
+            description: '-',
+            status: "Not found",
+            price: '-',
+            totalQuantity: '0',
+            upcCode: '-',
+            warehouses: []
+          });
+          continue;
+        }
 
+        // If we got here, the part was found and has data
         const result = {
           sourcePartNumber: source,
           synnexSKU: xmlDoc.querySelector('synnexSKU')?.textContent || '-',
-          mfgPN: xmlDoc.querySelector('mfgPN')?.textContent || '-',
+          mfgPN: xmlDoc.querySelector('mfgPN')?.textContent || number,
           description: xmlDoc.querySelector('description')?.textContent || '-',
-          status: xmlDoc.querySelector('status')?.textContent || '-',
+          status: status,
           price: xmlDoc.querySelector('price')?.textContent || '-',
           totalQuantity: xmlDoc.querySelector('totalQuantity')?.textContent || '0',
-          // Let's check for UPC code
           upcCode: xmlDoc.querySelector('upcCode')?.textContent || '-',
           warehouses: Array.from(xmlDoc.getElementsByTagName('AvailabilityByWarehouse'))
             .map(warehouse => ({
@@ -762,12 +795,21 @@ async function fetchTDSynnexData(partNumbers) {
             }))
         };
         
-        // Debug the extracted values
-        console.log("Extracted TDSynnex data:", result);
-        
         newItems.push(result);
       } catch (err) {
         console.warn('TDSynnex fetch error for', number, err);
+        // Still record this part as "not found" even if there was an error
+        newItems.push({
+          sourcePartNumber: source,
+          synnexSKU: '-',
+          mfgPN: number,
+          description: '-',
+          status: "Error fetching data",
+          price: '-',
+          totalQuantity: '0',
+          upcCode: '-',
+          warehouses: []
+        });
       }
     }
     searchResults.tdsynnex.push(...newItems);
