@@ -788,60 +788,77 @@ function buildTDSynnexTable() {
 
   const allItems = searchResults.tdsynnex;
   
-  // Temporarily show all items for debugging
-  console.log("All TDSynnex items before filtering:", allItems);
-  console.log("Item quantities:", allItems.map(item => item.totalQuantity));
+  if (allItems.length === 0) {
+    return;
+  }
   
-  const filteredItems = allItems.filter(item => {
+  // Check if we have any items with "Not found" status
+  const notFoundItems = allItems.filter(item => item.status === "Not found");
+  const validItems = allItems.filter(item => item.status !== "Not found");
+  
+  // Filter valid items for those with quantity > 0
+  const filteredItems = validItems.filter(item => {
     const qty = parseInt(item.totalQuantity, 10);
     return !isNaN(qty) && qty > 0;
   });
   
-  console.log("Filtered TDSynnex items:", filteredItems);
-  
-  if (filteredItems.length === 0) {
-    // For debugging, show error message when no items with quantity exist
-    resultsDiv.innerHTML = '<div class="info-message">No TDSynnex items with available quantity found.</div>';
-    return;
+  // Display message if we searched for parts but they weren't found
+  if (notFoundItems.length > 0) {
+    resultsDiv.innerHTML = `
+      <div class="info-message" style="padding: 10px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 15px;">
+        <p><strong>Information:</strong> The following part number(s) are not available in TDSynnex's catalog:</p>
+        <ul>
+          ${notFoundItems.map(item => `<li>${item.mfgPN}</li>`).join('')}
+        </ul>
+      </div>
+    `;
+    
+    // If we also have valid items with quantity, show them below the message
+    if (filteredItems.length === 0) {
+      return;
+    }
   }
 
-  const table = document.createElement('table');
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Source Part</th>
-        <th>Synnex SKU</th>
-        <th>Mfg Part Number</th>
-        <th>UPC Code</th>
-        <th>Description</th>
-        <th>Status</th>
-        <th>Price</th>
-        <th>Total Quantity</th>
-        <th>Warehouses</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${filteredItems.map(item => `
+  // Create table for items with quantity
+  if (filteredItems.length > 0) {
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
         <tr>
-          <td>${item.sourcePartNumber}</td>
-          <td>${item.synnexSKU}</td>
-          <td>${item.mfgPN}</td>
-          <td>${item.upcCode || '-'}</td>
-          <td>${item.description}</td>
-          <td>${item.status}</td>
-          <td>${item.price}</td>
-          <td>${item.totalQuantity}</td>
-          <td>${item.warehouses.map(wh => `${wh.city}: ${wh.qty}`).join('<br>')}</td>
+          <th>Source Part</th>
+          <th>Synnex SKU</th>
+          <th>Mfg Part Number</th>
+          <th>UPC Code</th>
+          <th>Description</th>
+          <th>Status</th>
+          <th>Price</th>
+          <th>Total Quantity</th>
+          <th>Warehouses</th>
         </tr>
-      `).join('')}
-    </tbody>
-  `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
-  container.appendChild(table);
-  resultsDiv.appendChild(container);
+      </thead>
+      <tbody>
+        ${filteredItems.map(item => `
+          <tr>
+            <td>${item.sourcePartNumber}</td>
+            <td>${item.synnexSKU}</td>
+            <td>${item.mfgPN}</td>
+            <td>${item.upcCode || '-'}</td>
+            <td>${item.description}</td>
+            <td>${item.status}</td>
+            <td>${item.price}</td>
+            <td>${item.totalQuantity}</td>
+            <td>${item.warehouses.map(wh => `${wh.city}: ${wh.qty}`).join('<br>')}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    const container = document.createElement('div');
+    container.className = 'table-container';
+    container.appendChild(table);
+    resultsDiv.appendChild(container);
 
-  makeTableSortable(table);
+    makeTableSortable(table);
+  }
 }
 
 // 2) Ingram
