@@ -2140,7 +2140,7 @@ document.addEventListener('DOMContentLoaded', function() {
     auth: {
       clientId: "55d42531-ba08-4025-9b11-2edfa204e8fc", // Your app's client ID
       authority: "https://login.microsoftonline.com/9d2b3197-d8d2-43f1-9c75-478b57832274", // Your tenant ID
-      redirectUri: "https://haielab.org/AutomationSamples/mfp/index.html" // Must match exactly what is registered
+      redirectUri: "https://mfptech.com/mint/" // Must match exactly what is registered
     },
     system: {
       loggerOptions: {
