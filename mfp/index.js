@@ -2135,11 +2135,12 @@ function gatherResultsForAnalysis() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  // Microsoft Sign-In using MSAL (OAuth) as an SPA
   const msalConfig = {
     auth: {
       clientId: "55d42531-ba08-4025-9b11-2edfa204e8fc", // Your app's client ID
       authority: "https://login.microsoftonline.com/9d2b3197-d8d2-43f1-9c75-478b57832274", // Your tenant ID
-      redirectUri: "https://www.mfptech.com/mint/" // Your correct redirect URI
+      redirectUri: "https://www.mfptech.com/mint/" // Must match exactly what is registered in Azure
     },
     system: {
       loggerOptions: {
@@ -2156,7 +2157,10 @@ document.addEventListener('DOMContentLoaded', function() {
   const signinBtn = document.getElementById('microsoft-signin-btn');
 
   signinBtn.addEventListener('click', function() {
-    // Disable the button to prevent multiple interactions
+    // Prevent multiple interactions by disabling the button immediately
+    if (signinBtn.disabled) {
+      return; // Already in progress, do nothing
+    }
     signinBtn.disabled = true;
 
     msalInstance.loginPopup({ scopes: ["User.Read"] })
@@ -2171,8 +2175,9 @@ document.addEventListener('DOMContentLoaded', function() {
         alert("Microsoft login failed. Please try again or contact support.");
       })
       .finally(() => {
-        // Re-enable the button when the interaction is complete
+        // Re-enable the button when the login interaction is complete
         signinBtn.disabled = false;
       });
   });
 });
+
