@@ -718,39 +718,16 @@ async function fetchTDSynnexData(partNumbers) {
       if (stopSearchRequested) break;
       try {
         console.log(`TDSynnex: Fetching data for ${number}`);
+        const res = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
         
-        // Add a timeout to the fetch request
-        const timeoutMs = 8000; // 8 seconds timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-        
-        let res;
-        try {
-          res = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`, {
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-        } catch (fetchError) {
-          // Handle timeout or other fetch errors
-          newItems.push({
-            sourcePartNumber: source,
-            synnexSKU: '-',
-            mfgPN: number,  // Use the original part number
-            description: '-',
-            status: fetchError.name === 'AbortError' ? "Request timed out" : "Error fetching data",
-            price: '-',
-            totalQuantity: '0',
-            upcCode: '-',
-            warehouses: []
-          });
-          continue;
-        }
-        
+        // If the request wasn't successful or returned an error status
         if (!res.ok) {
+          console.warn(`TDSynnex: HTTP error ${res.status} for ${number}`);
+          // Still record this part as "not found"
           newItems.push({
             sourcePartNumber: source,
             synnexSKU: '-',
-            mfgPN: number,  // Use the original part number
+            mfgPN: number,
             description: '-',
             status: "Not found",
             price: '-',
@@ -766,10 +743,12 @@ async function fetchTDSynnexData(partNumbers) {
         const priceList = xmlDoc.getElementsByTagName('PriceAvailabilityList')[0];
         
         if (!priceList) {
+          console.warn("TDSynnex: No PriceAvailabilityList found for", number);
+          // Record this part as "not found"
           newItems.push({
             sourcePartNumber: source,
             synnexSKU: '-',
-            mfgPN: number,  // Use the original part number
+            mfgPN: number,
             description: '-',
             status: "Not found",
             price: '-',
@@ -780,13 +759,15 @@ async function fetchTDSynnexData(partNumbers) {
           continue;
         }
 
+        // Get status from the XML
         const status = xmlDoc.querySelector('status')?.textContent || "Unknown";
         
+        // If status is "Not found", still record this part
         if (status === "Not found") {
           newItems.push({
             sourcePartNumber: source,
             synnexSKU: xmlDoc.querySelector('synnexSKU')?.textContent || '-',
-            mfgPN: number,  // Use the original part number
+            mfgPN: xmlDoc.querySelector('mfgPN')?.textContent || number,
             description: '-',
             status: "Not found",
             price: '-',
@@ -817,12 +798,13 @@ async function fetchTDSynnexData(partNumbers) {
         newItems.push(result);
       } catch (err) {
         console.warn('TDSynnex fetch error for', number, err);
+        // Still record this part as "not found" even if there was an error
         newItems.push({
           sourcePartNumber: source,
           synnexSKU: '-',
-          mfgPN: number,  // Use the original part number
+          mfgPN: number,
           description: '-',
-          status: "Error processing data",
+          status: "Error fetching data",
           price: '-',
           totalQuantity: '0',
           upcCode: '-',
@@ -1957,24 +1939,32 @@ function updateSummaryTab() {
 }
 
 function generateSummaryTableHtml() {
-  // ... existing code ...
-  
-  let summaryHTML = '';
+  function createSummaryTable(key, label) {
+    const dataArray = searchResults[key] || [];
+    if (!dataArray.length) return '';
 
-  // Inventory (Epicor)
-  if (document.getElementById('toggle-inventory').checked) {
-    summaryHTML += createSummaryTable('epicor', 'Epicor (Inventory)');
-  }
-  // BrokerBin
-  if (document.getElementById('toggle-brokerbin').checked) {
-    summaryHTML += createSummaryTable('brokerbin', 'BrokerBin');
-  }
-  // TDSynnex - Make sure this section is here and working correctly
-  if (document.getElementById('toggle-tdsynnex').checked) {
-    summaryHTML += createSummaryTable('tdsynnex', 'TDSynnex');
-  }
-  // ... rest of the function ...
-}
+    // For TDSynnex specifically, filter out items with zero quantity
+    let filteredDataArray = dataArray;
+    if (key === 'tdsynnex') {
+      filteredDataArray = dataArray.filter(item => {
+        const qty = parseInt(item.totalQuantity, 10);
+        return !isNaN(qty) && qty > 0;
+      });
+      if (filteredDataArray.length === 0) return '';
+    }
+
+    const grouped = {};
+    filteredDataArray.forEach(item => {
+      const pnum = item.sourcePartNumber || 'Unknown';
+      if (!grouped[pnum]) grouped[pnum] = [];
+      grouped[pnum].push(item);
+    });
+
+    function parsePrice(str) {
+      if (!str) return null;
+      const numeric = parseFloat(str.replace(/[^\d.]/g, ''));
+      return isNaN(numeric) ? null : numeric;
+    }
 
     // Finds the lowest price among all items for a given part
     function findBestPrice(items) {
