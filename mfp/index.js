@@ -2140,7 +2140,7 @@ document.addEventListener('DOMContentLoaded', function() {
     auth: {
       clientId: "55d42531-ba08-4025-9b11-2edfa204e8fc", // Your app's client ID
       authority: "https://login.microsoftonline.com/9d2b3197-d8d2-43f1-9c75-478b57832274", // Your tenant ID
-      redirectUri: "https://mfptech.com/mint/" // Must match exactly what is registered in Azure
+      redirectUri: "https://haielab.org/AutomationSamples/mfp/index.html" // Must match exactly what is registered
     },
     system: {
       loggerOptions: {
@@ -2154,30 +2154,17 @@ document.addEventListener('DOMContentLoaded', function() {
   };
 
   const msalInstance = new msal.PublicClientApplication(msalConfig);
-  const signinBtn = document.getElementById('microsoft-signin-btn');
 
-  signinBtn.addEventListener('click', function() {
-    // Prevent multiple interactions by disabling the button immediately
-    if (signinBtn.disabled) {
-      return; // Already in progress, do nothing
-    }
-    signinBtn.disabled = true;
-
+  document.getElementById('microsoft-signin-btn').addEventListener('click', function() {
     msalInstance.loginPopup({ scopes: ["User.Read"] })
       .then(loginResponse => {
         console.log("Microsoft Login Response:", loginResponse);
         document.getElementById('user-info').textContent = "Signed in as: " + loginResponse.account.username;
-        // Hide the authentication overlay on successful login
         document.getElementById('auth-overlay').classList.add("logged-in");
       })
       .catch(error => {
         console.error("Microsoft Login Error:", error);
         alert("Microsoft login failed. Please try again or contact support.");
-      })
-      .finally(() => {
-        // Re-enable the button when the login interaction is complete
-        signinBtn.disabled = false;
       });
   });
 });
-
