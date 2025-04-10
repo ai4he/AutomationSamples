@@ -717,12 +717,33 @@ async function fetchTDSynnexData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
+        console.log(`TDSynnex: Fetching data for ${number}`);
         const res = await fetch(`https://${serverDomain}/webhook/tdsynnex-search?item=${encodeURIComponent(number)}`);
-        if (!res.ok) continue;
+        if (!res.ok) {
+          console.warn(`TDSynnex: HTTP error ${res.status} for ${number}`);
+          continue;
+        }
         const xmlText = await res.text();
+        
+        // Add debug logging to see the raw XML response
+        console.log(`TDSynnex raw XML for ${number}:`, xmlText);
+        
         const xmlDoc = parseXML(xmlText);
+        
+        // Debug the XML structure
+        console.log("XML Document structure:", xmlDoc);
+        
         const priceList = xmlDoc.getElementsByTagName('PriceAvailabilityList')[0];
-        if (!priceList) continue;
+        console.log("PriceAvailabilityList exists:", !!priceList);
+        
+        if (!priceList) {
+          console.warn("TDSynnex: No PriceAvailabilityList found for", number);
+          continue;
+        }
+
+        // Let's check what child elements are available
+        const childNodes = Array.from(priceList.children).map(node => node.nodeName);
+        console.log("PriceAvailability child nodes:", childNodes);
 
         const result = {
           sourcePartNumber: source,
@@ -732,12 +753,18 @@ async function fetchTDSynnexData(partNumbers) {
           status: xmlDoc.querySelector('status')?.textContent || '-',
           price: xmlDoc.querySelector('price')?.textContent || '-',
           totalQuantity: xmlDoc.querySelector('totalQuantity')?.textContent || '0',
+          // Let's check for UPC code
+          upcCode: xmlDoc.querySelector('upcCode')?.textContent || '-',
           warehouses: Array.from(xmlDoc.getElementsByTagName('AvailabilityByWarehouse'))
             .map(warehouse => ({
               city: warehouse.querySelector('warehouseInfo city')?.textContent,
               qty: warehouse.querySelector('qty')?.textContent
             }))
         };
+        
+        // Debug the extracted values
+        console.log("Extracted TDSynnex data:", result);
+        
         newItems.push(result);
       } catch (err) {
         console.warn('TDSynnex fetch error for', number, err);
@@ -760,12 +787,23 @@ function buildTDSynnexTable() {
   resultsDiv.innerHTML = '';
 
   const allItems = searchResults.tdsynnex;
+  
+  // Temporarily show all items for debugging
+  console.log("All TDSynnex items before filtering:", allItems);
+  console.log("Item quantities:", allItems.map(item => item.totalQuantity));
+  
   const filteredItems = allItems.filter(item => {
     const qty = parseInt(item.totalQuantity, 10);
     return !isNaN(qty) && qty > 0;
   });
   
-  if (filteredItems.length === 0) return;
+  console.log("Filtered TDSynnex items:", filteredItems);
+  
+  if (filteredItems.length === 0) {
+    // For debugging, show error message when no items with quantity exist
+    resultsDiv.innerHTML = '<div class="info-message">No TDSynnex items with available quantity found.</div>';
+    return;
+  }
 
   const table = document.createElement('table');
   table.innerHTML = `
@@ -774,6 +812,7 @@ function buildTDSynnexTable() {
         <th>Source Part</th>
         <th>Synnex SKU</th>
         <th>Mfg Part Number</th>
+        <th>UPC Code</th>
         <th>Description</th>
         <th>Status</th>
         <th>Price</th>
@@ -787,6 +826,7 @@ function buildTDSynnexTable() {
           <td>${item.sourcePartNumber}</td>
           <td>${item.synnexSKU}</td>
           <td>${item.mfgPN}</td>
+          <td>${item.upcCode || '-'}</td>
           <td>${item.description}</td>
           <td>${item.status}</td>
           <td>${item.price}</td>
