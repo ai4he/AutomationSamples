@@ -1943,15 +1943,48 @@ function generateSummaryTableHtml() {
     const dataArray = searchResults[key] || [];
     if (!dataArray.length) return '';
 
-    // For TDSynnex specifically, filter out items with zero quantity
-    let filteredDataArray = dataArray;
-    if (key === 'tdsynnex') {
-      filteredDataArray = dataArray.filter(item => {
-        const qty = parseInt(item.totalQuantity, 10);
-        return !isNaN(qty) && qty > 0;
-      });
-      if (filteredDataArray.length === 0) return '';
-    }
+// Special handling for TDSynnex
+let filteredDataArray = dataArray;
+if (key === 'tdsynnex') {
+  // Always show TDSynnex in the summary, even if all items are "Not found"
+  // This makes TDSynnex behave like other vendors
+  
+  // Check if all items are "Not found"
+  const allNotFound = dataArray.every(item => item.status === "Not found");
+  
+  if (allNotFound && dataArray.length > 0) {
+    // Create a special row for the summary table that shows the part was searched
+    // but not found in TDSynnex's catalog
+    return `
+      <h3>${label} Summary</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Part Number</th>
+            <th>Status</th>
+            <th>Best Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${dataArray.map(item => `
+            <tr>
+              <td>${item.mfgPN || item.sourcePartNumber}</td>
+              <td>Not available</td>
+              <td>-</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+  
+  // If we have no items at all, return empty
+  if (dataArray.length === 0) {
+    return '';
+  }
+  
+  // For non-empty, non-all-Not-found case, use normal logic with all items
+}
 
     const grouped = {};
     filteredDataArray.forEach(item => {
