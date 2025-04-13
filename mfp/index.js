@@ -823,84 +823,63 @@ async function fetchTDSynnexData(partNumbers) {
   }
 }
 
+
 function buildTDSynnexTable() {
   const resultsDiv = document.querySelector('.tdsynnex-results .results-container');
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
   const allItems = searchResults.tdsynnex;
-  
   if (allItems.length === 0) {
     return;
   }
-  
-  // Check if we have any items with "Not found" status
-  const notFoundItems = allItems.filter(item => item.status === "Not found");
-  const validItems = allItems.filter(item => item.status !== "Not found");
-  
-  // Filter valid items for those with quantity > 0 (KEEP this filtering)
-  const filteredItems = validItems.filter(item => {
-    const qty = parseInt(item.totalQuantity, 10);
-    return !isNaN(qty) && qty > 0;
-  });
-  
-  // Display message if we searched for parts but they weren't found
-  if (notFoundItems.length > 0) {
-    resultsDiv.innerHTML = `
-      <div class="info-message" style="padding: 10px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 15px;">
-        <p><strong>Information:</strong> The following part number(s) are not available in TDSynnex's catalog:</p>
-        <ul>
-          ${notFoundItems.map(item => `<li>${item.mfgPN}</li>`).join('')}
-        </ul>
-      </div>
-    `;
-    
-    // If we also have valid items with quantity, show them below the message
-    if (filteredItems.length === 0) {
-      return;
-    }
-  }
 
-  // Create table for items with quantity
-  if (filteredItems.length > 0) {
-    const table = document.createElement('table');
-    table.innerHTML = `
-      <thead>
-        <tr>
-          <th>Source Part</th>
-          <th>Synnex SKU</th>
-          <th>Mfg Part Number</th>
-          <th>UPC Code</th>
-          <th>Description</th>
-          <th>Status</th>
-          <th>Price</th>
-          <th>Total Quantity</th>
-          <th>Warehouses</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${filteredItems.map(item => `
+  // Build a single table including both "found" and "not found" items,
+  // showing quantity = 0 for any "Not found" entries.
+  const table = document.createElement('table');
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Source Part</th>
+        <th>Synnex SKU</th>
+        <th>Mfg Part Number</th>
+        <th>UPC Code</th>
+        <th>Description</th>
+        <th>Status</th>
+        <th>Price</th>
+        <th>Total Quantity</th>
+        <th>Warehouses</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${allItems.map(item => {
+        const totalQty = (item.status === 'Not found') ? '0' : (item.totalQuantity || '0');
+        return `
           <tr>
-            <td>${item.sourcePartNumber}</td>
-            <td>${item.synnexSKU}</td>
-            <td>${item.mfgPN}</td>
+            <td>${item.sourcePartNumber || '-'}</td>
+            <td>${item.synnexSKU || '-'}</td>
+            <td>${item.mfgPN || '-'}</td>
             <td>${item.upcCode || '-'}</td>
-            <td>${item.description}</td>
-            <td>${item.status}</td>
-            <td>${item.price}</td>
-            <td>${item.totalQuantity}</td>
-            <td>${item.warehouses.map(wh => `${wh.city}: ${wh.qty}`).join('<br>')}</td>
+            <td>${item.description || '-'}</td>
+            <td>${item.status || '-'}</td>
+            <td>${item.price || '-'}</td>
+            <td>${totalQty}</td>
+            <td>${
+              Array.isArray(item.warehouses) && item.warehouses.length > 0
+                ? item.warehouses.map(wh => `${wh.city}: ${wh.qty}`).join('<br>')
+                : '-'
+            }</td>
           </tr>
-        `).join('')}
-      </tbody>
-    `;
-    const container = document.createElement('div');
-    container.className = 'table-container';
-    container.appendChild(table);
-    resultsDiv.appendChild(container);
+        `;
+      }).join('')}
+    </tbody>
+  `;
+  const container = document.createElement('div');
+  container.className = 'table-container';
+  container.appendChild(table);
+  resultsDiv.appendChild(container);
 
-    makeTableSortable(table);
-  }
+  makeTableSortable(table);
 }
 
 // 2) Ingram
