@@ -838,7 +838,7 @@ function buildTDSynnexTable() {
   const notFoundItems = allItems.filter(item => item.status === "Not found");
   const validItems = allItems.filter(item => item.status !== "Not found");
   
-  // Filter valid items for those with quantity > 0
+  // Filter valid items for those with quantity > 0 (KEEP this filtering)
   const filteredItems = validItems.filter(item => {
     const qty = parseInt(item.totalQuantity, 10);
     return !isNaN(qty) && qty > 0;
@@ -953,6 +953,13 @@ function buildIngramTable() {
   const items = searchResults.ingram;
   if (items.length === 0) return;
 
+  // Create a container with horizontal scrolling enabled
+  const container = document.createElement('div');
+  container.className = 'table-container';
+  container.style.overflowX = 'auto';
+  container.style.width = '100%';
+
+  // Updated table with added "Price" column along with "Availability" and "UPC Code"
   const table = document.createElement('table');
   table.innerHTML = `
     <thead>
@@ -962,6 +969,8 @@ function buildIngramTable() {
         <th>Category</th>
         <th>Vendor</th>
         <th>Part Number</th>
+        <th>Price</th>
+        <th>Availability</th>
         <th>UPC Code</th>
         <th>Product Type</th>
         <th>Status</th>
@@ -975,6 +984,8 @@ function buildIngramTable() {
           <td>${it.category || '-'}</td>
           <td>${it.vendorName || '-'}</td>
           <td>${it.vendorPartNumber || '-'}</td>
+          <td>${(it.price !== undefined && it.price !== null) ? it.price : '-'}</td>
+          <td>${it.availability || '-'}</td>
           <td>${it.upcCode || '-'}</td>
           <td>${it.productType || '-'}</td>
           <td>
@@ -985,13 +996,14 @@ function buildIngramTable() {
       `).join('')}
     </tbody>
   `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
+
   container.appendChild(table);
   resultsDiv.appendChild(container);
 
   makeTableSortable(table);
 }
+
+
 
 // 3) BrokerBin
 async function fetchBrokerBinData(partNumbers) {
@@ -1037,6 +1049,13 @@ function buildBrokerBinTable() {
   const items = searchResults.brokerbin;
   if (items.length === 0) return;
 
+  // Use a scrollable container so that if many columns are present the user can scroll horizontally.
+  const container = document.createElement('div');
+  container.className = 'table-container';
+  container.style.overflowX = 'auto';
+  container.style.width = '100%';
+
+  // Updated table: Added UPC Code column after Manufacturer.
   const table = document.createElement('table');
   table.innerHTML = `
     <thead>
@@ -1046,6 +1065,7 @@ function buildBrokerBinTable() {
         <th>Country</th>
         <th>Part</th>
         <th>Manufacturer</th>
+        <th>UPC Code</th>
         <th>Condition</th>
         <th>Description</th>
         <th>Price</th>
@@ -1061,6 +1081,7 @@ function buildBrokerBinTable() {
           <td>${it.country || '-'}</td>
           <td>${it.part || '-'}</td>
           <td>${it.mfg || '-'}</td>
+          <td>${it.upcCode || '-'}</td>
           <td>${it.cond || '-'}</td>
           <td>${it.description || '-'}</td>
           <td>${it.price ? '$' + parseFloat(it.price).toFixed(2) : '-'}</td>
@@ -1070,13 +1091,13 @@ function buildBrokerBinTable() {
       `).join('')}
     </tbody>
   `;
-  const container = document.createElement('div');
-  container.className = 'table-container';
+  
   container.appendChild(table);
   resultsDiv.appendChild(container);
 
   makeTableSortable(table);
 }
+
 
 // 4) Epicor Inventory
 async function fetchInventoryData(partNumbers) {
@@ -1943,14 +1964,45 @@ function generateSummaryTableHtml() {
     const dataArray = searchResults[key] || [];
     if (!dataArray.length) return '';
 
-// For TDSynnex specifically
+// Special handling for TDSynnex
 let filteredDataArray = dataArray;
 if (key === 'tdsynnex') {
-  // DON'T filter anything for TDSynnex - use all items
-  // DON'T return early - let it proceed to create a summary entry
+  // Always show TDSynnex in the summary, even if all items are "Not found"
+  // This makes TDSynnex behave like other vendors
   
-  // Simply skip the filtering step for TDSynnex
-}
+  // Check if all items are "Not found"
+  const allNotFound = dataArray.every(item => item.status === "Not found");
+  
+  if (allNotFound && dataArray.length > 0) {
+    // Create a special row for the summary table that shows the part was searched
+    // but not found in TDSynnex's catalog
+    return `
+      <h3>${label} Summary</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Part Number</th>
+            <th>Status</th>
+            <th>Best Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${dataArray.map(item => `
+            <tr>
+              <td>${item.mfgPN || item.sourcePartNumber}</td>
+              <td>Not available</td>
+              <td>-</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+  
+  // If we have no items at all, return empty
+  if (dataArray.length === 0) {
+    return '';
+  }
   
   // For non-empty, non-all-Not-found case, use normal logic with all items
 }
@@ -2157,16 +2209,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
   const msalInstance = new msal.PublicClientApplication(msalConfig);
 
-  document.getElementById('microsoft-signin-btn').addEventListener('click', function() {
-    msalInstance.loginPopup({ scopes: ["User.Read"] })
-      .then(loginResponse => {
+  // Handle the redirect response when the app loads
+  msalInstance.handleRedirectPromise()
+    .then(loginResponse => {
+      if (loginResponse) {
         console.log("Microsoft Login Response:", loginResponse);
         document.getElementById('user-info').textContent = "Signed in as: " + loginResponse.account.username;
         document.getElementById('auth-overlay').classList.add("logged-in");
-      })
-      .catch(error => {
-        console.error("Microsoft Login Error:", error);
-        alert("Microsoft login failed. Please try again or contact support.");
-      });
+      }
+    })
+    .catch(error => {
+      console.error("Microsoft Login Error:", error);
+      alert("Microsoft login failed. Please try again or contact support.");
+    });
+
+  // Bind the sign-in button to initiate the redirect login flow
+  document.getElementById('microsoft-signin-btn').addEventListener('click', function() {
+    msalInstance.loginRedirect({ scopes: ["User.Read"] });
   });
 });
