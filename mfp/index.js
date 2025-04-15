@@ -929,53 +929,48 @@ function buildIngramTable() {
   if (!resultsDiv) return;
   resultsDiv.innerHTML = '';
 
-  // Flatten the result data.
-  // The new endpoint returns an array of objects, each having a "data" property that is an array.
-  let items = [];
-  searchResults.ingram.forEach(obj => {
-    if (obj.data && Array.isArray(obj.data)) {
-      items.push(...obj.data);
-    }
-  });
-  
+  const items = searchResults.ingram;
   if (items.length === 0) return;
 
-  // Create a container for the table with horizontal scrolling
+  // Create a container with horizontal scrolling enabled
   const container = document.createElement('div');
   container.className = 'table-container';
   container.style.overflowX = 'auto';
   container.style.width = '100%';
 
-  // Build the table headers and rows.
-  // We now extract the correct quantity using "availability.totalAvailability"
-  // and display the availability flag from "availability.available".
+  // Updated table with added "Price" column along with "Availability" and "UPC Code"
   const table = document.createElement('table');
   table.innerHTML = `
     <thead>
       <tr>
-        <th>Ingram Part Number</th>
-        <th>Vendor Part Number</th>
+        <th>Source Part</th>
         <th>Description</th>
-        <th>Vendor Name</th>
-        <th>Total Availability</th>
-        <th>Available?</th>
-        <th>Retail Price</th>
-        <th>Customer Price</th>
-        <th>UPC</th>
+        <th>Category</th>
+        <th>Vendor</th>
+        <th>Part Number</th>
+        <th>Price</th>
+        <th>Availability</th>
+        <th>UPC Code</th>
+        <th>Product Type</th>
+        <th>Status</th>
       </tr>
     </thead>
     <tbody>
-      ${items.map(item => `
+      ${items.map(it => `
         <tr>
-          <td>${item.ingramPartNumber || '-'}</td>
-          <td>${item.vendorPartNumber || '-'}</td>
-          <td>${item.description || '-'}</td>
-          <td>${item.vendorName || '-'}</td>
-          <td>${(item.availability && item.availability.totalAvailability !== undefined) ? item.availability.totalAvailability : '-'}</td>
-          <td>${(item.availability && item.availability.available) ? 'Yes' : 'No'}</td>
-          <td>${(item.pricing && item.pricing.retailPrice) ? item.pricing.retailPrice : '-'}</td>
-          <td>${(item.pricing && item.pricing.customerPrice) ? item.pricing.customerPrice : '-'}</td>
-          <td>${item.upc ? item.upc : '-'}</td>
+          <td>${it.sourcePartNumber}</td>
+          <td>${it.description || '-'}</td>
+          <td>${it.category || '-'}</td>
+          <td>${it.vendorName || '-'}</td>
+          <td>${it.vendorPartNumber || '-'}</td>
+          <td>${(it.price !== undefined && it.price !== null) ? it.price : '-'}</td>
+          <td>${it.availability || '-'}</td>
+          <td>${it.upcCode || '-'}</td>
+          <td>${it.productType || '-'}</td>
+          <td>
+            ${it.discontinued === 'True' ? '<span class="text-error">Discontinued</span>' : ''}
+            ${it.newProduct === 'True' ? '<span class="text-success">New</span>' : ''}
+          </td>
         </tr>
       `).join('')}
     </tbody>
@@ -984,10 +979,8 @@ function buildIngramTable() {
   container.appendChild(table);
   resultsDiv.appendChild(container);
 
-  // Enable sorting functionality if it is defined in your code.
   makeTableSortable(table);
 }
-
 
 
 
@@ -1945,55 +1938,90 @@ function updateSummaryTab() {
   summaryDiv.innerHTML = notifications + summaryContent;
 }
 
-
 function generateSummaryTableHtml() {
-
-  // Nested helper function that creates a single summary table for a given data key and label
   function createSummaryTable(key, label) {
     const dataArray = searchResults[key] || [];
     if (!dataArray.length) return '';
 
-    // Group items by sourcePartNumber
+// Special handling for TDSynnex
+let filteredDataArray = dataArray;
+if (key === 'tdsynnex') {
+  // Always show TDSynnex in the summary, even if all items are "Not found"
+  // This makes TDSynnex behave like other vendors
+  
+  // Check if all items are "Not found"
+  const allNotFound = dataArray.every(item => item.status === "Not found");
+  
+  if (allNotFound && dataArray.length > 0) {
+    // Create a special row for the summary table that shows the part was searched
+    // but not found in TDSynnex's catalog
+    return `
+      <h3>${label} Summary</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Part Number</th>
+            <th>Status</th>
+            <th>Best Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${dataArray.map(item => `
+            <tr>
+              <td>${item.mfgPN || item.sourcePartNumber}</td>
+              <td>Not available</td>
+              <td>-</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+  
+  // If we have no items at all, return empty
+  if (dataArray.length === 0) {
+    return '';
+  }
+  
+  // For non-empty, non-all-Not-found case, use normal logic with all items
+}
+
     const grouped = {};
-    dataArray.forEach(item => {
+    filteredDataArray.forEach(item => {
       const pnum = item.sourcePartNumber || 'Unknown';
       if (!grouped[pnum]) grouped[pnum] = [];
       grouped[pnum].push(item);
     });
 
-    // Utility to parse raw price strings
-    function parsePriceValue(str) {
+    function parsePrice(str) {
       if (!str) return null;
       const numeric = parseFloat(str.replace(/[^\d.]/g, ''));
       return isNaN(numeric) ? null : numeric;
     }
 
-    // Compute lowest price among items
+    // Finds the lowest price among all items for a given part
     function findBestPrice(items) {
       let minPrice = null;
       items.forEach(it => {
         let priceVal = null;
         switch (key) {
           case 'amazonConnector':
-            if (it.price && it.price.value) {
-              priceVal = parseFloat(it.price.value);
-            }
+            if (it.price && it.price.value) priceVal = parseFloat(it.price.value);
             break;
           case 'ebayConnector':
-            priceVal = parsePriceValue(it.priceWithCurrency);
+            priceVal = parsePrice(it.priceWithCurrency);
             break;
           case 'amazon':
-            priceVal = parsePriceValue(it.rawPrice);
+            priceVal = parsePrice(it.rawPrice);
             break;
           case 'ebay':
-            priceVal = parsePriceValue(it.rawPrice);
+            priceVal = parsePrice(it.rawPrice);
             break;
           case 'brokerbin':
-            // might be a number or a string
             if (typeof it.price === 'number') {
               priceVal = it.price;
-            } else {
-              priceVal = parsePriceValue(it.price);
+            } else if (typeof it.price === 'string') {
+              priceVal = parseFloat(it.price);
             }
             break;
           case 'tdsynnex':
@@ -2001,11 +2029,6 @@ function generateSummaryTableHtml() {
             break;
           case 'epicor':
             priceVal = parseFloat(it.BasePrice);
-            break;
-          case 'ingram':
-            if (it.price !== undefined && it.price !== null) {
-              priceVal = parseFloat(it.price);
-            }
             break;
         }
         if (priceVal != null && !isNaN(priceVal) && priceVal > 0) {
@@ -2017,46 +2040,30 @@ function generateSummaryTableHtml() {
       return minPrice;
     }
 
-    // Compute total quantity for each integration
-    function parseQuantity(item) {
-      switch (key) {
-        case 'epicor':
-          return parseFloat(item.Quantity) || 0;
-        case 'ingram':
-          // In your data structure, quantity is typically found in `availability`
-          return parseFloat(item.availability) || 0;
-        case 'tdsynnex':
-          return parseFloat(item.totalQuantity) || 0;
-        case 'brokerbin':
-          return parseFloat(item.qty) || 0;
-        default:
-          // For connectors or scrapers, default to 0
-          return 0;
-      }
-    }
-
-    // Build table rows
     let rows = '';
     for (const part in grouped) {
-      const items = grouped[part];
-      const bestPrice = findBestPrice(items);
+      const bestPrice = findBestPrice(grouped[part]);
 
-      // For the listed integrations, show total quantity (like Epicor)
-      if (['epicor', 'ingram', 'tdsynnex', 'brokerbin'].includes(key)) {
-        const totalQty = items.reduce((sum, it) => sum + parseQuantity(it), 0);
+      // For EPICOR (inventory), sum the total quantity instead of counting rows
+      if (key === 'epicor') {
+        const totalQuantity = grouped[part].reduce((sum, it) => {
+          const qty = parseFloat(it.Quantity);
+          return sum + (isNaN(qty) ? 0 : qty);
+        }, 0);
+
         rows += `
           <tr>
             <td>${part}</td>
-            <td>${totalQty}</td>
+            <td>${totalQuantity}</td>
             <td>${bestPrice != null ? '$' + bestPrice.toFixed(2) : '-'}</td>
           </tr>
         `;
       } else {
-        // Otherwise, show how many rows were found
+        // For other sources, continue to display "items found" as before
         rows += `
           <tr>
             <td>${part}</td>
-            <td>${items.length}</td>
+            <td>${grouped[part].length}</td>
             <td>${bestPrice != null ? '$' + bestPrice.toFixed(2) : '-'}</td>
           </tr>
         `;
@@ -2069,11 +2076,7 @@ function generateSummaryTableHtml() {
         <thead>
           <tr>
             <th>Part Number</th>
-            <th>${
-              ['epicor', 'ingram', 'tdsynnex', 'brokerbin'].includes(key)
-                ? 'Total Quantity'
-                : 'Items Found'
-            }</th>
+            <th>${key === 'epicor' ? 'Total Quantity' : 'Items Found'}</th>
             <th>Best Price</th>
           </tr>
         </thead>
@@ -2084,35 +2087,41 @@ function generateSummaryTableHtml() {
     `;
   }
 
-  // Build the summary HTML by including each data source if enabled
   let summaryHTML = '';
 
+  // Inventory (Epicor)
   if (document.getElementById('toggle-inventory').checked) {
     summaryHTML += createSummaryTable('epicor', 'Epicor (Inventory)');
   }
+  // BrokerBin
   if (document.getElementById('toggle-brokerbin').checked) {
     summaryHTML += createSummaryTable('brokerbin', 'BrokerBin');
   }
+  // TDSynnex
   if (document.getElementById('toggle-tdsynnex').checked) {
     summaryHTML += createSummaryTable('tdsynnex', 'TDSynnex');
   }
+  // Ingram
   if (document.getElementById('toggle-ingram').checked) {
     summaryHTML += createSummaryTable('ingram', 'Ingram');
   }
+  // AmazonConnector
   if (document.getElementById('toggle-amazon-connector').checked) {
     summaryHTML += createSummaryTable('amazonConnector', 'AmazonConnector');
   }
+  // eBayConnector
   if (document.getElementById('toggle-ebay-connector').checked) {
     summaryHTML += createSummaryTable('ebayConnector', 'eBayConnector');
   }
+  // Amazon
   if (document.getElementById('toggle-amazon').checked) {
     summaryHTML += createSummaryTable('amazon', 'Amazon');
   }
+  // eBay
   if (document.getElementById('toggle-ebay').checked) {
     summaryHTML += createSummaryTable('ebay', 'eBay');
   }
 
-  // If no summary was generated, return a default message
   return summaryHTML.trim() || 'No search results yet.';
 }
 
