@@ -54,7 +54,8 @@ let searchResults = {
   epicor: [],
   sales: [],
   purchases: [],
-  lenovo: []
+  lenovo: [],
+  lenovoWarranty: [],
 };
 
 // Keep track of how many endpoint requests are currently active
@@ -123,6 +124,11 @@ function cleanupUI() {
   const lenovoSubcontent = document.getElementById('lenovo-subcontent');
   if (lenovoSubtabs) lenovoSubtabs.innerHTML = '';
   if (lenovoSubcontent) lenovoSubcontent.innerHTML = '';
+
+  const lenovoWarrantySubtabs = document.getElementById('lenovo-warranty-subtabs');
+  const lenovoWarrantySubcontent = document.getElementById('lenovo-warranty-subcontent');
+  if (lenovoWarrantySubtabs) lenovoWarrantySubtabs.innerHTML = '';
+  if (lenovoWarrantySubcontent) lenovoWarrantySubcontent.innerHTML = '';
   
   const analysisDiv = document.getElementById('analysis-content');
   if (analysisDiv) {
@@ -696,6 +702,10 @@ async function executeEndpointSearches(partNumbers) {
 
   if (document.getElementById('toggle-lenovo').checked) {
     tasks.push(fetchLenovoData(partNumbers));
+  }
+
+  if (document.getElementById('toggle-lenovo-warranty').checked) {
+    tasks.push(fetchLenovoWarrantyData(partNumbers));
   }
 
   await Promise.all(tasks);
@@ -1852,6 +1862,119 @@ function buildEbayScraperTable() {
 
   makeTableSortable(table);
 }
+
+/***************************************************
+ * Lenovo Warranty UI and Data Fetching
+ ***************************************************/
+
+function buildLenovoWarrantyUI() {
+  const lenovoWarrantyDiv = document.getElementById('lenovo-warranty-content');
+  if (!lenovoWarrantyDiv) return;
+
+  let subtabs = document.getElementById('lenovo-warranty-subtabs');
+  let subcontent = document.getElementById('lenovo-warranty-subcontent');
+
+  if (!subtabs) {
+    subtabs = document.createElement('div');
+    subtabs.id = 'lenovo-warranty-subtabs';
+    subtabs.className = 'subtabs';
+    lenovoWarrantyDiv.appendChild(subtabs);
+  }
+  if (!subcontent) {
+    subcontent = document.createElement('div');
+    subcontent.id = 'lenovo-warranty-subcontent';
+    lenovoWarrantyDiv.appendChild(subcontent);
+  }
+
+  subtabs.innerHTML = '';
+  subcontent.innerHTML = '';
+
+  const allResults = searchResults.lenovoWarranty;
+  if (!allResults || allResults.length === 0) {
+    subtabs.innerHTML = '<div class="error">No Lenovo Warranty data found</div>';
+    return;
+  }
+
+  allResults.forEach((doc, index) => {
+    const subtabButton = document.createElement('button');
+    subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
+    const title = doc.title || 'Untitled Document';
+    const cleanTitle = typeof title === 'string'
+      ? title.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
+      : 'Untitled Document';
+
+    subtabButton.textContent = `${doc.sourcePartNumber} - ${cleanTitle}`;
+    subtabButton.title = cleanTitle;
+    subtabButton.onclick = () => switchLenovoWarrantySubtab(index);
+    subtabs.appendChild(subtabButton);
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
+    contentDiv.setAttribute('data-subtab-index', index);
+
+    let processedContent = decodeUnicodeEscapes(doc.content);
+    if (!processedContent.trim().toLowerCase().startsWith('<table')) {
+      processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
+    }
+    contentDiv.innerHTML = processedContent;
+    subcontent.appendChild(contentDiv);
+  }
+  );
+}
+
+async function fetchLenovoWarrantyData(partNumbers) {
+  if (stopSearchRequested) return;
+  if (!document.getElementById('toggle-lenovo-warranty').checked) return;
+  activeRequestsCount++;
+
+  try {
+    for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
+      try {
+        const response = await fetch(`https://${serverDomain}/webhook/lenovo-api-check?item=${encodeURIComponent(number)}`);
+        if (!response.ok) continue;
+        const data = await response.json();
+        console.log({lenovoWarrantyData: data, number, source});
+
+        if (data?.htmlSpecifications) {
+          const doc = {
+            id: data.id || 'Unknown ID',
+            title: data.product || 'Untitled Document',
+            content: data.htmlSpecifications,
+            sourcePartNumber: source
+          };
+          searchResults.lenovoWarranty.push(doc);
+        }
+
+
+      } catch (error) {
+        console.warn(`Lenovo Warranty error for ${number}:`, error);
+      }
+    }
+    buildLenovoWarrantyUI();
+  } catch (err) {
+    console.error('Lenovo Warranty data fetch error:', err);
+    if (!searchResults.lenovoWarranty.length) {
+      const subtabs = document.getElementById('lenovo-warranty-subtabs');
+      if (subtabs) {
+        subtabs.innerHTML = `<div class="error">Error fetching Lenovo Warranty data: ${err.message}</div>`;
+      }
+    }
+  } finally {
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+function switchLenovoWarrantySubtab(index) {
+  document.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.subtab-button')[index].classList.add('active');
+  document.querySelector(`.subtab-content[data-subtab-index="${index}"]`).classList.add('active');
+}
+
+
+
 
 /***************************************************
  * Lenovo UI and Data Fetching
