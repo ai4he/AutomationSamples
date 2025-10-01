@@ -1962,15 +1962,15 @@ async function fetchLenovoWarrantyData(partNumbers) {
         if (!response.ok) continue;
         const data = await response.json();
         console.log({lenovoWarrantyData: data, number, source});
-        if (data[0]?.htmlSpecifications) {
+
           const doc = {
             id: data[0].id || 'Unknown ID',
             title: data[0].product || 'Untitled Document',
-            content: data[0].htmlSpecifications,
+            content: data[0].htmlSpecifications ?? '<p>No specifications available.</p>',
             sourcePartNumber: source
           };
           searchResults.lenovoWarranty.push(doc);
-        }
+
       } catch (error) {
         console.warn(`Lenovo Warranty error for ${number}:`, error);
       }
