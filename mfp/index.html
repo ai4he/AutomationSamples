@@ -278,6 +278,26 @@ Provide a buy and sell price recommendation
     </div>
   </div>
   
+  <!-- Basic Authentication -->
+  <script type="text/javascript">
+    (function() {
+      if (sessionStorage.getItem('auth') === 'ok') return;
+
+      const user = prompt('Username:');
+      const pass = prompt('Password:');
+
+      const validUser = atob('YWRtaW4='); 
+      const validPass = atob('TWludDEyMzRf');
+
+      if (user === validUser && pass === validPass) {
+        sessionStorage.setItem('auth', 'ok');
+      } else {
+        document.body.innerHTML = '<h1 style="text-align:center;margin-top:50px;">Access Denied</h1>';
+        throw new Error('Access Denied');
+      }
+    })();
+  </script>
+
   <!-- External JavaScript -->
   <script type="text/javascript" src="index.js?v=202504111"></script>
 </body>
