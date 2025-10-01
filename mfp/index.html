@@ -8,7 +8,7 @@
   <!-- External CSS -->
   <link rel="stylesheet" type="text/css" href="index.css" />
   
-  <!-- Inline Styles for Authentication Overlay & Modal -->
+  <!-- Inline Styles for Authentication Overlay, Modal, and Dropdown -->
   <style>
     /* Authentication overlay covers the entire viewport */
     #auth-overlay {
@@ -57,6 +57,24 @@
       font-weight: bold;
       color: #333;
     }
+    /* Style for part numbers dropdown */
+    .part-numbers-dropdown {
+      margin: 15px 0;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 4px;
+    }
+    .part-numbers-dropdown label {
+      font-weight: bold;
+      margin-right: 10px;
+    }
+    .part-numbers-dropdown select {
+      padding: 8px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      min-width: 200px;
+    }
   </style>
   
   <!-- Microsoft Authentication Library (MSAL) -->
@@ -64,15 +82,15 @@
 </head>
 <body>
   <!-- Authentication Overlay -->
-  <div id="auth-overlay">
+  <!-- <div id="auth-overlay">
     <div id="auth-container">
       <h3>Please Log In</h3>
       <button id="microsoft-signin-btn">Sign in with Microsoft</button>
       <span id="user-info"></span>
     </div>
-  </div>
+  </div> -->
   
-  <!-- The rest of your content remains unchanged -->
+  <!-- Main Content -->
   <div class="container">
     <div class="card">
       <h2>
@@ -80,8 +98,8 @@
         <span id="loading-spinner" class="spinner" style="display:none; margin-left:10px;"></span>
       </h2>
       
-      <label for="part-numbers">Part Number</label>
-      <input type="text" id="part-numbers" placeholder="Enter part number" />
+      <label for="part-numbers">Part Number(s)</label>
+      <input type="text" id="part-numbers" placeholder="Enter part numbers (comma or | separated)" />
       
       <!-- Model and Prompt Row -->
       <div class="model-prompt-row">
@@ -127,6 +145,7 @@ Provide a buy and sell price recommendation
           <label><input type="checkbox" id="toggle-ingram" checked> Ingram</label>
           <label><input type="checkbox" id="toggle-lenovo" checked> Lenovo</label>
           <label><input type="checkbox" id="toggle-lenovo-warranty" checked> Lenovo Warranty</label>
+          <label><input type="checkbox" id="toggle-lenovo-parts" checked> Lenovo Parts</label>
           <label><input type="checkbox" id="toggle-ebay" checked> eBay</label>
           <label><input type="checkbox" id="toggle-amazon"> Amazon</label>
           <label><input type="checkbox" id="toggle-ebay-connector"> eBayConnector</label>
@@ -134,12 +153,21 @@ Provide a buy and sell price recommendation
         </div>
       </div>
     </div>
-    
+
+    <!-- Dropdown for multiple part numbers -->
+    <div class="part-numbers-dropdown">
+      <label for="part-numbers-select">Choose a part number:</label>
+      <select name="partNumbers" id="part-numbers-select">
+        <option value="">Select a part number</option>
+      </select>
+    </div>
+
     <!-- Tab Navigation -->
     <div class="tabs">
       <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
       <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
       <button class="tab-button" onclick="switchTab('lenovo-warranty')">Lenovo Warranty</button>
+      <button class="tab-button" onclick="switchTab('lenovo-parts')">Lenovo Parts</button>
       <button class="tab-button" onclick="switchTab('distributors')">Distributors</button>
       <button class="tab-button" onclick="switchTab('marketplaces')">Marketplaces</button>
       <button class="tab-button" onclick="switchTab('inventory')">Inventory</button>
@@ -148,9 +176,9 @@ Provide a buy and sell price recommendation
       <button class="tab-button" onclick="switchTab('analysis')">Analysis</button>
     </div>
     
-    <!-- Tab Contents (unchanged) -->
+    <!-- Tab Contents -->
     <div id="summary" class="tab-content active">
-      <div id="summary-content">No search results yet.</div>
+      <div id="summary-content">Enter part numbers and click Search to begin.</div>
     </div>
     
     <div id="lenovo" class="tab-content">
@@ -166,7 +194,14 @@ Provide a buy and sell price recommendation
         <div id="lenovo-warranty-subcontent"></div>
       </div>
     </div>
-    
+
+    <div id="lenovo-parts" class="tab-content">
+      <div id="lenovo-parts-content">
+        <div class="subtabs" id="lenovo-parts-subtabs"></div>
+        <div id="lenovo-parts-subcontent"></div>
+      </div>
+    </div>
+
     <div id="distributors" class="tab-content">
       <div id="distributors-content">
         <div class="loading" style="display: none;">Loading distributor data...</div>
