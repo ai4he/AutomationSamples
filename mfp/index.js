@@ -666,8 +666,10 @@ async function handleSearch() {
     await Promise.all(searchPromises);
 
     checkIfAllDone();
-    // After all searches, show message to select a part
-    document.getElementById('summary-content').innerHTML = '<p>Search completed for all parts. Please select a part number from the dropdown to view results.</p>';
+    // After all searches, update the summary for the selected part
+    if (selectedPartNumber) {
+      updateSummaryTab();
+    }
   } catch (err) {
     console.error('handleSearch error:', err);
   }
@@ -1941,11 +1943,37 @@ function buildLenovoWarrantyUI() {
     const contentDiv = document.createElement('div');
     contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
     contentDiv.setAttribute('data-subtab-index', index);
-    let processedContent = decodeUnicodeEscapes(doc.content);
-    if (!processedContent.trim().toLowerCase().startsWith('<table')) {
-      processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
+
+    // If no htmlSpecifications, show simple card with image, name, and id
+    if (!doc.content) {
+      contentDiv.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; padding: 20px; gap: 20px;">
+          ${doc.image ? `<img src="${doc.image}" alt="${doc.title}" style="max-width: 300px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+          <div style="text-align: center;">
+            <h3 style="margin: 0 0 10px 0; color: #333;">${doc.title}</h3>
+            <p style="margin: 0; color: #666;">ID: ${doc.id}</p>
+          </div>
+        </div>
+      `;
+    } else {
+      // If htmlSpecifications exists, show it with image at the top
+      let processedContent = decodeUnicodeEscapes(doc.content);
+      if (!processedContent.trim().toLowerCase().startsWith('<table')) {
+        processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
+      }
+      contentDiv.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 20px; padding: 20px;">
+          <div style="display: flex; align-items: flex-start; gap: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            ${doc.image ? `<img src="${doc.image}" alt="${doc.title}" style="max-width: 200px; height: auto; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);">` : ''}
+            <div style="flex: 1;">
+              <h3 style="margin: 0 0 8px 0; color: #333; font-size: 1.3em;">${doc.title}</h3>
+              <p style="margin: 0; color: #666; font-size: 0.95em;">Product ID: <strong>${doc.id}</strong></p>
+            </div>
+          </div>
+          <div>${processedContent}</div>
+        </div>
+      `;
     }
-    contentDiv.innerHTML = processedContent;
     subcontent.appendChild(contentDiv);
   }
   );
@@ -1961,12 +1989,12 @@ async function fetchLenovoWarrantyData(partNumbers) {
         const response = await fetch(`https://${serverDomain}/webhook/lenovo-api/product?item=${encodeURIComponent(number)}`);
         if (!response.ok) continue;
         const data = await response.json();
-        console.log({lenovoWarrantyData: data, number, source});
 
           const doc = {
             id: data[0].id || 'Unknown ID',
             title: data[0].product || 'Untitled Document',
-            content: data[0].htmlSpecifications ?? '<p>No specifications available.</p>',
+            content: data[0].htmlSpecifications ?? null,
+            image: data[0].image || null,
             sourcePartNumber: source
           };
           searchResults.lenovoWarranty.push(doc);
@@ -2132,7 +2160,6 @@ async function fetchLenovoPartsData(partNumbers) {
         const response = await fetch(`https://${serverDomain}/webhook/lenovo-api/part?item=${encodeURIComponent(number)}`);
         if (!response.ok) continue;
         const data = await response.json();
-        console.log({lenovoPartsData: data, number, source});
         if (Array.isArray(data) && data.length > 0) {
           const doc = {
             sourcePartNumber: source,

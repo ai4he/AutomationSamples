@@ -144,12 +144,13 @@ Provide a buy and sell price recommendation
           <label><input type="checkbox" id="toggle-tdsynnex" checked> TDSynnex</label>
           <label><input type="checkbox" id="toggle-ingram" checked> Ingram</label>
           <label><input type="checkbox" id="toggle-lenovo" checked> Lenovo</label>
-          <label><input type="checkbox" id="toggle-lenovo-warranty" checked> Lenovo Warranty</label>
+          <label><input type="checkbox" id="toggle-lenovo-warranty" checked> Lenovo Products</label>
           <label><input type="checkbox" id="toggle-lenovo-parts" checked> Lenovo Parts</label>
           <label><input type="checkbox" id="toggle-ebay" checked> eBay</label>
           <label><input type="checkbox" id="toggle-amazon"> Amazon</label>
-          <label><input type="checkbox" id="toggle-ebay-connector"> eBayConnector</label>
-          <label><input type="checkbox" id="toggle-amazon-connector"> AmazonConnector</label>
+          <!-- TODO: review this -->
+          <label style="display: none;"><input type="checkbox" id="toggle-ebay-connector"> eBayConnector</label>
+          <label style="display: none;"><input type="checkbox" id="toggle-amazon-connector"> AmazonConnector</label>
         </div>
       </div>
     </div>
@@ -166,7 +167,7 @@ Provide a buy and sell price recommendation
     <div class="tabs">
       <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
       <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
-      <button class="tab-button" onclick="switchTab('lenovo-warranty')">Lenovo Warranty</button>
+      <button class="tab-button" onclick="switchTab('lenovo-warranty')">Lenovo Products</button>
       <button class="tab-button" onclick="switchTab('lenovo-parts')">Lenovo Parts</button>
       <button class="tab-button" onclick="switchTab('distributors')">Distributors</button>
       <button class="tab-button" onclick="switchTab('marketplaces')">Marketplaces</button>
