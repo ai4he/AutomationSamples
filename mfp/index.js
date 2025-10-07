@@ -560,7 +560,7 @@ async function handleSearch() {
     alert('part number input not found');
     return;
   }
-  const partNumbersRaw = partNumberInputs.split(/,|\|/);
+  const partNumbersRaw = partNumberInputs.split(/,|\||\s+/);
   const partNumbers = new Set(partNumbersRaw.map(p => p.trim()).filter(p => p));
  
   if (partNumbers.size === 0) {
@@ -726,6 +726,83 @@ function updateAlternativesForSelectedPart() {
 
   altDiv.innerHTML = html;
   altDiv.classList.add('active');
+}
+/***************************************************
+ * Add part number to search without re-searching existing parts
+ ***************************************************/
+async function addPartNumberToSearch(partNumber) {
+  if (!partNumber || !partNumber.trim()) {
+    alert('Invalid part number');
+    return;
+  }
+
+  partNumber = partNumber.trim();
+
+  // Check if part number already exists in dropdown
+  const partsSelect = document.getElementById('part-numbers-select');
+  const existingOptions = Array.from(partsSelect.options);
+  const alreadyExists = existingOptions.some(opt => opt.value === partNumber);
+
+  if (alreadyExists) {
+    // If it exists, just select it
+    selectedPartNumber = partNumber;
+    partsSelect.value = partNumber;
+    updateAlternativesForSelectedPart();
+    refreshCurrentTab();
+    return;
+  }
+
+  // Add to dropdown
+  const option = document.createElement('option');
+  option.value = partNumber;
+  option.textContent = partNumber;
+  option.selected = true;
+  partsSelect.appendChild(option);
+
+  // Update selected part number
+  selectedPartNumber = partNumber;
+
+  // Switch to summary tab
+  switchTab('summary');
+
+  // Clear summary content to show loading state
+  const summaryDiv = document.getElementById('summary-content');
+  if (summaryDiv) {
+    summaryDiv.innerHTML = '<p>Loading data for new part number...</p>';
+  }
+
+  // Show loading indicator
+  const spinner = document.getElementById('loading-spinner');
+  if (spinner) spinner.style.display = 'inline-block';
+
+  try {
+    // Get alternatives data for this part
+    const topData = await getAlternativePartNumbers(partNumber);
+    const topOriginal = topData.original;
+
+    // Store alternatives data for this part
+    partAlternativesData[partNumber] = {
+      description: topData.description,
+      category: topData.category,
+      original: topOriginal,
+      alternatives: []
+    };
+
+    // Update UI for selected part
+    updateAlternativesForSelectedPart();
+
+    // Execute endpoint searches only for this new part
+    await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
+
+    // Update summary and refresh current tab
+    updateSummaryTab();
+    refreshCurrentTab();
+  } catch (err) {
+    console.error('Error adding part number to search:', err);
+    alert('Error adding part number to search: ' + err.message);
+  } finally {
+    if (spinner) spinner.style.display = 'none';
+  }
 }
 /***************************************************
  * A helper to do parallel endpoint searches for a given array of {number, source}
@@ -2089,9 +2166,11 @@ function buildLenovoPartsUI() {
       `;
 
       pageParts.forEach(part => {
+        const partId = part.id || 'N/A';
+        const isClickable = partId !== 'N/A';
         tableHTML += `
           <tr>
-            <td>${part.id || 'N/A'}</td>
+            <td>${isClickable ? `<a href="#" class="part-id-link" data-part-id="${partId}" style="color: #007bff; text-decoration: underline; cursor: pointer;">${partId}</a>` : partId}</td>
             <td>${part.type || 'N/A'}</td>
             <td>${part.name || 'N/A'}</td>
             <td>${part.level || 'N/A'}</td>
@@ -2136,11 +2215,15 @@ function buildLenovoPartsUI() {
     // Initial render
     wrapper.innerHTML = renderPartsPage(0);
 
-    // Add event delegation for pagination
+    // Add event delegation for pagination and part ID clicks
     wrapper.addEventListener('click', (e) => {
       if (e.target.classList.contains('page-btn')) {
         const newPage = parseInt(e.target.dataset.page);
         wrapper.innerHTML = renderPartsPage(newPage);
+      } else if (e.target.classList.contains('part-id-link')) {
+        e.preventDefault();
+        const partId = e.target.dataset.partId;
+        addPartNumberToSearch(partId);
       }
     });
 
