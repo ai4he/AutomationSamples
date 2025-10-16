@@ -612,12 +612,12 @@ async function handleSearch() {
   if (spinner) spinner.style.display = 'inline-block';
   if (stopBtn) stopBtn.style.display = 'inline-block';
 
-  const alreadySearched = new Set();
+  const globalAlreadySearched = new Set();
 
   try {
-    // Search all part numbers in parallel
-    const searchPromises = Array.from(partNumbers).map(async (partNumber) => {
-      if (stopSearchRequested) return;
+    // Search each part number SEQUENTIALLY (like production does)
+    for (const partNumber of partNumbersArray) {
+      if (stopSearchRequested) break;
 
       // Initialize alternatives array for this part
       const finalAlternatives = [];
@@ -654,8 +654,8 @@ async function handleSearch() {
         const freshParts = [];
         for (const alt of newlyAdded) {
           const altUpper = alt.value.trim().toUpperCase();
-          if (!alreadySearched.has(altUpper)) {
-            alreadySearched.add(altUpper);
+          if (!globalAlreadySearched.has(altUpper)) {
+            globalAlreadySearched.add(altUpper);
             freshParts.push({ number: alt.value, source: `${alt.type}: ${alt.value}` });
           }
         }
@@ -669,21 +669,35 @@ async function handleSearch() {
         startExpansions(topOriginal, finalAlternatives, onNewAlts);
       }
 
-      alreadySearched.add(topOriginal.trim().toUpperCase());
+      globalAlreadySearched.add(topOriginal.trim().toUpperCase());
       await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
-    });
-
-    await Promise.all(searchPromises);
+    }
 
     checkIfAllDone();
-    // After all searches, update the summary for the selected part
-    if (selectedPartNumber) {
-      updateSummaryTab();
-    }
+
   } catch (err) {
     console.error('handleSearch error:', err);
   }
 }
+/***************************************************
+ * Get all related part numbers (selected + all alternatives)
+ ***************************************************/
+function getAllRelatedPartNumbers(basePartNumber) {
+  if (!basePartNumber) return [];
+
+  const related = [basePartNumber];
+  const partData = partAlternativesData[basePartNumber];
+
+  if (partData && partData.alternatives && partData.alternatives.length > 0) {
+    // Add all alternative part numbers with their type prefixes (e.g., "FRU: 00AD006")
+    partData.alternatives.forEach(alt => {
+      related.push(`${alt.type}: ${alt.value}`);
+    });
+  }
+
+  return related;
+}
+
 /***************************************************
  * New: Handle dropdown selection
  ***************************************************/
@@ -983,7 +997,8 @@ function buildTDSynnexTable() {
   resultsDiv.innerHTML = '';
   let allItems = searchResults.tdsynnex;
   if (selectedPartNumber) {
-    allItems = allItems.filter(item => item.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    allItems = allItems.filter(item => relatedParts.includes(item.sourcePartNumber));
   }
   if (allItems.length === 0) {
     resultsDiv.innerHTML = '<p>No data available for selected part.</p>';
@@ -1148,7 +1163,8 @@ function buildIngramTable() {
   resultsDiv.innerHTML = '';
   let items = searchResults.ingram;
   if (selectedPartNumber) {
-    items = items.filter(item => item.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    items = items.filter(item => relatedParts.includes(item.sourcePartNumber));
   }
   if (items.length === 0) {
     resultsDiv.innerHTML = '<p>No data available for selected part.</p>';
@@ -1242,7 +1258,8 @@ function buildBrokerBinTable() {
   resultsDiv.innerHTML = '';
   let items = searchResults.brokerbin;
   if (selectedPartNumber) {
-    items = items.filter(item => item.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    items = items.filter(item => relatedParts.includes(item.sourcePartNumber));
   }
   if (items.length === 0) {
     resultsDiv.innerHTML = '<p>No data available for selected part.</p>';
@@ -1340,7 +1357,8 @@ function buildEpicorInventoryTable() {
   resultsDiv.innerHTML = '';
   let allItems = searchResults.epicor;
   if (selectedPartNumber) {
-    allItems = allItems.filter(item => item.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    allItems = allItems.filter(item => relatedParts.includes(item.sourcePartNumber));
   }
   const filteredItems = allItems.filter(it =>
     it.Company && it.Company.trim() !== '' &&
@@ -1445,7 +1463,8 @@ function buildSalesTable() {
   resultsDiv.innerHTML = '';
   let items = searchResults.sales;
   if (selectedPartNumber) {
-    items = items.filter(item => item.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    items = items.filter(item => relatedParts.includes(item.sourcePartNumber));
   }
   if (items.length === 0) {
     resultsDiv.innerHTML = '<p>No data available for selected part.</p>';
@@ -1570,7 +1589,8 @@ function buildPurchasesTable() {
   resultsDiv.innerHTML = '';
   let allItems = searchResults.purchases;
   if (selectedPartNumber) {
-    allItems = allItems.filter(item => item.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    allItems = allItems.filter(item => relatedParts.includes(item.sourcePartNumber));
   }
   const filteredItems = allItems.filter(it =>
     it.PartNum && it.PartNum.trim() !== ''
@@ -1680,7 +1700,8 @@ function buildAmazonConnectorTable() {
   resultsDiv.innerHTML = '';
   let items = searchResults.amazonConnector;
   if (selectedPartNumber) {
-    items = items.filter(item => item.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    items = items.filter(item => relatedParts.includes(item.sourcePartNumber));
   }
   if (items.length === 0) {
     resultsDiv.innerHTML = '<p>No data available for selected part.</p>';
@@ -1765,7 +1786,8 @@ function buildEbayConnectorTable() {
   resultsDiv.innerHTML = '';
   let items = searchResults.ebayConnector;
   if (selectedPartNumber) {
-    items = items.filter(item => item.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    items = items.filter(item => relatedParts.includes(item.sourcePartNumber));
   }
   if (items.length === 0) {
     resultsDiv.innerHTML = '<p>No data available for selected part.</p>';
@@ -1861,7 +1883,8 @@ function buildAmazonScraperTable() {
   resultsDiv.innerHTML = '';
   let items = searchResults.amazon;
   if (selectedPartNumber) {
-    items = items.filter(item => item.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    items = items.filter(item => relatedParts.includes(item.sourcePartNumber));
   }
   if (items.length === 0) {
     resultsDiv.innerHTML = '<p>No data available for selected part.</p>';
@@ -1951,7 +1974,8 @@ function buildEbayScraperTable() {
   resultsDiv.innerHTML = '';
   let items = searchResults.ebay;
   if (selectedPartNumber) {
-    items = items.filter(item => item.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    items = items.filter(item => relatedParts.includes(item.sourcePartNumber));
   }
   if (items.length === 0) {
     resultsDiv.innerHTML = '<p>No data available for selected part.</p>';
@@ -2013,7 +2037,8 @@ function buildLenovoWarrantyUI() {
   subcontent.innerHTML = '';
   let allResults = searchResults.lenovoWarranty;
   if (selectedPartNumber) {
-    allResults = allResults.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    allResults = allResults.filter(doc => relatedParts.includes(doc.sourcePartNumber));
   }
   if (!allResults || allResults.length === 0) {
     subtabs.innerHTML = '<div class="error">No Lenovo Warranty data found for selected part</div>';
@@ -2136,7 +2161,8 @@ function buildLenovoPartsUI() {
   subcontent.innerHTML = '';
   let allResults = searchResults.lenovoParts;
   if (selectedPartNumber) {
-    allResults = allResults.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    allResults = allResults.filter(doc => relatedParts.includes(doc.sourcePartNumber));
   }
   if (!allResults || allResults.length === 0) {
     subtabs.innerHTML = '<div class="error">No Lenovo Parts data found for selected part</div>';
@@ -2372,7 +2398,8 @@ function buildLenovoAsBuiltUI() {
   // Build header with product info from lenovoWarranty data
   let warrantyData = searchResults.lenovoWarranty;
   if (selectedPartNumber) {
-    warrantyData = warrantyData.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    warrantyData = warrantyData.filter(doc => relatedParts.includes(doc.sourcePartNumber));
   }
 
   if (warrantyData && warrantyData.length > 0) {
@@ -2433,7 +2460,8 @@ function buildLenovoAsBuiltUI() {
 
   let allResults = searchResults.lenovoAsBuilt;
   if (selectedPartNumber) {
-    allResults = allResults.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    allResults = allResults.filter(doc => relatedParts.includes(doc.sourcePartNumber));
   }
   if (!allResults || allResults.length === 0) {
     subtabs.innerHTML = '<div class="error">No Lenovo As-Built data found for selected part</div>';
@@ -2810,7 +2838,8 @@ function buildLenovoUI() {
   subcontent.innerHTML = '';
   let allResults = searchResults.lenovo;
   if (selectedPartNumber) {
-    allResults = allResults.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    allResults = allResults.filter(doc => relatedParts.includes(doc.sourcePartNumber));
   }
   if (!allResults || allResults.length === 0) {
     subtabs.innerHTML = '<div class="error">No Lenovo data found for selected part</div>';
@@ -2947,7 +2976,8 @@ function generateSummaryTableHtml() {
   function createSummaryTable(key, label) {
     let dataArray = searchResults[key] || [];
     if (selectedPartNumber) {
-      dataArray = dataArray.filter(item => item.sourcePartNumber === selectedPartNumber);
+      const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+      dataArray = dataArray.filter(item => relatedParts.includes(item.sourcePartNumber));
     }
     if (!dataArray.length) return '';
     /* special handling for the (rare) case where every single
@@ -3544,7 +3574,8 @@ document.addEventListener('keydown', function(e) {
 function downloadAsBuiltPartsListExcel() {
   let allResults = searchResults.lenovoAsBuilt;
   if (selectedPartNumber) {
-    allResults = allResults.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    allResults = allResults.filter(doc => relatedParts.includes(doc.sourcePartNumber));
   }
 
   if (!allResults || allResults.length === 0) {
@@ -3651,7 +3682,8 @@ function downloadAsBuiltPartsListExcel() {
   // Generate filename with serial number
   let warrantyData = searchResults.lenovoWarranty;
   if (selectedPartNumber) {
-    warrantyData = warrantyData.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    warrantyData = warrantyData.filter(doc => relatedParts.includes(doc.sourcePartNumber));
   }
   const serialNumber = warrantyData && warrantyData.length > 0
     ? warrantyData[0].sourcePartNumber
