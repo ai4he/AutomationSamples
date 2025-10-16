@@ -79,6 +79,9 @@
   
   <!-- Microsoft Authentication Library (MSAL) -->
   <script src="https://alcdn.msauth.net/browser/2.28.0/js/msal-browser.min.js"></script>
+
+  <!-- SheetJS for Excel export -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <!-- Authentication Overlay -->
@@ -146,6 +149,7 @@ Provide a buy and sell price recommendation
           <label><input type="checkbox" id="toggle-lenovo" checked> Lenovo</label>
           <label><input type="checkbox" id="toggle-lenovo-warranty" checked> Lenovo Products</label>
           <label><input type="checkbox" id="toggle-lenovo-parts" checked> Lenovo Parts</label>
+          <label><input type="checkbox" id="toggle-lenovo-asbuilt" checked> Lenovo As-Built</label>
           <label><input type="checkbox" id="toggle-ebay" checked> eBay</label>
           <label><input type="checkbox" id="toggle-amazon"> Amazon</label>
           <!-- TODO: review this -->
@@ -169,6 +173,7 @@ Provide a buy and sell price recommendation
       <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
       <button class="tab-button" onclick="switchTab('lenovo-warranty')">Lenovo Products</button>
       <button class="tab-button" onclick="switchTab('lenovo-parts')">Lenovo Parts</button>
+      <button class="tab-button" onclick="switchTab('lenovo-asbuilt')">Lenovo As-Built</button>
       <button class="tab-button" onclick="switchTab('distributors')">Distributors</button>
       <button class="tab-button" onclick="switchTab('marketplaces')">Marketplaces</button>
       <button class="tab-button" onclick="switchTab('inventory')">Inventory</button>
@@ -200,6 +205,13 @@ Provide a buy and sell price recommendation
       <div id="lenovo-parts-content">
         <div class="subtabs" id="lenovo-parts-subtabs"></div>
         <div id="lenovo-parts-subcontent"></div>
+      </div>
+    </div>
+
+    <div id="lenovo-asbuilt" class="tab-content">
+      <div id="lenovo-asbuilt-content">
+        <div class="subtabs" id="lenovo-asbuilt-subtabs"></div>
+        <div id="lenovo-asbuilt-subcontent"></div>
       </div>
     </div>
 
@@ -278,7 +290,32 @@ Provide a buy and sell price recommendation
       </div>
     </div>
   </div>
-  
+
+  <!-- Image Modal -->
+  <div id="image-modal" class="image-modal">
+    <span class="image-modal-close" onclick="closeImageModal()">&times;</span>
+
+    <!-- Info Card -->
+    <div id="modal-info-card" class="modal-info-card"></div>
+
+    <!-- Navigation Arrows -->
+    <button class="modal-nav-arrow modal-nav-prev" onclick="navigateImage(-1)">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+    </button>
+    <button class="modal-nav-arrow modal-nav-next" onclick="navigateImage(1)">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+    </button>
+
+    <!-- Image Container with Zoom -->
+    <div class="modal-image-container">
+      <img class="image-modal-content" id="modal-image" alt="Product view" />
+    </div>
+  </div>
+
   <!-- Basic Authentication -->
   <script type="text/javascript">
     (function() {

@@ -44,6 +44,7 @@ let searchResults = {
   lenovo: [],
   lenovoWarranty: [],
   lenovoParts: [],
+  lenovoAsBuilt: [],
 };
 // Keep track of how many endpoint requests are currently active
 let activeRequestsCount = 0;
@@ -120,6 +121,12 @@ function cleanupUI() {
   const lenovoPartsSubcontent = document.getElementById('lenovo-parts-subcontent');
   if (lenovoPartsSubtabs) lenovoPartsSubtabs.innerHTML = '';
   if (lenovoPartsSubcontent) lenovoPartsSubcontent.innerHTML = '';
+  const lenovoAsBuiltSubtabs = document.getElementById('lenovo-asbuilt-subtabs');
+  const lenovoAsBuiltSubcontent = document.getElementById('lenovo-asbuilt-subcontent');
+  const lenovoAsBuiltHeader = document.getElementById('lenovo-asbuilt-header');
+  if (lenovoAsBuiltSubtabs) lenovoAsBuiltSubtabs.innerHTML = '';
+  if (lenovoAsBuiltSubcontent) lenovoAsBuiltSubcontent.innerHTML = '';
+  if (lenovoAsBuiltHeader) lenovoAsBuiltHeader.innerHTML = '';
 
   const analysisDiv = document.getElementById('analysis-content');
   if (analysisDiv) {
@@ -229,6 +236,9 @@ function refreshCurrentTab() {
       break;
     case 'lenovo-parts':
       buildLenovoPartsUI();
+      break;
+    case 'lenovo-asbuilt':
+      buildLenovoAsBuiltUI();
       break;
     case 'distributors':
       buildTDSynnexTable();
@@ -844,6 +854,9 @@ async function executeEndpointSearches(partNumbers) {
   }
   if (document.getElementById('toggle-lenovo-parts').checked) {
     tasks.push(fetchLenovoPartsData(partNumbers));
+  }
+  if (document.getElementById('toggle-lenovo-asbuilt').checked) {
+    tasks.push(fetchLenovoAsBuiltData(partNumbers));
   }
   await Promise.all(tasks);
 }
@@ -2288,6 +2301,492 @@ function switchLenovoPartsSubtab(index) {
   if (buttons[index]) buttons[index].classList.add('active');
   if (contents[index]) contents[index].classList.add('active');
 }
+
+/***************************************************
+ * Lenovo As-Built UI and Data Fetching
+ ***************************************************/
+async function fetchLenovoAsBuiltData(partNumbers) {
+  if (stopSearchRequested) return;
+  if (!document.getElementById('toggle-lenovo-asbuilt').checked) return;
+  activeRequestsCount++;
+  try {
+    for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
+      try {
+        const response = await fetch(`https://gpu.haielab.org/webhook/lenovo-parts?item=${encodeURIComponent(number)}`);
+        if (!response.ok) continue;
+        const data = await response.json();
+        if (data && data.products && Array.isArray(data.products) && data.products.length > 0) {
+          const doc = {
+            sourcePartNumber: source,
+            products: data.products
+          };
+          searchResults.lenovoAsBuilt.push(doc);
+        }
+      } catch (error) {
+        console.warn(`Lenovo As-Built error for ${number}:`, error);
+      }
+    }
+    buildLenovoAsBuiltUI();
+  } catch (err) {
+    console.error('Lenovo As-Built data fetch error:', err);
+    if (!searchResults.lenovoAsBuilt.length) {
+      const subtabs = document.getElementById('lenovo-asbuilt-subtabs');
+      if (subtabs) {
+        subtabs.innerHTML = `<div class="error">Error fetching Lenovo As-Built data: ${err.message}</div>`;
+      }
+    }
+  } finally {
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+function buildLenovoAsBuiltUI() {
+  const lenovoAsBuiltDiv = document.getElementById('lenovo-asbuilt-content');
+  if (!lenovoAsBuiltDiv) return;
+
+  // Create or get header section
+  let headerSection = document.getElementById('lenovo-asbuilt-header');
+  if (!headerSection) {
+    headerSection = document.createElement('div');
+    headerSection.id = 'lenovo-asbuilt-header';
+    headerSection.className = 'lenovo-asbuilt-header';
+    lenovoAsBuiltDiv.insertBefore(headerSection, lenovoAsBuiltDiv.firstChild);
+  }
+
+  let subtabs = document.getElementById('lenovo-asbuilt-subtabs');
+  let subcontent = document.getElementById('lenovo-asbuilt-subcontent');
+  if (!subtabs) {
+    subtabs = document.createElement('div');
+    subtabs.id = 'lenovo-asbuilt-subtabs';
+    subtabs.className = 'subtabs';
+    lenovoAsBuiltDiv.appendChild(subtabs);
+  }
+  if (!subcontent) {
+    subcontent = document.createElement('div');
+    subcontent.id = 'lenovo-asbuilt-subcontent';
+    lenovoAsBuiltDiv.appendChild(subcontent);
+  }
+
+  // Build header with product info from lenovoWarranty data
+  let warrantyData = searchResults.lenovoWarranty;
+  if (selectedPartNumber) {
+    warrantyData = warrantyData.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+  }
+
+  if (warrantyData && warrantyData.length > 0) {
+    const doc = warrantyData[0]; // Use first result
+    const title = doc.title || 'Product Information';
+    const cleanTitle = typeof title === 'string'
+      ? title.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
+      : 'Product Information';
+
+    headerSection.innerHTML = `
+      <div style="display: flex; align-items: flex-start; gap: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px;">
+        ${doc.image ? `<img src="${doc.image}" alt="${cleanTitle}" style="max-width: 200px; height: auto; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);">` : ''}
+        <div style="flex: 1;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-bottom: 10px;">
+            <h3 style="margin: 0; color: #333; font-size: 1.4em;">${cleanTitle}</h3>
+            <button onclick="downloadAsBuiltPartsListExcel()" style="padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              Download Parts List
+            </button>
+          </div>
+          <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 15px; font-size: 0.95em; align-items: center;">
+            <span style="font-weight: 600; color: #6b7280;">Serial Number:</span>
+            <span style="color: #1f2937;">${doc.sourcePartNumber || 'N/A'}</span>
+            ${doc.id ? `
+              <span style="font-weight: 600; color: #6b7280;">Product ID:</span>
+              <span style="color: #1f2937;">${doc.id}</span>
+            ` : ''}
+            <span style="font-weight: 600; color: #6b7280;">Filter:</span>
+            <div style="position: relative; display: flex; align-items: center; max-width: 400px;">
+              <input
+                type="text"
+                id="asbuilt-filter-input"
+                placeholder="Search by part number..."
+                style="padding: 8px 35px 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; width: 100%; outline: none; transition: border-color 0.2s;"
+                oninput="debouncedFilterAsBuiltProducts()"
+              />
+              <div style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; pointer-events: none;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #9ca3af;">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <path d="m21 21-4.35-4.35"></path>
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  } else {
+    headerSection.innerHTML = '';
+  }
+
+  subtabs.innerHTML = '';
+  subcontent.innerHTML = '';
+
+  let allResults = searchResults.lenovoAsBuilt;
+  if (selectedPartNumber) {
+    allResults = allResults.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+  }
+  if (!allResults || allResults.length === 0) {
+    subtabs.innerHTML = '<div class="error">No Lenovo As-Built data found for selected part</div>';
+    return;
+  }
+  allResults.forEach((doc, index) => {
+    const subtabButton = document.createElement('button');
+    subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
+    subtabButton.textContent = doc.sourcePartNumber;
+    subtabButton.onclick = () => switchLenovoAsBuiltSubtab(index);
+    subtabs.appendChild(subtabButton);
+    const contentDiv = document.createElement('div');
+    contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
+    contentDiv.setAttribute('data-subtab-index', index);
+
+    const itemsPerPage = 10;
+
+    // Store original products and current filtered products
+    let currentProducts = doc.products;
+    let currentFilterTerm = '';
+
+    function generatePaginationNumbers(currentPage, totalPages) {
+      const pages = [];
+      const maxVisible = 7; // Maximum number of page buttons to show
+
+      if (totalPages <= maxVisible) {
+        // Show all pages if total is small
+        for (let i = 0; i < totalPages; i++) {
+          pages.push(i);
+        }
+      } else {
+        // Always show first page
+        pages.push(0);
+
+        let startPage = Math.max(1, currentPage - 2);
+        let endPage = Math.min(totalPages - 2, currentPage + 2);
+
+        // Add ellipsis after first page if needed
+        if (startPage > 1) {
+          pages.push('...');
+        }
+
+        // Add middle pages
+        for (let i = startPage; i <= endPage; i++) {
+          pages.push(i);
+        }
+
+        // Add ellipsis before last page if needed
+        if (endPage < totalPages - 2) {
+          pages.push('...');
+        }
+
+        // Always show last page
+        pages.push(totalPages - 1);
+      }
+
+      return pages;
+    }
+
+    function renderProductsPage(page) {
+      const start = page * itemsPerPage;
+      const end = start + itemsPerPage;
+      const pageProducts = currentProducts.slice(start, end);
+
+      let html = `
+        <div class="pagination-info" style="margin-bottom: 15px; color: #6b7280;">
+          <p>Showing ${start + 1} to ${Math.min(end, currentProducts.length)} of ${currentProducts.length} products${currentFilterTerm ? ' (filtered)' : ''}</p>
+        </div>
+      `;
+
+      pageProducts.forEach(product => {
+        const mainImage = product.imageUrls && product.imageUrls[0] ? product.imageUrls[0] : '';
+        const imageCount = product.imageUrls ? product.imageUrls.length : 0;
+        const cruTierMap = {
+          '1': 'CRU Mandatory',
+          '2': 'Optional',
+          '9': 'FRU Only',
+          '10': 'Serviceable'
+        };
+        const serviceableText = cruTierMap[product.cruTier] || 'N/A';
+
+        html += `
+          <div class="lenovo-product-card" data-product-id="${product.id}">
+            <div class="product-header">
+              <div class="product-image-container" style="position: relative;">
+                ${mainImage ? `<img src="${mainImage}" alt="${product.name}" class="product-main-image clickable-image" data-image-src="${mainImage}" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'150\\' height=\\'150\\'%3E%3Crect fill=\\'%23f3f4f6\\' width=\\'150\\' height=\\'150\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' font-family=\\'Arial\\' font-size=\\'14\\' fill=\\'%236b7280\\'%3ENo Image%3C/text%3E%3C/svg%3E';" />` : `<div class="product-main-image" style="display:flex;align-items:center;justify-content:center;color:#6b7280;">No Image</div>`}
+                ${imageCount > 1 ? `<div class="image-count-badge toggle-gallery">📷 (${imageCount})</div>` : ''}
+              </div>
+              <div class="product-info">
+                <h3>${product.name || 'N/A'}</h3>
+                <div class="product-details">
+                  <span class="detail-label">Part No</span>
+                  <span class="detail-value">${product.id || 'N/A'}</span>
+                  <span class="detail-label">Commodity</span>
+                  <span class="detail-value">${product.commodity || 'N/A'}</span>
+                  ${product.mfgPart ? `
+                    <span class="detail-label">Mfg Part</span>
+                    <span class="detail-value">${product.mfgPart}</span>
+                  ` : ''}
+                  <span class="detail-label">Compatible Models</span>
+                  <span class="detail-value">${product.compatibleModelsCount || 0}</span>
+                  <span class="detail-label">Serviceable</span>
+                  <span class="detail-value">${serviceableText}</span>
+                </div>
+              </div>
+            </div>
+        `;
+
+        // Add image gallery if there are multiple images
+        if (imageCount > 1) {
+          html += `
+            <div class="image-gallery">
+              <div class="gallery-header">
+                <span class="gallery-title">Pictures</span>
+                <button class="gallery-close-btn toggle-gallery">✕</button>
+              </div>
+              <div class="gallery-images">
+                ${product.imageUrls.map(imgUrl => `
+                  <div class="gallery-image-item">
+                    <img src="${imgUrl}" alt="${product.name}" class="clickable-image" data-image-src="${imgUrl}" />
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        html += ``;
+
+        if (product.substitutes && product.substitutes.length > 0) {
+          html += `
+            <div class="product-tabs">
+              <button class="product-tab-btn collapsed toggle-substitutes">Substitutes (${product.substitutes.length})</button>
+            </div>
+            <div class="substitutes-content">
+              <table class="substitutes-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Part No</th>
+                    <th>Sub Type</th>
+                    <th>Compatible Models</th>
+                    <th>Photo</th>
+                  </tr>
+                </thead>
+                <tbody>
+          `;
+
+          product.substitutes.forEach((sub, subIndex) => {
+            const subImage = sub.imageUrls && sub.imageUrls[0] ? sub.imageUrls[0] : '';
+            const subImageCount = sub.imageUrls ? sub.imageUrls.length : 0;
+            html += `
+              <tr data-substitute-index="${subIndex}">
+                <td>${sub.name || 'N/A'}</td>
+                <td><a href="#" class="part-id-link" data-part-id="${sub.id}" style="color: #2563eb; text-decoration: underline; cursor: pointer;">${sub.id || 'N/A'}</a></td>
+                <td><span class="sub-type-badge">${sub.type || 'N/A'}</span></td>
+                <td>
+                  ${sub.compatibleModelsCount || 0}
+                  ${sub.compatibleModelsCount !== product.compatibleModelsCount ?
+                    `<span class="models-badge">${sub.compatibleModelsCount}/${product.compatibleModelsCount}</span>` :
+                    `<span class="models-badge" style="background:#dcfce7;color:#166534;">✓ Match</span>`
+                  }
+                </td>
+                <td>
+                  ${subImage ? `
+                    <div style="position: relative; display: inline-block;">
+                      <img src="${subImage}" alt="${sub.name}" class="substitute-image clickable-image" data-image-src="${subImage}" />
+                      ${subImageCount > 1 ? `<div class="image-count-badge toggle-substitute-gallery" data-substitute-index="${subIndex}" style="position: absolute; bottom: 2px; right: 2px; font-size: 10px; padding: 2px 6px;">📷 ${subImageCount}</div>` : ''}
+                    </div>
+                  ` : 'N/A'}
+                </td>
+              </tr>
+            `;
+
+            // Add image gallery for substitute if there are multiple images
+            if (subImageCount > 1) {
+              html += `
+                <tr class="substitute-gallery-row" data-substitute-index="${subIndex}" style="display: none;">
+                  <td colspan="5">
+                    <div class="image-gallery expanded" style="margin: 10px 0;">
+                      <div class="gallery-header">
+                        <span class="gallery-title">Pictures - ${sub.id}</span>
+                        <button class="gallery-close-btn toggle-substitute-gallery" data-substitute-index="${subIndex}">✕</button>
+                      </div>
+                      <div class="gallery-images">
+                        ${sub.imageUrls.map(imgUrl => `
+                          <div class="gallery-image-item">
+                            <img src="${imgUrl}" alt="${sub.name}" class="clickable-image" data-image-src="${imgUrl}" />
+                          </div>
+                        `).join('')}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            }
+          });
+
+          html += `
+                </tbody>
+              </table>
+            </div>
+          `;
+        } else {
+          html += `<p style="color: #6b7280; padding: 10px 0;">No substitutes available</p>`;
+        }
+
+        html += `</div>`;
+      });
+
+      // Add pagination controls
+      const totalPages = Math.ceil(currentProducts.length / itemsPerPage);
+      if (totalPages > 1) {
+        html += '<div class="product-pagination">';
+
+        // Previous button
+        if (page > 0) {
+          html += `<button class="page-btn" data-page="${page - 1}" style="padding: 8px 12px; border: 1px solid #d1d5db; background: white; color: #374151; border-radius: 4px; cursor: pointer; font-weight: 500;">← Previous</button>`;
+        }
+
+        // Page numbers
+        const pageNumbers = generatePaginationNumbers(page, totalPages);
+        pageNumbers.forEach(pageNum => {
+          if (pageNum === '...') {
+            html += `<span style="padding: 8px 4px; color: #6b7280;">...</span>`;
+          } else {
+            const isActive = pageNum === page;
+            const activeStyles = isActive
+              ? 'background: #2563eb; color: white; border-color: #2563eb;'
+              : 'background: white; color: #374151; border-color: #d1d5db;';
+            html += `<button class="page-btn ${isActive ? 'active' : ''}" data-page="${pageNum}" style="padding: 8px 12px; border: 1px solid; border-radius: 4px; cursor: pointer; min-width: 40px; font-weight: 500; ${activeStyles}">${pageNum + 1}</button>`;
+          }
+        });
+
+        // Next button
+        if (page < totalPages - 1) {
+          html += `<button class="page-btn" data-page="${page + 1}" style="padding: 8px 12px; border: 1px solid #d1d5db; background: white; color: #374151; border-radius: 4px; cursor: pointer; font-weight: 500;">Next →</button>`;
+        }
+
+        html += '</div>';
+      }
+
+      return html;
+    }
+
+    // Function to apply filter and re-render
+    function applyFilter(searchTerm) {
+      currentFilterTerm = searchTerm;
+
+      if (!searchTerm) {
+        // No filter, show all products
+        currentProducts = doc.products;
+      } else {
+        // Filter products based on search term
+        const term = searchTerm.toLowerCase();
+        currentProducts = doc.products.filter(product => {
+          // Search in product ID
+          if (product.id && product.id.toLowerCase().includes(term)) {
+            return true;
+          }
+
+          // Search in substitute part numbers
+          if (product.substitutes && product.substitutes.length > 0) {
+            return product.substitutes.some(sub =>
+              sub.id && sub.id.toLowerCase().includes(term)
+            );
+          }
+
+          return false;
+        });
+      }
+
+      // Re-render first page with filtered products
+      wrapper.innerHTML = renderProductsPage(0);
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'asbuilt-content-wrapper';
+    wrapper.innerHTML = renderProductsPage(0);
+
+    // Store the filter function on the wrapper so it can be called externally
+    wrapper.applyFilter = applyFilter;
+
+    wrapper.addEventListener('click', (e) => {
+      if (e.target.classList.contains('page-btn')) {
+        const newPage = parseInt(e.target.dataset.page);
+        wrapper.innerHTML = renderProductsPage(newPage);
+      } else if (e.target.classList.contains('part-id-link')) {
+        e.preventDefault();
+        const partId = e.target.dataset.partId;
+        addPartNumberToSearch(partId);
+      } else if (e.target.classList.contains('clickable-image')) {
+        const imageSrc = e.target.dataset.imageSrc;
+        if (imageSrc) {
+          openImageModal(imageSrc, e.target);
+        }
+      } else if (e.target.classList.contains('toggle-substitutes')) {
+        e.target.classList.toggle('collapsed');
+        const substitutesContent = e.target.closest('.lenovo-product-card').querySelector('.substitutes-content');
+        if (substitutesContent) {
+          substitutesContent.classList.toggle('expanded');
+        }
+      } else if (e.target.classList.contains('toggle-gallery')) {
+        const productCard = e.target.closest('.lenovo-product-card');
+        const gallery = productCard.querySelector('.image-gallery');
+        if (gallery) {
+          gallery.classList.toggle('expanded');
+        }
+      } else if (e.target.classList.contains('toggle-substitute-gallery')) {
+        const substituteIndex = e.target.dataset.substituteIndex;
+        const galleryRow = wrapper.querySelector(`.substitute-gallery-row[data-substitute-index="${substituteIndex}"]`);
+        if (galleryRow) {
+          if (galleryRow.style.display === 'none') {
+            galleryRow.style.display = 'table-row';
+          } else {
+            galleryRow.style.display = 'none';
+          }
+        }
+      }
+    });
+
+    contentDiv.appendChild(wrapper);
+    subcontent.appendChild(contentDiv);
+  });
+}
+
+function switchLenovoAsBuiltSubtab(index) {
+  const subtabs = document.getElementById('lenovo-asbuilt-subtabs');
+  const subcontent = document.getElementById('lenovo-asbuilt-subcontent');
+  if (!subtabs || !subcontent) return;
+
+  subtabs.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
+  subcontent.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+
+  const buttons = subtabs.querySelectorAll('.subtab-button');
+  const contents = subcontent.querySelectorAll('.subtab-content');
+
+  if (buttons[index]) buttons[index].classList.add('active');
+  if (contents[index]) contents[index].classList.add('active');
+
+  // Clear the filter input when switching tabs
+  const filterInput = document.getElementById('asbuilt-filter-input');
+  if (filterInput) {
+    filterInput.value = '';
+  }
+
+  // Apply empty filter to show all products in the new tab
+  const activeWrapper = subcontent.querySelector('.subtab-content.active .asbuilt-content-wrapper');
+  if (activeWrapper && typeof activeWrapper.applyFilter === 'function') {
+    activeWrapper.applyFilter('');
+  }
+}
+
 /***************************************************
  * Lenovo UI and Data Fetching
  ***************************************************/
@@ -2628,6 +3127,577 @@ function gatherResultsForAnalysis() {
   }
   return results;
 }
+
+/***************************************************
+ * Image Modal Functions with Gallery Navigation
+ ***************************************************/
+let galleryImages = [];
+let currentImageIndex = 0;
+let currentZoomLevel = 0; // 0 = no zoom, 1 = 2x, 2 = 3x
+let isPanning = false;
+let panStartX = 0;
+let panStartY = 0;
+let panCurrentX = 0;
+let panCurrentY = 0;
+
+function collectGalleryImages(clickedElement) {
+  // Collect images only from the same product context as the clicked image
+  const images = [];
+
+  // Check if the clicked image is inside a substitute gallery row
+  const substituteGalleryRow = clickedElement.closest('.substitute-gallery-row');
+
+  if (substituteGalleryRow) {
+    // We're inside a substitute gallery, collect only those images
+    // Find the substitute data row (the row before this gallery row)
+    const substituteIndex = substituteGalleryRow.dataset.substituteIndex;
+    const substituteDataRow = document.querySelector(`tr[data-substitute-index="${substituteIndex}"]:not(.substitute-gallery-row)`);
+
+    let productInfo = null;
+    if (substituteDataRow) {
+      const cells = substituteDataRow.querySelectorAll('td');
+      productInfo = {
+        name: cells[0]?.textContent || 'Substitute Product',
+        id: cells[1]?.querySelector('.part-id-link')?.textContent || 'N/A',
+        type: cells[2]?.querySelector('.sub-type-badge')?.textContent || 'N/A',
+        compatibleModels: cells[3]?.textContent?.trim().split('\n')[0]?.trim() || '0'
+      };
+    }
+
+    const gallery = substituteGalleryRow.querySelector('.image-gallery');
+    if (gallery) {
+      gallery.querySelectorAll('.clickable-image').forEach(img => {
+        const imageSrc = img.dataset.imageSrc;
+        if (imageSrc) {
+          images.push({
+            src: imageSrc,
+            productInfo: productInfo
+          });
+        }
+      });
+    }
+
+    return images.length > 0 ? images : [{
+      src: clickedElement.dataset.imageSrc,
+      productInfo: productInfo
+    }];
+  }
+
+  // Check if the clicked image is a substitute main image (not in gallery)
+  const isSubstituteImage = clickedElement.classList.contains('substitute-image');
+
+  if (isSubstituteImage) {
+    // Find the substitute row
+    const substituteRow = clickedElement.closest('tr');
+
+    if (substituteRow) {
+      // Extract substitute info from the row cells
+      const cells = substituteRow.querySelectorAll('td');
+      const productInfo = {
+        name: cells[0]?.textContent || 'Substitute Product',
+        id: cells[1]?.querySelector('.part-id-link')?.textContent || 'N/A',
+        type: cells[2]?.querySelector('.sub-type-badge')?.textContent || 'N/A',
+        compatibleModels: cells[3]?.textContent?.trim().split('\n')[0]?.trim() || '0'
+      };
+
+      // First, add the main substitute image
+      images.push({
+        src: clickedElement.dataset.imageSrc,
+        productInfo: productInfo
+      });
+
+      // Check if there's a gallery row for this substitute
+      const substituteIndex = clickedElement.closest('td')?.querySelector('.image-count-badge')?.dataset.substituteIndex;
+      if (substituteIndex) {
+        const galleryRow = document.querySelector(`.substitute-gallery-row[data-substitute-index="${substituteIndex}"]`);
+        if (galleryRow) {
+          const gallery = galleryRow.querySelector('.image-gallery');
+          if (gallery) {
+            gallery.querySelectorAll('.clickable-image').forEach(img => {
+              const imageSrc = img.dataset.imageSrc;
+              if (imageSrc && !images.find(i => i.src === imageSrc)) {
+                images.push({
+                  src: imageSrc,
+                  productInfo: productInfo
+                });
+              }
+            });
+          }
+        }
+      }
+    }
+
+    return images;
+  }
+
+  // Find the product card that contains the clicked image
+  const productCard = clickedElement.closest('.lenovo-product-card');
+
+  if (!productCard) {
+    // If no product card found, just return the single image
+    return [{
+      src: clickedElement.dataset.imageSrc,
+      productInfo: null
+    }];
+  }
+
+  // Get product info
+  const productId = productCard.dataset.productId;
+  const productName = productCard.querySelector('.product-info h3')?.textContent;
+  const serialNumber = productCard.querySelector('.detail-value')?.textContent;
+
+  const productInfo = {
+    id: productId,
+    name: productName,
+    serial: serialNumber
+  };
+
+  // It's a main product image, collect all images from the main product (not substitutes)
+  // Find all image galleries in the product card that are NOT inside substitute rows
+  const galleries = productCard.querySelectorAll('.image-gallery');
+
+  galleries.forEach(gallery => {
+    // Skip galleries that are inside substitute rows (they have class substitute-gallery-row)
+    if (!gallery.closest('.substitute-gallery-row')) {
+      // This is a main product gallery
+      gallery.querySelectorAll('.clickable-image').forEach(img => {
+        const imageSrc = img.dataset.imageSrc;
+        if (imageSrc && !images.find(i => i.src === imageSrc)) {
+          images.push({
+            src: imageSrc,
+            productInfo: productInfo
+          });
+        }
+      });
+    }
+  });
+
+  // Also include the main product image if not already in the list
+  const mainProductImage = productCard.querySelector('.product-main-image.clickable-image');
+  if (mainProductImage && mainProductImage.dataset.imageSrc) {
+    const mainSrc = mainProductImage.dataset.imageSrc;
+    if (!images.find(i => i.src === mainSrc)) {
+      // Add at the beginning
+      images.unshift({
+        src: mainSrc,
+        productInfo: productInfo
+      });
+    }
+  }
+
+  return images.length > 0 ? images : [{
+    src: clickedElement.dataset.imageSrc,
+    productInfo: productInfo
+  }];
+}
+
+function openImageModal(imageSrc, clickedElement) {
+  const modal = document.getElementById('image-modal');
+  const modalImg = document.getElementById('modal-image');
+
+  if (!modal || !modalImg || !imageSrc || !clickedElement) return;
+
+  // Collect gallery images only from the same product/context
+  galleryImages = collectGalleryImages(clickedElement);
+
+  // Find the index of the current image
+  currentImageIndex = galleryImages.findIndex(img => img.src === imageSrc);
+  if (currentImageIndex === -1) {
+    currentImageIndex = 0;
+  }
+
+  // Reset zoom
+  currentZoomLevel = 0;
+  modalImg.classList.remove('zoomed', 'zoomed-max');
+
+  // Show modal
+  modal.classList.add('active');
+  showImageAtIndex(currentImageIndex);
+  updateNavigationArrows();
+}
+
+function showImageAtIndex(index) {
+  const modalImg = document.getElementById('modal-image');
+  const infoCard = document.getElementById('modal-info-card');
+
+  if (index < 0 || index >= galleryImages.length) return;
+
+  const imageData = galleryImages[index];
+  modalImg.src = imageData.src;
+
+  // Reset zoom and pan when changing images
+  resetZoomAndPan();
+
+  // Update info card
+  if (imageData.productInfo) {
+    const info = imageData.productInfo;
+
+    // Build the info card HTML based on what data is available
+    let detailsHTML = '';
+
+    // Check if it's a substitute (has 'type' field) or main product (has 'serial' field)
+    if (info.type) {
+      // It's a substitute product
+      detailsHTML = `
+        <span class="modal-info-label">Part No:</span>
+        <span class="modal-info-value">${info.id || 'N/A'}</span>
+
+        <span class="modal-info-label">Type:</span>
+        <span class="modal-info-value">${info.type || 'N/A'}</span>
+
+        <span class="modal-info-label">Compatible Models:</span>
+        <span class="modal-info-value">${info.compatibleModels || '0'}</span>
+      `;
+    } else {
+      // It's a main product
+      detailsHTML = `
+        ${info.serial ? `
+          <span class="modal-info-label">Serial:</span>
+          <span class="modal-info-value">${info.serial}</span>
+        ` : ''}
+        ${info.id ? `
+          <span class="modal-info-label">Product ID:</span>
+          <span class="modal-info-value">${info.id}</span>
+        ` : ''}
+      `;
+    }
+
+    infoCard.innerHTML = `
+      <div class="modal-info-title">${info.name || 'Product'}</div>
+      <div class="modal-info-details">
+        ${detailsHTML}
+        <span class="modal-info-label">Image:</span>
+        <span class="modal-info-value">${index + 1} of ${galleryImages.length}</span>
+      </div>
+    `;
+    infoCard.classList.add('active');
+  } else {
+    infoCard.classList.remove('active');
+  }
+}
+
+function resetZoomAndPan() {
+  const modalImg = document.getElementById('modal-image');
+  currentZoomLevel = 0;
+  panCurrentX = 0;
+  panCurrentY = 0;
+  modalImg.classList.remove('zoomed', 'zoomed-max', 'dragging');
+  modalImg.style.transform = '';
+}
+
+function updateImageTransform() {
+  const modalImg = document.getElementById('modal-image');
+  const scale = currentZoomLevel === 1 ? 2 : currentZoomLevel === 2 ? 3 : 1;
+
+  if (currentZoomLevel === 0) {
+    modalImg.style.transform = '';
+  } else {
+    modalImg.style.transform = `scale(${scale}) translate(${panCurrentX}px, ${panCurrentY}px)`;
+  }
+}
+
+function updateNavigationArrows() {
+  const prevArrow = document.querySelector('.modal-nav-prev');
+  const nextArrow = document.querySelector('.modal-nav-next');
+
+  if (galleryImages.length > 1) {
+    prevArrow.classList.add('active');
+    nextArrow.classList.add('active');
+  } else {
+    prevArrow.classList.remove('active');
+    nextArrow.classList.remove('active');
+  }
+}
+
+function navigateImage(direction) {
+  currentImageIndex += direction;
+
+  // Wrap around
+  if (currentImageIndex < 0) {
+    currentImageIndex = galleryImages.length - 1;
+  } else if (currentImageIndex >= galleryImages.length) {
+    currentImageIndex = 0;
+  }
+
+  showImageAtIndex(currentImageIndex);
+}
+
+function closeImageModal() {
+  const modal = document.getElementById('image-modal');
+  const infoCard = document.getElementById('modal-info-card');
+
+  if (modal) {
+    modal.classList.remove('active');
+    infoCard.classList.remove('active');
+
+    // Reset zoom and pan
+    resetZoomAndPan();
+  }
+}
+
+// Zoom functionality - with click detection to avoid zooming when dragging
+let clickStartTime = 0;
+let clickStartX = 0;
+let clickStartY = 0;
+
+document.addEventListener('mousedown', function(e) {
+  const modalImg = document.getElementById('modal-image');
+
+  if (e.target === modalImg) {
+    clickStartTime = Date.now();
+    clickStartX = e.clientX;
+    clickStartY = e.clientY;
+
+    if (currentZoomLevel > 0) {
+      // Enable panning
+      isPanning = true;
+      panStartX = e.clientX - panCurrentX;
+      panStartY = e.clientY - panCurrentY;
+      modalImg.classList.add('dragging');
+      e.preventDefault();
+    }
+  }
+});
+
+document.addEventListener('mousemove', function(e) {
+  if (isPanning && currentZoomLevel > 0) {
+    panCurrentX = e.clientX - panStartX;
+    panCurrentY = e.clientY - panStartY;
+    updateImageTransform();
+    e.preventDefault();
+  }
+});
+
+document.addEventListener('mouseup', function(e) {
+  const modalImg = document.getElementById('modal-image');
+
+  if (e.target === modalImg) {
+    const clickDuration = Date.now() - clickStartTime;
+    const clickDistance = Math.sqrt(
+      Math.pow(e.clientX - clickStartX, 2) +
+      Math.pow(e.clientY - clickStartY, 2)
+    );
+
+    // Only trigger zoom if it was a quick click and didn't move much (not a drag)
+    if (clickDuration < 300 && clickDistance < 10) {
+      const oldZoomLevel = currentZoomLevel;
+      currentZoomLevel = (currentZoomLevel + 1) % 3;
+
+      // Adjust pan position to maintain visual position when changing zoom levels
+      if (currentZoomLevel === 0) {
+        // Reset pan when going back to no zoom
+        panCurrentX = 0;
+        panCurrentY = 0;
+      } else if (oldZoomLevel > 0 && currentZoomLevel > 0) {
+        // When going between zoom levels (1->2 or 2->1), adjust pan to maintain position
+        const oldScale = oldZoomLevel === 1 ? 2 : 3;
+        const newScale = currentZoomLevel === 1 ? 2 : 3;
+        panCurrentX = panCurrentX * (oldScale / newScale);
+        panCurrentY = panCurrentY * (oldScale / newScale);
+      }
+
+      modalImg.classList.remove('zoomed', 'zoomed-max');
+
+      if (currentZoomLevel === 1) {
+        modalImg.classList.add('zoomed');
+      } else if (currentZoomLevel === 2) {
+        modalImg.classList.add('zoomed-max');
+      }
+
+      updateImageTransform();
+    }
+  }
+
+  if (isPanning) {
+    isPanning = false;
+    modalImg.classList.remove('dragging');
+  }
+});
+
+// Close modal when clicking outside the image
+document.addEventListener('click', function(e) {
+  const modal = document.getElementById('image-modal');
+
+  if (e.target === modal) {
+    closeImageModal();
+  }
+});
+
+// Keyboard navigation
+document.addEventListener('keydown', function(e) {
+  const modal = document.getElementById('image-modal');
+
+  if (modal.classList.contains('active')) {
+    if (e.key === 'Escape') {
+      closeImageModal();
+    } else if (e.key === 'ArrowLeft') {
+      navigateImage(-1);
+    } else if (e.key === 'ArrowRight') {
+      navigateImage(1);
+    }
+  }
+});
+
+/***************************************************
+ * Download Parts List as Excel
+ ***************************************************/
+function downloadAsBuiltPartsListExcel() {
+  let allResults = searchResults.lenovoAsBuilt;
+  if (selectedPartNumber) {
+    allResults = allResults.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+  }
+
+  if (!allResults || allResults.length === 0) {
+    alert('No Lenovo As-Built data available to export');
+    return;
+  }
+
+  // Collect all products from all part numbers
+  const allProducts = [];
+  allResults.forEach(doc => {
+    if (doc.products && doc.products.length > 0) {
+      doc.products.forEach(product => {
+        allProducts.push(product);
+      });
+    }
+  });
+
+  if (allProducts.length === 0) {
+    alert('No products available to export');
+    return;
+  }
+
+  // Map CRU tiers to serviceable text
+  const cruTierMap = {
+    '1': '9 (FRU)',
+    '2': 'Optional',
+    '9': 'FRU Only',
+    '10': 'Serviceable',
+    '0': '0 (C)'
+  };
+
+  // Prepare data for Excel - headers first
+  const excelData = [];
+
+  // Add column headers as first row
+  excelData.push(['Description', 'Commodity Type', 'Part Number', 'Customer Serviceable', 'Substitute Parts', 'CRU Tier', 'Image URL']);
+
+  // Add product data
+  allProducts.forEach(product => {
+    // Collect substitute part numbers
+    const substituteParts = [];
+    if (product.substitutes && product.substitutes.length > 0) {
+      product.substitutes.forEach(sub => {
+        if (sub.id) {
+          substituteParts.push(sub.id);
+        }
+      });
+    }
+    const substituteString = substituteParts.length > 0 ? substituteParts.join(', ') : '';
+
+    // Get serviceable text
+    const serviceableText = cruTierMap[product.cruTier] || product.cruTier || '';
+
+    // Get first image URL if available (using imageUrls array)
+    const imageUrl = (product.imageUrls && product.imageUrls.length > 0) ? product.imageUrls[0] : '';
+
+    excelData.push([
+      product.name || '',
+      product.commodity || '',
+      product.id || '',
+      serviceableText,
+      substituteString,
+      product.cruTier || '',
+      imageUrl
+    ]);
+  });
+
+  // Create workbook and worksheet
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(excelData);
+
+  // Apply styles to header row (row 1, index 0)
+  const headerStyle = {
+    fill: { fgColor: { rgb: "2563EB" } },
+    font: { bold: true, sz: 14, color: { rgb: "FFFFFF" } },
+    alignment: { horizontal: "center", vertical: "center" }
+  };
+
+  // Apply header styles to each column
+  const columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+  columns.forEach(col => {
+    const cellRef = col + '1';
+    if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' };
+    ws[cellRef].s = headerStyle;
+  });
+
+  // Set column widths
+  ws['!cols'] = [
+    { wch: 50 }, // Description
+    { wch: 30 }, // Commodity Type
+    { wch: 15 }, // Part Number
+    { wch: 20 }, // Customer Serviceable
+    { wch: 35 }, // Substitute Parts
+    { wch: 10 }, // CRU Tier
+    { wch: 50 }  // Image URL
+  ];
+
+  // Set row height for header
+  ws['!rows'] = [{ hpt: 25 }];
+
+  // Add worksheet to workbook
+  XLSX.utils.book_append_sheet(wb, ws, 'Parts List');
+
+  // Generate filename with serial number
+  let warrantyData = searchResults.lenovoWarranty;
+  if (selectedPartNumber) {
+    warrantyData = warrantyData.filter(doc => doc.sourcePartNumber === selectedPartNumber);
+  }
+  const serialNumber = warrantyData && warrantyData.length > 0
+    ? warrantyData[0].sourcePartNumber
+    : 'parts_list';
+
+  const filename = `${serialNumber}_parts_list.xlsx`;
+
+  // Download the file
+  XLSX.writeFile(wb, filename);
+}
+
+/***************************************************
+ * Filter As-Built Products by Part Number
+ ***************************************************/
+// Debounce timer for search
+let asbuiltFilterDebounceTimer = null;
+
+// Debounced version of filter function
+function debouncedFilterAsBuiltProducts() {
+  // Clear existing timer
+  if (asbuiltFilterDebounceTimer) {
+    clearTimeout(asbuiltFilterDebounceTimer);
+  }
+
+  // Set new timer
+  asbuiltFilterDebounceTimer = setTimeout(() => {
+    filterAsBuiltProducts();
+  }, 400); // 400ms debounce
+}
+
+function filterAsBuiltProducts() {
+  const filterInput = document.getElementById('asbuilt-filter-input');
+  if (!filterInput) return;
+
+  const searchTerm = filterInput.value.trim();
+
+  // Get the active subtab wrapper
+  const activeWrapper = document.querySelector('#lenovo-asbuilt-subcontent .subtab-content.active .asbuilt-content-wrapper');
+  if (!activeWrapper) return;
+
+  // Call the applyFilter function if it exists
+  if (typeof activeWrapper.applyFilter === 'function') {
+    activeWrapper.applyFilter(searchTerm);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   // Microsoft Sign-In using MSAL (OAuth) as an SPA
   const msalConfig = {

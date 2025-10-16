@@ -384,3 +384,466 @@ tr:hover td {
   border-top-left-radius: 6px;
   border-top-right-radius: 6px;
 }
+
+/* Lenovo As-Built Product Cards */
+.lenovo-product-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.product-header {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 15px;
+}
+
+.product-image-container {
+  flex-shrink: 0;
+}
+
+.product-main-image {
+  width: 150px;
+  height: 150px;
+  object-fit: contain;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background: #f9fafb;
+}
+
+.product-info {
+  flex: 1;
+}
+
+.product-info h3 {
+  margin: 0 0 10px 0;
+  font-size: 18px;
+  color: #1f2937;
+}
+
+.product-details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 15px;
+  font-size: 14px;
+}
+
+.detail-label {
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.detail-value {
+  color: #1f2937;
+}
+
+.product-tabs {
+  display: flex;
+  gap: 10px;
+  margin: 15px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.product-tab-btn {
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  font-weight: 500;
+}
+
+.product-tab-btn.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
+.substitutes-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+.substitutes-table th {
+  background: #f9fafb;
+  padding: 10px;
+  text-align: left;
+  font-weight: 600;
+  color: #6b7280;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.substitutes-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.substitute-image {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #f9fafb;
+}
+
+.sub-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.models-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  background: #f3f4f6;
+  color: #4b5563;
+  margin-left: 8px;
+}
+
+.product-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.page-info {
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.page-btn {
+  transition: all 0.2s;
+}
+
+.page-btn:hover:not(.active) {
+  background: #f3f4f6 !important;
+  border-color: #9ca3af !important;
+}
+
+.page-btn:active {
+  transform: scale(0.95);
+}
+
+.page-btn.active {
+  cursor: default;
+}
+
+/* Image Modal */
+.image-modal {
+  display: none;
+  position: fixed;
+  z-index: 9999;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.9);
+  align-items: center;
+  justify-content: center;
+}
+
+.image-modal.active {
+  display: flex;
+}
+
+.modal-image-container {
+  max-width: 90%;
+  max-height: 90%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+.image-modal-content {
+  max-width: 100%;
+  max-height: 90vh;
+  object-fit: contain;
+  animation: zoom 0.3s;
+  cursor: zoom-in;
+  transition: transform 0.3s ease;
+  user-select: none;
+}
+
+.image-modal-content.zoomed {
+  cursor: grab;
+}
+
+.image-modal-content.zoomed-max {
+  cursor: grab;
+}
+
+.image-modal-content.dragging {
+  cursor: grabbing !important;
+  transition: none;
+}
+
+@keyframes zoom {
+  from {transform: scale(0.7)}
+  to {transform: scale(1)}
+}
+
+.image-modal-close {
+  position: absolute;
+  top: 20px;
+  right: 40px;
+  color: #fff;
+  font-size: 40px;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 10001;
+}
+
+.image-modal-close:hover,
+.image-modal-close:focus {
+  color: #bbb;
+}
+
+/* Modal Info Card */
+.modal-info-card {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  padding: 15px 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  z-index: 10001;
+  max-width: 400px;
+  display: none;
+}
+
+.modal-info-card.active {
+  display: block;
+}
+
+.modal-info-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 8px;
+}
+
+.modal-info-details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  font-size: 13px;
+}
+
+.modal-info-label {
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.modal-info-value {
+  color: #1f2937;
+}
+
+/* Modal Navigation Arrows */
+.modal-nav-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  border: none;
+  color: #fff;
+  font-size: 24px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 10001;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.modal-nav-arrow.active {
+  display: flex;
+}
+
+.modal-nav-arrow:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.modal-nav-arrow:active {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.modal-nav-prev {
+  left: 30px;
+}
+
+.modal-nav-next {
+  right: 30px;
+}
+
+/* Clickable images */
+.product-main-image,
+.substitute-image {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.product-main-image:hover,
+.substitute-image:hover {
+  opacity: 0.8;
+}
+
+/* Collapsible substitutes */
+.substitutes-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out;
+}
+
+.substitutes-content.expanded {
+  max-height: 2000px;
+  transition: max-height 0.5s ease-in;
+}
+
+.product-tab-btn {
+  position: relative;
+}
+
+.product-tab-btn::after {
+  content: '▼';
+  margin-left: 8px;
+  font-size: 10px;
+  transition: transform 0.3s;
+}
+
+.product-tab-btn.collapsed::after {
+  transform: rotate(-90deg);
+}
+
+/* Image Gallery */
+.image-count-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.image-count-badge:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.image-gallery {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out;
+  background: #f9fafb;
+  border-radius: 4px;
+  margin-top: 15px;
+}
+
+.image-gallery.expanded {
+  max-height: 400px;
+  transition: max-height 0.5s ease-in;
+  padding: 15px;
+}
+
+.gallery-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.gallery-title {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.gallery-close-btn {
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 20px;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+}
+
+.gallery-close-btn:hover {
+  color: #1f2937;
+}
+
+.gallery-images {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 10px 0;
+}
+
+.gallery-images::-webkit-scrollbar {
+  height: 8px;
+}
+
+.gallery-images::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.gallery-images::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.gallery-images::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+.gallery-image-item {
+  flex-shrink: 0;
+  width: 120px;
+  height: 120px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.gallery-image-item:hover {
+  transform: scale(1.05);
+  border-color: #2563eb;
+}
+
+.gallery-image-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: white;
+}
