@@ -82,6 +82,9 @@
 
   <!-- SheetJS for Excel export -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+
+  <!-- JsBarcode for generating barcodes -->
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
   <!-- Authentication Overlay -->
@@ -97,7 +100,9 @@
   <div class="container">
     <div class="card">
       <h2>
-        <img src="MINT.png" alt="MINT – MFP Intelligent Neural Technology" />
+        <div class="logo">
+          <img src="MINT.png" alt="MINT – MFP Intelligent Neural Technology" />
+        </div>
         <span id="loading-spinner" class="spinner" style="display:none; margin-left:10px;"></span>
       </h2>
       
@@ -142,6 +147,7 @@ Provide a buy and sell price recommendation
       <div class="endpoints-toggle">
         <h4>Data Sources:</h4>
         <div class="checkbox-group">
+          <label><input type="checkbox" id="toggle-all" checked> All (Consolidated)</label>
           <label><input type="checkbox" id="toggle-inventory" checked> Epicor (Inventory)</label>
           <label><input type="checkbox" id="toggle-brokerbin" checked> BrokerBin</label>
           <label><input type="checkbox" id="toggle-tdsynnex" checked> TDSynnex</label>
@@ -170,6 +176,7 @@ Provide a buy and sell price recommendation
     <!-- Tab Navigation -->
     <div class="tabs">
       <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
+      <button class="tab-button" onclick="switchTab('all')">All</button>
       <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
       <button class="tab-button" onclick="switchTab('lenovo-warranty')">Lenovo Products</button>
       <button class="tab-button" onclick="switchTab('lenovo-parts')">Lenovo Parts</button>
@@ -186,7 +193,14 @@ Provide a buy and sell price recommendation
     <div id="summary" class="tab-content active">
       <div id="summary-content">Enter part numbers and click Search to begin.</div>
     </div>
-    
+
+    <div id="all" class="tab-content">
+      <div id="all-content">
+        <div class="loading" style="display: none;">Loading consolidated data...</div>
+        <div class="all-results"></div>
+      </div>
+    </div>
+
     <div id="lenovo" class="tab-content">
       <div id="lenovo-content">
         <div class="subtabs" id="lenovo-subtabs"></div>
@@ -313,6 +327,15 @@ Provide a buy and sell price recommendation
     <!-- Image Container with Zoom -->
     <div class="modal-image-container">
       <img class="image-modal-content" id="modal-image" alt="Product view" />
+    </div>
+  </div>
+
+  <!-- Barcode Modal -->
+  <div id="barcode-modal" class="barcode-modal">
+    <span class="barcode-modal-close" onclick="closeBarcodeModal()">&times;</span>
+    <div class="barcode-modal-content">
+      <h3 id="barcode-title">Barcode</h3>
+      <div id="barcode-container"></div>
     </div>
   </div>
 

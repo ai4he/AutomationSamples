@@ -15,18 +15,22 @@ body {
   position: relative;
 }
 
-/* Logo container positioned at the top right */
+/* Logo container centered horizontally and vertically */
 .logo {
-  position: absolute;
-  top: 30px;    /* Adjust spacing from the top as needed */
-  right: 30px;  /* Adjust spacing from the right as needed */
+  display: flex;
+  justify-content: center;  /* Center horizontally */
+  align-items: center;      /* Center vertically */
+  width: 100%;              /* Ensure it takes up full width */
+  max-width: 600px;         /* Limit the max width to prevent it from becoming too large */
+  height: auto;             /* Allow the height to adjust automatically */
+  margin: 0 auto 20px;      /* Center the container and add some space below */
 }
 
-/* Resize the logo image */
+/* Resize the logo image to be 70% smaller and responsive */
 .logo img {
-  width: 64px;
-  height: 64px;
-  object-fit: contain; /* Ensures the image scales nicely */
+  width: 70%;               /* Resize the logo to 70% of its container width */
+  height: auto;             /* Maintain aspect ratio */
+  object-fit: contain;      /* Ensure the image scales nicely */
 }
 
 .card {
@@ -35,7 +39,7 @@ body {
   padding: 20px;
   margin-bottom: 20px;
   background: white;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 .alternative-numbers {
   margin: 10px 0;
@@ -846,4 +850,93 @@ tr:hover td {
   height: 100%;
   object-fit: contain;
   background: white;
+}
+
+/* Barcode Modal */
+.barcode-modal {
+  display: none;
+  position: fixed;
+  z-index: 10000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  align-items: center;
+  justify-content: center;
+}
+
+.barcode-modal.active {
+  display: flex;
+}
+
+.barcode-modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 12px;
+  max-width: 600px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  position: relative;
+}
+
+.barcode-modal-content h3 {
+  margin: 0 0 20px 0;
+  font-size: 20px;
+  color: #1f2937;
+  text-align: center;
+}
+
+.barcode-modal-close {
+  position: absolute;
+  top: 15px;
+  right: 25px;
+  color: #fff;
+  font-size: 35px;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 10001;
+}
+
+.barcode-modal-close:hover,
+.barcode-modal-close:focus {
+  color: #bbb;
+}
+
+#barcode-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  align-items: center;
+}
+
+.barcode-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 15px;
+  background: #f9fafb;
+  border-radius: 8px;
+  width: 100%;
+}
+
+.barcode-item svg {
+  max-width: 100%;
+}
+
+.barcode-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.mfg-part-link {
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.mfg-part-link:hover {
+  color: #1d4ed8;
 }

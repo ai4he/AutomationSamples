@@ -228,6 +228,9 @@ function refreshCurrentTab() {
     case 'summary':
       updateSummaryTab();
       break;
+    case 'all':
+      buildAllConsolidatedTable();
+      break;
     case 'lenovo':
       buildLenovoUI();
       break;
@@ -983,6 +986,7 @@ async function fetchTDSynnexData(partNumbers) {
     }
     searchResults.tdsynnex.push(...newItems);
     buildTDSynnexTable();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('fetchTDSynnexData error:', err);
   } finally {
@@ -1145,6 +1149,7 @@ async function fetchDistributorData(partNumbers) {
     }
     searchResults.ingram.push(...newItems);
     buildIngramTable();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('fetchDistributorData error:', err);
     if (resultsDiv) {
@@ -1241,6 +1246,7 @@ async function fetchBrokerBinData(partNumbers) {
     }
     searchResults.brokerbin.push(...newItems);
     buildBrokerBinTable();
+    buildAllConsolidatedTable();
   } catch (error) {
     console.error('fetchBrokerBinData error:', error);
     if (resultsDiv) {
@@ -1340,6 +1346,7 @@ async function fetchInventoryData(partNumbers) {
     }
     searchResults.epicor.push(...newItems);
     buildEpicorInventoryTable();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('fetchInventoryData error:', err);
     if (resultsDiv) {
@@ -1446,6 +1453,7 @@ async function fetchSalesData(partNumbers) {
     }
     searchResults.sales.push(...newItems);
     buildSalesTable();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('fetchSalesData error:', err);
     if (resultsDiv) {
@@ -1572,6 +1580,7 @@ async function fetchPurchasesData(partNumbers) {
     }
     searchResults.purchases.push(...newItems);
     buildPurchasesTable();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('fetchPurchasesData error:', err);
     if (resultsDiv) {
@@ -1683,6 +1692,7 @@ async function fetchAmazonConnectorData(partNumbers) {
     }
     searchResults.amazonConnector.push(...newItems);
     buildAmazonConnectorTable();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('fetchAmazonConnectorData error:', err);
     if (resultsDiv) {
@@ -1769,6 +1779,7 @@ async function fetchEbayConnectorData(partNumbers) {
     }
     searchResults.ebayConnector.push(...newItems);
     buildEbayConnectorTable();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('fetchEbayConnectorData error:', err);
     if (resultsDiv) {
@@ -1866,6 +1877,7 @@ async function fetchAmazonData(partNumbers) {
     }
     searchResults.amazon.push(...newItems);
     buildAmazonScraperTable();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('fetchAmazonData error:', err);
     if (resultsDiv) {
@@ -1957,6 +1969,7 @@ async function fetchEbayData(partNumbers) {
     }
     searchResults.ebay.push(...newItems);
     buildEbayScraperTable();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('fetchEbayData error:', err);
     if (resultsDiv) {
@@ -2119,6 +2132,7 @@ async function fetchLenovoWarrantyData(partNumbers) {
       }
     }
     buildLenovoWarrantyUI();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('Lenovo Warranty data fetch error:', err);
     if (!searchResults.lenovoWarranty.length) {
@@ -2178,18 +2192,36 @@ function buildLenovoPartsUI() {
     contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
     contentDiv.setAttribute('data-subtab-index', index);
 
+    // Filter out parts that start with (PPN), have N/A id, or both type and name are N/A
+    const filteredParts = doc.parts.filter(part => {
+      const partId = part.id || '';
+      const partType = part.type || 'N/A';
+      const partName = part.name || 'N/A';
+
+      // Exclude if ID starts with (PPN)
+      if (partId.startsWith('(PPN)')) return false;
+
+      // Exclude if ID is N/A
+      if (partId === 'N/A' || partId === '') return false;
+
+      // Exclude if both type and name are N/A
+      if (partType === 'N/A' && partName === 'N/A') return false;
+
+      return true;
+    });
+
     // Build paginated table for parts
     const itemsPerPage = 50;
-    const totalPages = Math.ceil(doc.parts.length / itemsPerPage);
+    const totalPages = Math.ceil(filteredParts.length / itemsPerPage);
 
     function renderPartsPage(page) {
       const start = page * itemsPerPage;
       const end = start + itemsPerPage;
-      const pageParts = doc.parts.slice(start, end);
+      const pageParts = filteredParts.slice(start, end);
 
       let tableHTML = `
         <div class="pagination-info">
-          <p>Showing ${start + 1} to ${Math.min(end, doc.parts.length)} of ${doc.parts.length} parts</p>
+          <p>Showing ${start + 1} to ${Math.min(end, filteredParts.length)} of ${filteredParts.length} parts</p>
         </div>
         <div class="table-container">
           <table>
@@ -2299,6 +2331,7 @@ async function fetchLenovoPartsData(partNumbers) {
       }
     }
     buildLenovoPartsUI();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('Lenovo Parts data fetch error:', err);
     if (!searchResults.lenovoParts.length) {
@@ -2354,6 +2387,7 @@ async function fetchLenovoAsBuiltData(partNumbers) {
       }
     }
     buildLenovoAsBuiltUI();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('Lenovo As-Built data fetch error:', err);
     if (!searchResults.lenovoAsBuilt.length) {
@@ -2440,7 +2474,7 @@ function buildLenovoAsBuiltUI() {
                 style="padding: 8px 35px 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; width: 100%; outline: none; transition: border-color 0.2s;"
                 oninput="debouncedFilterAsBuiltProducts()"
               />
-              <div style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; pointer-events: none;">
+              <div style="position: absolute; right: 8px; top: 30%; transform: translateY(-30%); display: flex; align-items: center; justify-content: center; pointer-events: none;">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #9ca3af;">
                   <circle cx="11" cy="11" r="8"></circle>
                   <path d="m21 21-4.35-4.35"></path>
@@ -2559,7 +2593,15 @@ function buildLenovoAsBuiltUI() {
                   <span class="detail-value">${product.commodity || 'N/A'}</span>
                   ${product.mfgPart ? `
                     <span class="detail-label">Mfg Part</span>
-                    <span class="detail-value">${product.mfgPart}</span>
+                    <span class="detail-value"><a href="#" class="mfg-part-link" onclick="showBarcodeModal('${encodeURIComponent(JSON.stringify({
+                      mfgPart: product.mfgPart,
+                      mfgParts: product.mfgParts || [],
+                      barCodes: product.barCodes || []
+                    }))}'); return false;">${product.mfgPart}</a></span>
+                  ` : ''}
+                  ${product.installed ? `
+                    <span class="detail-label">Installed</span>
+                    <span class="detail-value">${product.installed}</span>
                   ` : ''}
                   <span class="detail-label">Compatible Models</span>
                   <span class="detail-value">${product.compatibleModelsCount || 0}</span>
@@ -2889,6 +2931,7 @@ async function fetchLenovoData(partNumbers) {
       }
     }
     buildLenovoUI();
+    buildAllConsolidatedTable();
   } catch (err) {
     console.error('Lenovo data fetch error:', err);
     if (!searchResults.lenovo.length) {
@@ -3611,7 +3654,7 @@ function downloadAsBuiltPartsListExcel() {
   const excelData = [];
 
   // Add column headers as first row
-  excelData.push(['Description', 'Commodity Type', 'Part Number', 'Customer Serviceable', 'Substitute Parts', 'CRU Tier', 'Image URL']);
+  excelData.push(['Description', 'Commodity Type', 'Part Number', 'Mfg Part', 'Bar Codes', 'Installed', 'Customer Serviceable', 'Substitute Parts', 'CRU Tier', 'Image URL']);
 
   // Add product data
   allProducts.forEach(product => {
@@ -3632,10 +3675,18 @@ function downloadAsBuiltPartsListExcel() {
     // Get first image URL if available (using imageUrls array)
     const imageUrl = (product.imageUrls && product.imageUrls.length > 0) ? product.imageUrls[0] : '';
 
+    // Get barCodes as comma-separated string
+    const barCodesString = (product.barCodes && product.barCodes.length > 0)
+      ? product.barCodes.filter(bc => bc).join(', ')
+      : '';
+
     excelData.push([
       product.name || '',
       product.commodity || '',
       product.id || '',
+      product.mfgPart || '',
+      barCodesString,
+      product.installed || '',
       serviceableText,
       substituteString,
       product.cruTier || '',
@@ -3655,7 +3706,7 @@ function downloadAsBuiltPartsListExcel() {
   };
 
   // Apply header styles to each column
-  const columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+  const columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
   columns.forEach(col => {
     const cellRef = col + '1';
     if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' };
@@ -3667,6 +3718,9 @@ function downloadAsBuiltPartsListExcel() {
     { wch: 50 }, // Description
     { wch: 30 }, // Commodity Type
     { wch: 15 }, // Part Number
+    { wch: 25 }, // Mfg Part
+    { wch: 30 }, // Bar Codes
+    { wch: 10 }, // Installed
     { wch: 20 }, // Customer Serviceable
     { wch: 35 }, // Substitute Parts
     { wch: 10 }, // CRU Tier
@@ -3730,6 +3784,204 @@ function filterAsBuiltProducts() {
   }
 }
 
+/***************************************************
+ * Build All Consolidated Table
+ ***************************************************/
+function buildAllConsolidatedTable() {
+  const allResultsContainer = document.querySelector('#all-content .all-results');
+  if (!allResultsContainer) return;
+
+  // Get all part numbers from the search
+  const partNumbers = Object.entries(partAlternativesData).reduce((acc, [partNum, data]) => {
+    acc.push(partNum);
+    if (data.alternatives) {
+      data.alternatives.forEach(alt => {
+        acc.push(`${alt.type}: ${alt.value}`);
+      });
+    }
+    return acc;
+  }, []);
+
+  if (partNumbers.length === 0) {
+    allResultsContainer.innerHTML = '<p>No data available. Please search for a part number first.</p>';
+    return;
+  }
+
+  // Build consolidated table HTML
+  let tableHTML = `
+    <div class="table-container" style="overflow-x: auto;">
+      <table style="min-width: 2000px;">
+        <thead>
+          <tr>
+            <th>Part number searched</th>
+            <th>Alternative part 1</th>
+            <th>Alternative part 2</th>
+            <th>Alternative part 3</th>
+            <th>Description</th>
+            <th>Category</th>
+            <th>Ingram Quantity (total)</th>
+            <th>Ingram Price</th>
+            <th>TDSynnex Quantity (total)</th>
+            <th>TDSynnex Price</th>
+            <th>BrokerBin Avg Price ($ cheapest)</th>
+            <th>BrokerBin Sum Qty ($ cheapest)</th>
+            <th>eBay Avg Price ($ cheapest)</th>
+            <th>eBay Sum Quantity ($ cheapest)</th>
+            <th>MFP Stock Quantity (total)</th>
+            <th>MFP Stock Price</th>
+            <th>MFP Sales Price (last of last 5 sales)</th>
+            <th>MFP Sales Price (avg of last 5 sales)</th>
+            <th>MFP Customer (last)</th>
+            <th>MFP Purchases Quantity (Sum of last 5 purchases)</th>
+            <th>MFP Purchase Price (Avg last 5 purchases)</th>
+            <th>MFP Supplier (last)</th>
+            <th>Buy Price Recommendation</th>
+            <th>Sell Price Recommendation</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  // Process each main part number
+  for (const [mainPart, partData] of Object.entries(partAlternativesData)) {
+    const alternatives = partData.alternatives || [];
+    const alt1 = alternatives[0] ? `${alternatives[0].type}: ${alternatives[0].value}` : '';
+    const alt2 = alternatives[1] ? `${alternatives[1].type}: ${alternatives[1].value}` : '';
+    const alt3 = alternatives[2] ? `${alternatives[2].type}: ${alternatives[2].value}` : '';
+
+    // Get data ONLY from the main part number (not alternatives)
+    // Alternatives are shown only as informational columns
+    const ingramData = getIngramDataForParts([mainPart]);
+    const tdsynnexData = getTDSynnexDataForParts([mainPart]);
+    const brokerbinData = getBrokerBinDataForParts([mainPart]);
+    const ebayData = getEbayDataForParts([mainPart]);
+    const inventoryData = getInventoryDataForParts([mainPart]);
+    const salesData = getSalesDataForParts([mainPart]);
+    const purchasesData = getPurchasesDataForParts([mainPart]);
+
+    // Get description and category from available sources
+    let description = 'N/A';
+    let category = 'N/A';
+
+    if (ingramData.description) {
+      description = ingramData.description;
+      category = ingramData.category || 'N/A';
+    } else if (brokerbinData.description) {
+      description = brokerbinData.description;
+    } else if (inventoryData.description) {
+      description = inventoryData.description;
+      category = inventoryData.category || 'N/A';
+    }
+
+    tableHTML += `
+      <tr>
+        <td>${mainPart}</td>
+        <td>${alt1}</td>
+        <td>${alt2}</td>
+        <td>${alt3}</td>
+        <td>${description}</td>
+        <td>${category}</td>
+        <td>${ingramData.totalQty}</td>
+        <td>${ingramData.price}</td>
+        <td>${tdsynnexData.totalQty}</td>
+        <td>${tdsynnexData.price}</td>
+        <td>${brokerbinData.avgPrice}</td>
+        <td>${brokerbinData.sumQty}</td>
+        <td>${ebayData.avgPrice}</td>
+        <td>${ebayData.sumQty}</td>
+        <td>${inventoryData.totalQty}</td>
+        <td>${inventoryData.price}</td>
+        <td>${salesData.lastPrice}</td>
+        <td>${salesData.avgPrice}</td>
+        <td>${salesData.lastCustomer}</td>
+        <td>${purchasesData.sumQty}</td>
+        <td>${purchasesData.avgPrice}</td>
+        <td>${purchasesData.lastSupplier}</td>
+        <td>-</td>
+        <td>-</td>
+      </tr>
+    `;
+  }
+
+  tableHTML += `
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  allResultsContainer.innerHTML = tableHTML;
+}
+
+// Helper functions to extract data from each source
+function getIngramDataForParts(parts) {
+  const ingramResults = searchResults.ingram.filter(item => parts.includes(item.sourcePartNumber));
+  const totalQty = ingramResults.reduce((sum, item) => {
+    const availability = item.availability;
+    if (typeof availability === 'object' && availability.totalAvailability !== undefined) {
+      return sum + (parseInt(availability.totalAvailability) || 0);
+    }
+    return sum + (parseInt(availability) || 0);
+  }, 0);
+  const prices = ingramResults.map(item => parseFloat(item.price)).filter(p => !isNaN(p));
+  const price = prices.length > 0 ? `$${Math.min(...prices).toFixed(2)}` : '-';
+  const description = ingramResults.length > 0 ? (ingramResults[0].description || null) : null;
+  const category = ingramResults.length > 0 ? (ingramResults[0].category || null) : null;
+  return { totalQty, price, description, category };
+}
+
+function getTDSynnexDataForParts(parts) {
+  const tdResults = searchResults.tdsynnex.filter(item => parts.includes(item.sourcePartNumber));
+  const totalQty = tdResults.reduce((sum, item) => sum + (parseInt(item.totalQuantity) || 0), 0);
+  const prices = tdResults.map(item => parseFloat(item.price)).filter(p => !isNaN(p));
+  const price = prices.length > 0 ? `$${Math.min(...prices).toFixed(2)}` : '-';
+  return { totalQty, price };
+}
+
+function getBrokerBinDataForParts(parts) {
+  const bbResults = searchResults.brokerbin.filter(item => parts.includes(item.sourcePartNumber));
+  const prices = bbResults.map(item => parseFloat(item.price)).filter(p => !isNaN(p) && p > 0);
+  const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
+  const sumQty = bbResults.reduce((sum, item) => sum + (parseInt(item.quantity) || 0), 0);
+  const description = bbResults.length > 0 ? (bbResults[0].description || null) : null;
+  return { avgPrice, sumQty, description };
+}
+
+function getEbayDataForParts(parts) {
+  const ebayResults = searchResults.ebay.filter(item => parts.includes(item.sourcePartNumber));
+  const prices = ebayResults.map(item => parseFloat(item.price)).filter(p => !isNaN(p) && p > 0);
+  const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
+  const sumQty = ebayResults.length;
+  return { avgPrice, sumQty };
+}
+
+function getInventoryDataForParts(parts) {
+  const invResults = searchResults.epicor.filter(item => parts.includes(item.sourcePartNumber));
+  const totalQty = invResults.reduce((sum, item) => sum + (parseInt(item.quantity) || 0), 0);
+  const prices = invResults.map(item => parseFloat(item.basePrice)).filter(p => !isNaN(p) && p > 0);
+  const price = prices.length > 0 ? `$${prices[0].toFixed(2)}` : '-';
+  const description = invResults.length > 0 ? (invResults[0].description || null) : null;
+  const category = invResults.length > 0 ? (invResults[0].class || null) : null;
+  return { totalQty, price, description, category };
+}
+
+function getSalesDataForParts(parts) {
+  const salesResults = searchResults.sales.filter(item => parts.includes(item.sourcePartNumber)).slice(0, 5);
+  const prices = salesResults.map(item => parseFloat(item.unitPrice)).filter(p => !isNaN(p) && p > 0);
+  const lastPrice = prices.length > 0 ? `$${prices[0].toFixed(2)}` : '-';
+  const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
+  const lastCustomer = salesResults.length > 0 ? (salesResults[0].customerName || '-') : '-';
+  return { lastPrice, avgPrice, lastCustomer };
+}
+
+function getPurchasesDataForParts(parts) {
+  const purchResults = searchResults.purchases.filter(item => parts.includes(item.sourcePartNumber)).slice(0, 5);
+  const sumQty = purchResults.reduce((sum, item) => sum + (parseInt(item.orderQty) || 0), 0);
+  const prices = purchResults.map(item => parseFloat(item.unitCost)).filter(p => !isNaN(p) && p > 0);
+  const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
+  const lastSupplier = purchResults.length > 0 ? (purchResults[0].vendorId || '-') : '-';
+  return { sumQty, avgPrice, lastSupplier };
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   // Microsoft Sign-In using MSAL (OAuth) as an SPA
   const msalConfig = {
@@ -3766,4 +4018,92 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('microsoft-signin-btn').addEventListener('click', function() {
     msalInstance.loginRedirect({ scopes: ["User.Read"] });
   });
+});
+
+/***************************************************
+ * Barcode Modal Functions
+ ***************************************************/
+function showBarcodeModal(mfgPartData) {
+  const modal = document.getElementById('barcode-modal');
+  const container = document.getElementById('barcode-container');
+  const title = document.getElementById('barcode-title');
+
+  // Clear previous content
+  container.innerHTML = '';
+
+  // Parse the mfgPartData if it's a JSON string
+  let barcodeList = [];
+  try {
+    const parsedData = JSON.parse(decodeURIComponent(mfgPartData));
+
+    // Use barCodes if available, otherwise use mfgParts, otherwise use mfgPart
+    if (parsedData.barCodes && parsedData.barCodes.length > 0) {
+      barcodeList = parsedData.barCodes;
+    } else if (parsedData.mfgParts && parsedData.mfgParts.length > 0) {
+      barcodeList = parsedData.mfgParts;
+    } else if (parsedData.mfgPart) {
+      barcodeList = [parsedData.mfgPart];
+    }
+  } catch (e) {
+    // If it's not JSON, treat it as a simple string
+    barcodeList = [mfgPartData];
+  }
+
+  // Remove duplicates
+  barcodeList = [...new Set(barcodeList)];
+
+  title.textContent = barcodeList.length > 1 ? `Barcodes (${barcodeList.length})` : 'Barcode';
+
+  // Generate barcodes
+  try {
+    barcodeList.forEach((code, index) => {
+      const barcodeDiv = document.createElement('div');
+      barcodeDiv.className = 'barcode-item';
+
+      const canvas = document.createElement('canvas');
+      const label = document.createElement('div');
+      label.className = 'barcode-label';
+
+      // Format label similar to the reference image (e.g., SSD7B22262-01)
+      const formattedLabel = barcodeList.length > 1
+        ? `${code.split('-')[0]}-${String(index + 1).padStart(2, '0')}`
+        : code;
+
+      label.textContent = formattedLabel;
+
+      barcodeDiv.appendChild(canvas);
+      barcodeDiv.appendChild(label);
+      container.appendChild(barcodeDiv);
+
+      // Generate barcode using JsBarcode
+      JsBarcode(canvas, code, {
+        format: "CODE128",
+        width: 2,
+        height: 80,
+        displayValue: true,
+        fontSize: 16,
+        margin: 10
+      });
+    });
+
+    // Show modal
+    modal.classList.add('active');
+  } catch (error) {
+    console.error('Error generating barcode:', error);
+    container.innerHTML = '<p style="color: red;">Error generating barcode</p>';
+    modal.classList.add('active');
+  }
+}
+
+function closeBarcodeModal() {
+  const modal = document.getElementById('barcode-modal');
+  modal.classList.remove('active');
+}
+
+// Close modal when clicking outside of it
+document.addEventListener('click', function(event) {
+  const modal = document.getElementById('barcode-modal');
+  if (event.target === modal) {
+    closeBarcodeModal();
+  }
 });
