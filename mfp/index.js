@@ -4204,6 +4204,12 @@ document.addEventListener('DOMContentLoaded', function() {
   } else if (welcomeModal) {
     // Hide the modal if workflow was already selected
     welcomeModal.classList.add('hidden');
+
+    // Restore the tab based on the selected workflow
+    if (workflowSelected === 'servers') {
+      switchTab('lenovo-asbuilt');
+    }
+    // If 'parts' was selected, stay on default tab (summary)
   }
 
   // Microsoft Sign-In using MSAL (OAuth) as an SPA
