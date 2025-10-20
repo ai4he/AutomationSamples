@@ -1,4 +1,25 @@
 /***************************************************
+ * Welcome Modal Handler
+ ***************************************************/
+function selectWorkflow(workflow) {
+  const modal = document.getElementById('welcome-modal');
+
+  if (workflow === 'servers') {
+    // Switch to Lenovo As-Built tab
+    switchTab('lenovo-asbuilt');
+  }
+  // If 'parts', do nothing (stay on current tab, which is Summary by default)
+
+  // Hide the modal
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+
+  // Store preference in sessionStorage to not show again during this session
+  sessionStorage.setItem('workflowSelected', workflow);
+}
+
+/***************************************************
  * Configuration Variables
  ***************************************************/
 var serverDomain = "gpu.haielab.org";
@@ -3982,7 +4003,180 @@ function getPurchasesDataForParts(parts) {
   return { sumQty, avgPrice, lastSupplier };
 }
 
+/***************************************************
+ * Export All Consolidated Table to Excel
+ ***************************************************/
+function exportAllToExcel() {
+  // Check if there's data to export
+  if (Object.keys(partAlternativesData).length === 0) {
+    alert('No data available to export. Please perform a search first.');
+    return;
+  }
+
+  // Prepare Excel data array
+  const excelData = [];
+
+  // Add header row
+  excelData.push([
+    'Part number searched',
+    'Alternative part 1',
+    'Alternative part 2',
+    'Alternative part 3',
+    'Description',
+    'Category',
+    'Ingram Quantity (total)',
+    'Ingram Price',
+    'TDSynnex Quantity (total)',
+    'TDSynnex Price',
+    'BrokerBin Avg Price ($ cheapest)',
+    'BrokerBin Sum Qty ($ cheapest)',
+    'eBay Avg Price ($ cheapest)',
+    'eBay Sum Quantity ($ cheapest)',
+    'MFP Stock Quantity (total)',
+    'MFP Stock Price',
+    'MFP Sales Price (last of last 5 sales)',
+    'MFP Sales Price (avg of last 5 sales)',
+    'MFP Customer (last)',
+    'MFP Purchases Quantity (Sum of last 5 purchases)',
+    'MFP Purchase Price (Avg last 5 purchases)',
+    'MFP Supplier (last)',
+    'Buy Price Recommendation',
+    'Sell Price Recommendation'
+  ]);
+
+  // Process each main part number
+  for (const [mainPart, partData] of Object.entries(partAlternativesData)) {
+    const alternatives = partData.alternatives || [];
+    const alt1 = alternatives[0] ? `${alternatives[0].type}: ${alternatives[0].value}` : '';
+    const alt2 = alternatives[1] ? `${alternatives[1].type}: ${alternatives[1].value}` : '';
+    const alt3 = alternatives[2] ? `${alternatives[2].type}: ${alternatives[2].value}` : '';
+
+    // Get data ONLY from the main part number
+    const ingramData = getIngramDataForParts([mainPart]);
+    const tdsynnexData = getTDSynnexDataForParts([mainPart]);
+    const brokerbinData = getBrokerBinDataForParts([mainPart]);
+    const ebayData = getEbayDataForParts([mainPart]);
+    const inventoryData = getInventoryDataForParts([mainPart]);
+    const salesData = getSalesDataForParts([mainPart]);
+    const purchasesData = getPurchasesDataForParts([mainPart]);
+
+    // Get description and category
+    let description = 'N/A';
+    let category = 'N/A';
+    if (ingramData.description) {
+      description = ingramData.description;
+      category = ingramData.category || 'N/A';
+    } else if (brokerbinData.description) {
+      description = brokerbinData.description;
+    } else if (inventoryData.description) {
+      description = inventoryData.description;
+      category = inventoryData.category || 'N/A';
+    }
+
+    // Add row data
+    excelData.push([
+      mainPart,
+      alt1,
+      alt2,
+      alt3,
+      description,
+      category,
+      ingramData.totalQty,
+      ingramData.price,
+      tdsynnexData.totalQty,
+      tdsynnexData.price,
+      brokerbinData.avgPrice,
+      brokerbinData.sumQty,
+      ebayData.avgPrice,
+      ebayData.sumQty,
+      inventoryData.totalQty,
+      inventoryData.price,
+      salesData.lastPrice,
+      salesData.avgPrice,
+      salesData.lastCustomer,
+      purchasesData.sumQty,
+      purchasesData.avgPrice,
+      purchasesData.lastSupplier,
+      '-', // Buy Price Recommendation
+      '-'  // Sell Price Recommendation
+    ]);
+  }
+
+  // Create workbook and worksheet
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(excelData);
+
+  // Apply styles to header row
+  const headerStyle = {
+    fill: { fgColor: { rgb: "2563EB" } },
+    font: { bold: true, sz: 12, color: { rgb: "FFFFFF" } },
+    alignment: { horizontal: "center", vertical: "center" }
+  };
+
+  // Apply header styles to each column (A-X for 24 columns)
+  const columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X'];
+  columns.forEach(col => {
+    const cellRef = col + '1';
+    if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' };
+    ws[cellRef].s = headerStyle;
+  });
+
+  // Set column widths
+  ws['!cols'] = [
+    { wch: 20 }, // Part number searched
+    { wch: 20 }, // Alternative part 1
+    { wch: 20 }, // Alternative part 2
+    { wch: 20 }, // Alternative part 3
+    { wch: 40 }, // Description
+    { wch: 20 }, // Category
+    { wch: 18 }, // Ingram Quantity
+    { wch: 15 }, // Ingram Price
+    { wch: 18 }, // TDSynnex Quantity
+    { wch: 15 }, // TDSynnex Price
+    { wch: 20 }, // BrokerBin Avg Price
+    { wch: 18 }, // BrokerBin Sum Qty
+    { wch: 20 }, // eBay Avg Price
+    { wch: 18 }, // eBay Sum Quantity
+    { wch: 20 }, // MFP Stock Quantity
+    { wch: 15 }, // MFP Stock Price
+    { wch: 25 }, // MFP Sales Price (last)
+    { wch: 25 }, // MFP Sales Price (avg)
+    { wch: 25 }, // MFP Customer
+    { wch: 28 }, // MFP Purchases Quantity
+    { wch: 28 }, // MFP Purchase Price
+    { wch: 20 }, // MFP Supplier
+    { wch: 20 }, // Buy Price Recommendation
+    { wch: 20 }  // Sell Price Recommendation
+  ];
+
+  // Set row height for header
+  ws['!rows'] = [{ hpt: 25 }];
+
+  // Add worksheet to workbook
+  XLSX.utils.book_append_sheet(wb, ws, 'Consolidated Data');
+
+  // Generate filename with timestamp
+  const timestamp = new Date().toISOString().split('T')[0];
+  const partNumbers = Object.keys(partAlternativesData).join('_');
+  const filename = `${partNumbers.substring(0, 30)}_consolidated_${timestamp}.xlsx`;
+
+  // Download the file
+  XLSX.writeFile(wb, filename);
+}
+
 document.addEventListener('DOMContentLoaded', function() {
+  // Check if user has already selected a workflow during this session
+  const workflowSelected = sessionStorage.getItem('workflowSelected');
+  const welcomeModal = document.getElementById('welcome-modal');
+
+  if (!workflowSelected && welcomeModal) {
+    // Show the modal (it's visible by default, but just in case)
+    welcomeModal.classList.remove('hidden');
+  } else if (welcomeModal) {
+    // Hide the modal if workflow was already selected
+    welcomeModal.classList.add('hidden');
+  }
+
   // Microsoft Sign-In using MSAL (OAuth) as an SPA
   const msalConfig = {
     auth: {
