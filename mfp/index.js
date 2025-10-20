@@ -31,6 +31,10 @@ var llmModel = "gemini";
 let configUseAlternatives = true;
 // Default nested level is now 0 (only direct alternatives)
 let configNestedLevel = 0;
+// Track which part numbers have already been searched in Lenovo As-Built to avoid duplicates
+let asBuiltSearched = new Set();
+// Track which part numbers have already been searched in Lenovo Products to avoid duplicates
+let warrantySearched = new Set();
 // This value can be overridden by the UI element with id "nested-level-selector"
 // (0 = direct alternatives; 1 = one level deeper; -1 = infinite expansion)
 // This variable is still used for logging purposes.
@@ -631,6 +635,8 @@ async function handleSearch() {
   });
   activeRequestsCount = 0;
   expansionsInProgress = false;
+  asBuiltSearched.clear(); // Clear the As-Built search tracking for new search
+  warrantySearched.clear(); // Clear the Lenovo Products search tracking for new search
   const spinner = document.getElementById('loading-spinner');
   const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'inline-block';
@@ -645,6 +651,11 @@ async function handleSearch() {
 
       // Initialize alternatives array for this part
       const finalAlternatives = [];
+
+      // START LENOVO AS-BUILT AND LENOVO PRODUCTS IMMEDIATELY (don't need alternatives from get-parts)
+      // This allows these tabs to fetch data without waiting for the alternatives API
+      fetchLenovoAsBuiltData([{ number: partNumber, source: partNumber }]);
+      fetchLenovoWarrantyData([{ number: partNumber, source: partNumber }]);
 
       // Get alternatives data for this specific part
       const topData = await getAlternativePartNumbers(partNumber);
@@ -2134,6 +2145,15 @@ async function fetchLenovoWarrantyData(partNumbers) {
   try {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
+
+      // Skip if we already searched this part number
+      const numberUpper = number.trim().toUpperCase();
+      if (warrantySearched.has(numberUpper)) {
+        console.log(`Lenovo Products: Skipping ${number} (already searched)`);
+        continue;
+      }
+      warrantySearched.add(numberUpper);
+
       try {
         const response = await fetch(`https://${serverDomain}/webhook/lenovo-api/product?item=${encodeURIComponent(number)}`);
         if (!response.ok) continue;
@@ -2392,6 +2412,15 @@ async function fetchLenovoAsBuiltData(partNumbers) {
   try {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
+
+      // Skip if we already searched this part number
+      const numberUpper = number.trim().toUpperCase();
+      if (asBuiltSearched.has(numberUpper)) {
+        console.log(`Lenovo As-Built: Skipping ${number} (already searched)`);
+        continue;
+      }
+      asBuiltSearched.add(numberUpper);
+
       try {
         const response = await fetch(`https://gpu.haielab.org/webhook/lenovo-parts?item=${encodeURIComponent(number)}`);
         if (!response.ok) continue;
