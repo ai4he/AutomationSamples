@@ -35,6 +35,8 @@ let configNestedLevel = 0;
 let asBuiltSearched = new Set();
 // Track which part numbers have already been searched in Lenovo Products to avoid duplicates
 let warrantySearched = new Set();
+// Flag to prevent loader from hiding while main search is in progress
+let mainSearchInProgress = false;
 // This value can be overridden by the UI element with id "nested-level-selector"
 // (0 = direct alternatives; 1 = one level deeper; -1 = infinite expansion)
 // This variable is still used for logging purposes.
@@ -84,8 +86,9 @@ let partAlternativesData = {};
  ***************************************************/
 function stopSearch() {
   stopSearchRequested = true;
+  mainSearchInProgress = false;
   console.log("Search stopping requested");
- 
+
   const spinner = document.getElementById('loading-spinner');
   const stopBtn = document.getElementById('stop-search-btn');
   if (spinner) spinner.style.display = 'none';
@@ -410,14 +413,12 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
  * Spinner, Expansions, and Final Analysis
  ***************************************************/
 function checkIfAllDone() {
+  if (mainSearchInProgress) return;
   if (expansionsInProgress) return;
   if (activeRequestsCount > 0) return;
   if (analysisAlreadyCalled) return;
   analysisAlreadyCalled = true;
-  const spinner = document.getElementById('loading-spinner');
-  const stopBtn = document.getElementById('stop-search-btn');
-  if (spinner) spinner.style.display = 'none';
-  if (stopBtn) stopBtn.style.display = 'none';
+  // Don't hide spinner here - let performFinalAnalysis() hide it when done
   performFinalAnalysis();
 }
 async function performFinalAnalysis() {
@@ -473,9 +474,15 @@ async function performFinalAnalysis() {
   } catch (err) {
     console.error('Analyze data error:', err);
   } finally {
+    // Hide analysis progress indicator
     if (analysisProgress) {
       analysisProgress.style.display = 'none';
     }
+    // Hide spinner and stop button now that analysis is complete
+    const spinner = document.getElementById('loading-spinner');
+    const stopBtn = document.getElementById('stop-search-btn');
+    if (spinner) spinner.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'none';
   }
 }
 function initializeConversationUI() {
@@ -645,9 +652,12 @@ async function handleSearch() {
   const globalAlreadySearched = new Set();
 
   try {
-    // Search each part number SEQUENTIALLY (like production does)
-    for (const partNumber of partNumbersArray) {
-      if (stopSearchRequested) break;
+    // Set flag to prevent loader from hiding while main search is in progress
+    mainSearchInProgress = true;
+
+    // Search each part number IN PARALLEL for better performance
+    await Promise.all(partNumbersArray.map(async (partNumber) => {
+      if (stopSearchRequested) return;
 
       // Initialize alternatives array for this part
       const finalAlternatives = [];
@@ -706,12 +716,15 @@ async function handleSearch() {
 
       globalAlreadySearched.add(topOriginal.trim().toUpperCase());
       await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
-    }
+    }));
 
+    // Main search is complete, now allow loader to hide when all requests finish
+    mainSearchInProgress = false;
     checkIfAllDone();
 
   } catch (err) {
     console.error('handleSearch error:', err);
+    mainSearchInProgress = false;
   }
 }
 /***************************************************
@@ -3841,18 +3854,13 @@ function buildAllConsolidatedTable() {
   const allResultsContainer = document.querySelector('#all-content .all-results');
   if (!allResultsContainer) return;
 
-  // Get all part numbers from the search
-  const partNumbers = Object.entries(partAlternativesData).reduce((acc, [partNum, data]) => {
-    acc.push(partNum);
-    if (data.alternatives) {
-      data.alternatives.forEach(alt => {
-        acc.push(`${alt.type}: ${alt.value}`);
-      });
-    }
-    return acc;
-  }, []);
+  // Filter by selected part number if one is selected
+  let partDataEntries = Object.entries(partAlternativesData);
+  if (selectedPartNumber && partAlternativesData[selectedPartNumber]) {
+    partDataEntries = [[selectedPartNumber, partAlternativesData[selectedPartNumber]]];
+  }
 
-  if (partNumbers.length === 0) {
+  if (partDataEntries.length === 0) {
     allResultsContainer.innerHTML = '<p>No data available. Please search for a part number first.</p>';
     return;
   }
@@ -3893,7 +3901,7 @@ function buildAllConsolidatedTable() {
   `;
 
   // Process each main part number
-  for (const [mainPart, partData] of Object.entries(partAlternativesData)) {
+  for (const [mainPart, partData] of partDataEntries) {
     const alternatives = partData.alternatives || [];
     const alt1 = alternatives[0] ? `${alternatives[0].type}: ${alternatives[0].value}` : '';
     const alt2 = alternatives[1] ? `${alternatives[1].type}: ${alternatives[1].value}` : '';
