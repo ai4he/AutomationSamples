@@ -1,4 +1,187 @@
 /***************************************************
+ * Workflow Selection
+ ***************************************************/
+let currentWorkflow = null;
+
+function selectWorkflow(workflow) {
+  // Save current workflow data before switching
+  if (currentWorkflow) {
+    saveCurrentWorkflowData();
+  }
+
+  // Update current workflow
+  currentWorkflow = workflow;
+
+  // Hide welcome screen
+  const welcomeScreen = document.getElementById('welcome-screen');
+  if (welcomeScreen) {
+    welcomeScreen.style.display = 'none';
+  }
+
+  // Show main interface
+  const mainInterface = document.getElementById('main-interface');
+  if (mainInterface) {
+    mainInterface.style.display = 'block';
+  }
+
+  // Show/hide appropriate dropdown
+  const serversDropdown = document.getElementById('servers-dropdown-container');
+  const partsDropdown = document.getElementById('parts-dropdown-container');
+  if (workflow === 'servers') {
+    if (serversDropdown) serversDropdown.style.display = 'block';
+    if (partsDropdown) partsDropdown.style.display = 'none';
+  } else {
+    if (serversDropdown) serversDropdown.style.display = 'none';
+    if (partsDropdown) partsDropdown.style.display = 'block';
+  }
+
+  // Update workflow button active states
+  const serversBtn = document.getElementById('servers-workflow-btn');
+  const partsBtn = document.getElementById('parts-workflow-btn');
+  if (serversBtn && partsBtn) {
+    if (workflow === 'servers') {
+      serversBtn.classList.add('active');
+      partsBtn.classList.remove('active');
+    } else {
+      serversBtn.classList.remove('active');
+      partsBtn.classList.add('active');
+    }
+  }
+
+  // Filter tabs based on workflow
+  const allTabButtons = document.querySelectorAll('.tab-button');
+  allTabButtons.forEach(button => {
+    const buttonWorkflow = button.getAttribute('data-workflow');
+    if (buttonWorkflow === workflow) {
+      button.style.display = 'inline-block';
+    } else {
+      button.style.display = 'none';
+    }
+  });
+
+  // Filter checkboxes based on workflow
+  const allCheckboxLabels = document.querySelectorAll('.checkbox-group label[data-workflow]');
+  allCheckboxLabels.forEach(label => {
+    const labelWorkflow = label.getAttribute('data-workflow');
+    const checkbox = label.querySelector('input[type="checkbox"]');
+    if (labelWorkflow === workflow) {
+      label.style.display = 'inline-block';
+      // Check all visible checkboxes for the selected workflow
+      if (checkbox) {
+        checkbox.checked = true;
+      }
+    } else {
+      label.style.display = 'none';
+      // Uncheck hidden checkboxes to prevent unnecessary API calls
+      if (checkbox) {
+        checkbox.checked = false;
+      }
+    }
+  });
+
+  // Restore workflow-specific data
+  restoreWorkflowData(workflow);
+
+  // Update alternatives visibility based on workflow
+  updateAlternativesForSelectedPart();
+
+  // Switch to appropriate default tab
+  if (workflow === 'servers') {
+    switchTab('lenovo-asbuilt');
+  } else {
+    switchTab('summary');
+  }
+
+  // Store workflow preference
+  sessionStorage.setItem('selectedWorkflow', workflow);
+}
+
+/***************************************************
+ * Save/Restore Workflow Data
+ ***************************************************/
+function saveCurrentWorkflowData() {
+  if (currentWorkflow === 'servers') {
+    serversWorkflowData.searchResults = { ...searchResults };
+    serversWorkflowData.partAlternativesData = { ...partAlternativesData };
+    serversWorkflowData.selectedPartNumber = selectedPartNumber;
+  } else if (currentWorkflow === 'parts') {
+    partsWorkflowData.searchResults = { ...searchResults };
+    partsWorkflowData.partAlternativesData = { ...partAlternativesData };
+    partsWorkflowData.selectedPartNumber = selectedPartNumber;
+  }
+}
+
+function restoreWorkflowData(workflow) {
+  let workflowData = workflow === 'servers' ? serversWorkflowData : partsWorkflowData;
+
+  // Restore search results
+  Object.keys(searchResults).forEach(key => {
+    searchResults[key] = workflowData.searchResults[key] || [];
+  });
+
+  // Restore part alternatives data
+  partAlternativesData = { ...workflowData.partAlternativesData };
+
+  // Restore selected part number
+  selectedPartNumber = workflowData.selectedPartNumber;
+
+  // Update dropdown
+  updateWorkflowDropdown(workflow);
+
+  // Refresh all UI
+  refreshAllTabs();
+}
+
+function updateWorkflowDropdown(workflow) {
+  const workflowData = workflow === 'servers' ? serversWorkflowData : partsWorkflowData;
+  const selectId = workflow === 'servers' ? 'servers-select' : 'parts-select';
+  const select = document.getElementById(selectId);
+
+  if (!select) return;
+
+  // Clear dropdown
+  select.innerHTML = `<option value="">Select a ${workflow === 'servers' ? 'server' : 'part number'}</option>`;
+
+  // Populate from partAlternativesData
+  const items = Object.keys(workflowData.partAlternativesData);
+  items.forEach(item => {
+    const option = document.createElement('option');
+    option.value = item;
+    option.textContent = item;
+    if (item === workflowData.selectedPartNumber) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  });
+}
+
+function handleDropdownChange(workflowType) {
+  const selectId = workflowType === 'servers' ? 'servers-select' : 'parts-select';
+  const select = document.getElementById(selectId);
+  if (!select) return;
+
+  selectedPartNumber = select.value || null;
+
+  // Save to workflow data
+  if (currentWorkflow === 'servers') {
+    serversWorkflowData.selectedPartNumber = selectedPartNumber;
+  } else {
+    partsWorkflowData.selectedPartNumber = selectedPartNumber;
+  }
+
+  // Update alternatives display for the selected part
+  updateAlternativesForSelectedPart();
+
+  // Refresh all tabs to show selected part data
+  refreshAllTabs();
+}
+
+function refreshAllTabs() {
+  // Refresh based on current tab
+  refreshCurrentTab();
+}
+
+/***************************************************
  * Configuration Variables
  ***************************************************/
 var serverDomain = "gpu.haielab.org";
@@ -33,8 +216,44 @@ let chatContainer = null;
 let analysisAlreadyCalled = false;
 // Flag to indicate if search should be stopped
 let stopSearchRequested = false;
+
 /***************************************************
- * Global aggregator for endpoint results
+ * Workflow-specific Data Stores
+ ***************************************************/
+// Servers workflow data
+let serversWorkflowData = {
+  searchResults: {
+    lenovo: [],
+    lenovoWarranty: [],
+    lenovoParts: [],
+    lenovoAsBuilt: [],
+  },
+  partAlternativesData: {},
+  selectedPartNumber: null,
+  searchedItems: [] // List of searched serials/parts for dropdown
+};
+
+// Parts workflow data
+let partsWorkflowData = {
+  searchResults: {
+    amazonConnector: [],
+    ebayConnector: [],
+    amazon: [],
+    ebay: [],
+    ingram: [],
+    tdsynnex: [],
+    brokerbin: [],
+    epicor: [],
+    sales: [],
+    purchases: [],
+  },
+  partAlternativesData: {},
+  selectedPartNumber: null,
+  searchedItems: [] // List of searched parts for dropdown
+};
+
+/***************************************************
+ * Global aggregator for endpoint results (active workflow)
  ***************************************************/
 let searchResults = {
   amazonConnector: [],
@@ -400,14 +619,33 @@ async function gatherCombinatoryAlternatives(baseNumber, currentLevel, visited, 
 /***************************************************
  * Spinner, Expansions, and Final Analysis
  ***************************************************/
+let checkIfAllDoneTimer = null;
+
 function checkIfAllDone() {
+  // Clear any existing timer
+  if (checkIfAllDoneTimer) {
+    clearTimeout(checkIfAllDoneTimer);
+    checkIfAllDoneTimer = null;
+  }
+
+  // Basic checks
   if (mainSearchInProgress) return;
   if (expansionsInProgress) return;
   if (activeRequestsCount > 0) return;
   if (analysisAlreadyCalled) return;
-  analysisAlreadyCalled = true;
-  // Don't hide spinner here - let performFinalAnalysis() hide it when done
-  performFinalAnalysis();
+
+  // Debounce with a small delay to ensure no requests are about to start
+  checkIfAllDoneTimer = setTimeout(() => {
+    // Double-check conditions after delay
+    if (mainSearchInProgress) return;
+    if (expansionsInProgress) return;
+    if (activeRequestsCount > 0) return;
+    if (analysisAlreadyCalled) return;
+
+    analysisAlreadyCalled = true;
+    // Don't hide spinner here - let performFinalAnalysis() hide it when done
+    performFinalAnalysis();
+  }, 500); // 500ms delay to catch any pending requests
 }
 async function performFinalAnalysis() {
   // Show progress indicator for analysis
@@ -601,30 +839,36 @@ async function handleSearch() {
     return;
   }
  
-  const partsSelect = document.getElementById('part-numbers-select');
-  partsSelect.innerHTML = '<option value="">Select a part number</option>';
-  
   // Convertir el Set a un array para poder acceder al primer elemento
   const partNumbersArray = Array.from(partNumbers);
-  
-  partNumbersArray.forEach((partNumber, index) => {
-    const option = document.createElement('option');
-    option.value = partNumber;
-    option.textContent = partNumber;
-    
-    // Seleccionar el primer número de parte por defecto
-    if (index === 0) {
-      option.selected = true;
-      // Actualizar el número de parte seleccionado
-      selectedPartNumber = partNumber;
-    }
-    
-    partsSelect.appendChild(option);
-  });
 
-  // Add change event listener to dropdown
-  partsSelect.addEventListener('change', handlePartSelection);
- 
+  // Get correct dropdown based on current workflow
+  const selectId = currentWorkflow === 'servers' ? 'servers-select' : 'parts-select';
+  console.log('[handleSearch] Current workflow:', currentWorkflow);
+  console.log('[handleSearch] Will populate dropdown:', selectId);
+  console.log('[handleSearch] Part numbers to add:', partNumbersArray);
+  const partsSelect = document.getElementById(selectId);
+
+  if (partsSelect) {
+    partsSelect.innerHTML = `<option value="">Select a ${currentWorkflow === 'servers' ? 'server' : 'part number'}</option>`;
+
+    partNumbersArray.forEach((partNumber, index) => {
+      console.log('[handleSearch] Adding to dropdown:', partNumber);
+      const option = document.createElement('option');
+      option.value = partNumber;
+      option.textContent = partNumber;
+
+      // Seleccionar el primer número de parte por defecto
+      if (index === 0) {
+        option.selected = true;
+        // Actualizar el número de parte seleccionado
+        selectedPartNumber = partNumber;
+      }
+
+      partsSelect.appendChild(option);
+    });
+  }
+
   Object.keys(searchResults).forEach(k => {
     searchResults[k] = [];
   });
@@ -655,7 +899,25 @@ async function handleSearch() {
       fetchLenovoAsBuiltData([{ number: partNumber, source: partNumber }]);
       fetchLenovoWarrantyData([{ number: partNumber, source: partNumber }]);
 
-      // Get alternatives data for this specific part
+      // For 'servers' workflow, skip get-parts call entirely
+      if (currentWorkflow === 'servers') {
+        // Just search with the original part number in Lenovo endpoints
+        const partsToSearch = [{ number: partNumber, source: partNumber }];
+
+        // Store minimal data for this part
+        partAlternativesData[partNumber] = {
+          description: null,
+          category: null,
+          original: partNumber,
+          alternatives: []
+        };
+
+        // Execute Lenovo-only searches
+        await executeEndpointSearches(partsToSearch);
+        return; // Skip the rest of the parts workflow
+      }
+
+      // Get alternatives data for this specific part (only for 'parts' workflow)
       const topData = await getAlternativePartNumbers(partNumber);
       const topOriginal = topData.original;
 
@@ -760,6 +1022,15 @@ function updateAlternativesForSelectedPart() {
   const altDiv = document.getElementById('alternative-numbers');
   if (!altDiv || !selectedPartNumber) return;
 
+  // Hide alternatives section if we're in servers workflow
+  if (currentWorkflow === 'servers') {
+    altDiv.style.display = 'none';
+    return;
+  }
+
+  // Show alternatives section for parts workflow
+  altDiv.style.display = 'block';
+
   const partData = partAlternativesData[selectedPartNumber];
   if (!partData) {
     altDiv.innerHTML = '<p>No alternatives data available for this part.</p>';
@@ -798,8 +1069,23 @@ async function addPartNumberToSearch(partNumber) {
 
   partNumber = partNumber.trim();
 
+  console.log('[addPartNumberToSearch] Called with:', partNumber);
+  console.log('[addPartNumberToSearch] Current workflow:', currentWorkflow);
+
+  // If we're in 'servers' workflow and clicking a part link,
+  // we want to search it in 'parts' workflow
+  if (currentWorkflow === 'servers') {
+    console.log('[addPartNumberToSearch] Switching to parts workflow and searching');
+    searchPartNumber(partNumber);
+    return;
+  }
+
+  // If already in 'parts' workflow, just add to dropdown and refresh
+  const partsSelect = document.getElementById('parts-select');
+
+  if (!partsSelect) return;
+
   // Check if part number already exists in dropdown
-  const partsSelect = document.getElementById('part-numbers-select');
   const existingOptions = Array.from(partsSelect.options);
   const alreadyExists = existingOptions.some(opt => opt.value === partNumber);
 
@@ -894,8 +1180,11 @@ async function executeEndpointSearches(partNumbers) {
   if (document.getElementById('toggle-ebay').checked) {
     tasks.push(fetchEbayData(partNumbers).finally(() => updateSummaryTab()));
   }
-  tasks.push(fetchSalesData(partNumbers).finally(() => updateSummaryTab()));
-  tasks.push(fetchPurchasesData(partNumbers).finally(() => updateSummaryTab()));
+  // Sales and Purchases are only for 'parts' workflow
+  if (currentWorkflow === 'parts') {
+    tasks.push(fetchSalesData(partNumbers).finally(() => updateSummaryTab()));
+    tasks.push(fetchPurchasesData(partNumbers).finally(() => updateSummaryTab()));
+  }
   if (document.getElementById('toggle-lenovo').checked) {
     tasks.push(fetchLenovoData(partNumbers));
   }
@@ -4190,6 +4479,20 @@ function exportAllToExcel() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  // Always start with welcome screen on page load/refresh
+  // Clear any previous workflow selection
+  sessionStorage.removeItem('selectedWorkflow');
+
+  // Ensure welcome screen is visible and main interface is hidden
+  const welcomeScreen = document.getElementById('welcome-screen');
+  const mainInterface = document.getElementById('main-interface');
+  if (welcomeScreen) {
+    welcomeScreen.style.display = 'flex';
+  }
+  if (mainInterface) {
+    mainInterface.style.display = 'none';
+  }
+
   // Microsoft Sign-In using MSAL (OAuth) as an SPA
   const msalConfig = {
     auth: {
@@ -4278,8 +4581,18 @@ function showBarcodeModal(mfgPartData) {
 
       label.textContent = formattedLabel;
 
+      // Add search button
+      const searchButton = document.createElement('button');
+      searchButton.className = 'barcode-search-btn';
+      searchButton.textContent = 'Search this Part';
+      searchButton.onclick = () => {
+        closeBarcodeModal();
+        searchPartNumber(code);
+      };
+
       barcodeDiv.appendChild(canvas);
       barcodeDiv.appendChild(label);
+      barcodeDiv.appendChild(searchButton);
       container.appendChild(barcodeDiv);
 
       // Generate barcode using JsBarcode
@@ -4300,6 +4613,161 @@ function showBarcodeModal(mfgPartData) {
     container.innerHTML = '<p style="color: red;">Error generating barcode</p>';
     modal.classList.add('active');
   }
+}
+
+/***************************************************
+ * Search Part Number (switch to parts workflow)
+ ***************************************************/
+function searchPartNumber(partNumber) {
+  console.log('searchPartNumber called with:', partNumber);
+  console.log('Current workflow before switch:', currentWorkflow);
+
+  // Save current workflow
+  const previousWorkflow = currentWorkflow;
+
+  // IMPORTANT: Add placeholder to partsWorkflowData BEFORE switching
+  // so that updateWorkflowDropdown() will include it when restoring
+  partsWorkflowData.partAlternativesData[partNumber] = {
+    description: null,
+    category: null,
+    original: partNumber,
+    alternatives: []
+  };
+  partsWorkflowData.selectedPartNumber = partNumber;
+
+  // Switch to 'parts' workflow if not already there
+  if (currentWorkflow !== 'parts') {
+    selectWorkflow('parts');
+  }
+
+  console.log('Current workflow after switch:', currentWorkflow);
+
+  // IMPORTANT: Now we're in 'parts' workflow, so manually trigger search
+  // without using the input field to avoid the dropdown population issue
+
+  // Create a Set with just this part number
+  const partNumbers = new Set([partNumber]);
+
+  // Call the search logic directly but ensure we're in parts context
+  if (partNumbers.size === 0) {
+    alert('Please enter at least one part number');
+    return;
+  }
+
+  // Convertir el Set a un array
+  const partNumbersArray = Array.from(partNumbers);
+
+  // Update selected part number
+  selectedPartNumber = partNumber;
+
+  // Check if partsWorkflowData already has search data from previous searches
+  const hasExistingData = Object.keys(partsWorkflowData.partAlternativesData).length > 1 ||
+                          Object.keys(partsWorkflowData.searchResults).some(k =>
+                            partsWorkflowData.searchResults[k] && partsWorkflowData.searchResults[k].length > 0
+                          );
+
+  // Only clear and reset if this is the first search from servers
+  // If there's existing data, we're adding to previous searches
+  if (previousWorkflow === 'servers' && !hasExistingData) {
+    // Clear search results for fresh start
+    Object.keys(searchResults).forEach(k => {
+      if (partsWorkflowData.searchResults[k] !== undefined) {
+        searchResults[k] = [];
+      }
+    });
+
+    // Reset flags when starting fresh from servers
+    activeRequestsCount = 0;
+    expansionsInProgress = false;
+    stopSearchRequested = false;
+    analysisAlreadyCalled = false;
+  }
+
+  // Don't clear alternatives data - just add the new part entry
+  // This preserves data from previous searches in parts workflow
+  if (!partAlternativesData[partNumber]) {
+    partAlternativesData[partNumber] = {
+      description: null,
+      category: null,
+      original: partNumber,
+      alternatives: []
+    };
+  }
+
+  // Show spinner
+  const spinner = document.getElementById('loading-spinner');
+  const stopBtn = document.getElementById('stop-search-btn');
+  if (spinner) spinner.style.display = 'inline-block';
+  if (stopBtn) stopBtn.style.display = 'inline-block';
+
+  // Start the actual search
+  const globalAlreadySearched = new Set();
+
+  mainSearchInProgress = true;
+
+  // Execute search for this part number
+  Promise.all(partNumbersArray.map(async (pn) => {
+    if (stopSearchRequested) return;
+
+    const finalAlternatives = [];
+
+    // Get alternatives data
+    const topData = await getAlternativePartNumbers(pn);
+    const topOriginal = topData.original;
+
+    // Store alternatives data
+    partAlternativesData[pn] = {
+      description: topData.description,
+      category: topData.category,
+      original: topOriginal,
+      alternatives: finalAlternatives
+    };
+
+    // Update UI
+    if (selectedPartNumber === pn) {
+      updateAlternativesForSelectedPart();
+    }
+
+    // Callback for alternatives
+    async function onNewAlts(newlyAdded) {
+      if (stopSearchRequested) return;
+      partAlternativesData[pn].alternatives = [...finalAlternatives];
+      if (selectedPartNumber === pn) {
+        updateAlternativesForSelectedPart();
+      }
+      const freshParts = [];
+      for (const alt of newlyAdded) {
+        const altUpper = alt.value.trim().toUpperCase();
+        if (!globalAlreadySearched.has(altUpper)) {
+          globalAlreadySearched.add(altUpper);
+          freshParts.push({ number: alt.value, source: `${alt.type}: ${alt.value}` });
+        }
+      }
+      if (freshParts.length > 0) {
+        await executeEndpointSearches(freshParts);
+      }
+    }
+
+    // Start expansions if enabled
+    if (configUseAlternatives) {
+      startExpansions(topOriginal, finalAlternatives, onNewAlts);
+    }
+
+    globalAlreadySearched.add(topOriginal.trim().toUpperCase());
+    await executeEndpointSearches([{ number: topOriginal, source: topOriginal }]);
+  })).then(() => {
+    mainSearchInProgress = false;
+
+    // Save updated data to partsWorkflowData after search completes
+    partsWorkflowData.searchResults = { ...searchResults };
+    partsWorkflowData.partAlternativesData = { ...partAlternativesData };
+    partsWorkflowData.selectedPartNumber = selectedPartNumber;
+
+    checkIfAllDone();
+  }).catch(err => {
+    console.error('searchPartNumber search error:', err);
+    mainSearchInProgress = false;
+  });
 }
 
 function closeBarcodeModal() {

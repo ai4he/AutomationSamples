@@ -75,6 +75,47 @@
       border: 1px solid #ccc;
       min-width: 200px;
     }
+    /* Welcome Screen Styles */
+    #welcome-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    }
+    .welcome-card {
+      background: white;
+      padding: 60px 80px;
+      border-radius: 20px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+      text-align: center;
+      max-width: 600px;
+    }
+    .logo-large {
+      margin-bottom: 30px;
+    }
+    .logo-large img {
+      max-width: 400px;
+      width: 100%;
+      height: auto;
+    }
+    .welcome-card h1 {
+      color: #1e293b;
+      font-size: 32px;
+      margin: 20px 0 10px 0;
+      font-weight: 700;
+    }
+    .welcome-card p {
+      color: #64748b;
+      font-size: 18px;
+      margin: 0 0 40px 0;
+    }
+    .workflow-buttons-welcome {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+    }
+
     /* Workflow Quick Access Buttons */
     .workflow-buttons {
       display: flex;
@@ -107,23 +148,44 @@
     .workflow-btn.servers-btn {
       background: linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%);
       color: white;
+      opacity: 0.5;
+      transition: all 0.3s ease;
     }
     .workflow-btn.servers-btn:hover {
       transform: translateY(-2px);
       box-shadow: 0 4px 15px rgba(30, 64, 175, 0.5);
       border-color: #2563eb;
+      opacity: 0.7;
+    }
+    .workflow-btn.servers-btn.active {
+      opacity: 1;
+      box-shadow: 0 2px 10px rgba(30, 64, 175, 0.4);
+      border: 2px solid #60a5fa;
     }
     .workflow-btn.parts-btn {
       background: linear-gradient(135deg, #be123c 0%, #9f1239 100%);
       color: white;
+      opacity: 0.5;
+      transition: all 0.3s ease;
     }
     .workflow-btn.parts-btn:hover {
       transform: translateY(-2px);
       box-shadow: 0 4px 15px rgba(190, 18, 60, 0.5);
       border-color: #dc2626;
+      opacity: 0.7;
+    }
+    .workflow-btn.parts-btn.active {
+      opacity: 1;
+      box-shadow: 0 2px 10px rgba(190, 18, 60, 0.4);
+      border: 2px solid #f87171;
     }
     .workflow-btn:active {
       transform: translateY(0);
+    }
+    /* Welcome screen buttons should always be fully visible */
+    .workflow-btn-welcome.servers-btn,
+    .workflow-btn-welcome.parts-btn {
+      opacity: 1 !important;
     }
   </style>
   
@@ -146,8 +208,27 @@
     </div>
   </div> -->
 
-  <!-- Main Content -->
-  <div class="container">
+  <!-- Welcome Screen (shown initially) -->
+  <div id="welcome-screen">
+    <div class="welcome-card">
+      <div class="logo-large">
+        <img src="MINT.png" alt="MINT – MFP Intelligent Neural Technology" />
+      </div>
+      <h1>What do you want to do today?</h1>
+      <p>Choose your workflow to get started</p>
+      <div class="workflow-buttons-welcome">
+        <button class="workflow-btn workflow-btn-welcome servers-btn" onclick="selectWorkflow('servers')">
+          <span class="btn-icon">🖥️</span> Servers
+        </button>
+        <button class="workflow-btn workflow-btn-welcome parts-btn" onclick="selectWorkflow('parts')">
+          <span class="btn-icon">🔧</span> Parts
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content (hidden until workflow selected) -->
+  <div class="container" id="main-interface" style="display: none;">
     <div class="card">
       <h2>
         <div class="logo">
@@ -156,12 +237,12 @@
         <span id="loading-spinner" class="spinner" style="display:none; margin-left:10px;"></span>
       </h2>
 
-      <!-- Workflow Quick Access Buttons -->
+      <!-- Workflow Quick Access Buttons (always visible in main interface) -->
       <div class="workflow-buttons">
-        <button class="workflow-btn servers-btn" onclick="switchTab('lenovo-asbuilt')">
+        <button id="servers-workflow-btn" class="workflow-btn servers-btn" onclick="selectWorkflow('servers')">
           <span class="btn-icon">🖥️</span> Servers
         </button>
-        <button class="workflow-btn parts-btn" onclick="switchTab('summary')">
+        <button id="parts-workflow-btn" class="workflow-btn parts-btn" onclick="selectWorkflow('parts')">
           <span class="btn-icon">🔧</span> Parts
         </button>
       </div>
@@ -207,17 +288,17 @@ Provide a buy and sell price recommendation
       <div class="endpoints-toggle">
         <h4>Data Sources:</h4>
         <div class="checkbox-group">
-          <label><input type="checkbox" id="toggle-all" checked> All (Consolidated)</label>
-          <label><input type="checkbox" id="toggle-inventory" checked> Epicor (Inventory)</label>
-          <label><input type="checkbox" id="toggle-brokerbin" checked> BrokerBin</label>
-          <label><input type="checkbox" id="toggle-tdsynnex" checked> TDSynnex</label>
-          <label><input type="checkbox" id="toggle-ingram" checked> Ingram</label>
-          <label><input type="checkbox" id="toggle-lenovo" checked> Lenovo</label>
-          <label><input type="checkbox" id="toggle-lenovo-warranty" checked> Lenovo Products</label>
-          <label><input type="checkbox" id="toggle-lenovo-parts" checked> Lenovo Parts</label>
-          <label><input type="checkbox" id="toggle-lenovo-asbuilt" checked> Lenovo As-Built</label>
-          <label><input type="checkbox" id="toggle-ebay" checked> eBay</label>
-          <label><input type="checkbox" id="toggle-amazon"> Amazon</label>
+          <label data-workflow="parts"><input type="checkbox" id="toggle-all" checked> All (Consolidated)</label>
+          <label data-workflow="parts"><input type="checkbox" id="toggle-inventory" checked> Epicor (Inventory)</label>
+          <label data-workflow="parts"><input type="checkbox" id="toggle-brokerbin" checked> BrokerBin</label>
+          <label data-workflow="parts"><input type="checkbox" id="toggle-tdsynnex" checked> TDSynnex</label>
+          <label data-workflow="parts"><input type="checkbox" id="toggle-ingram" checked> Ingram</label>
+          <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo" checked> Lenovo</label>
+          <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo-warranty" checked> Lenovo Products</label>
+          <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo-parts" checked> Lenovo Parts</label>
+          <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo-asbuilt" checked> Lenovo As-Built</label>
+          <label data-workflow="parts"><input type="checkbox" id="toggle-ebay" checked> eBay</label>
+          <label data-workflow="parts"><input type="checkbox" id="toggle-amazon"> Amazon</label>
           <!-- TODO: review this -->
           <label style="display: none;"><input type="checkbox" id="toggle-ebay-connector"> eBayConnector</label>
           <label style="display: none;"><input type="checkbox" id="toggle-amazon-connector"> AmazonConnector</label>
@@ -225,28 +306,36 @@ Provide a buy and sell price recommendation
       </div>
     </div>
 
-    <!-- Dropdown for multiple part numbers -->
-    <div class="part-numbers-dropdown">
-      <label for="part-numbers-select">Choose a part number:</label>
-      <select name="partNumbers" id="part-numbers-select">
+    <!-- Dropdown for SERVERS (shown in servers workflow) -->
+    <div class="part-numbers-dropdown" id="servers-dropdown-container" style="display: none;">
+      <label for="servers-select">Choose a server/serial:</label>
+      <select name="servers" id="servers-select" onchange="handleDropdownChange('servers')">
+        <option value="">Select a server</option>
+      </select>
+    </div>
+
+    <!-- Dropdown for PARTS (shown in parts workflow) -->
+    <div class="part-numbers-dropdown" id="parts-dropdown-container" style="display: none;">
+      <label for="parts-select">Choose a part number:</label>
+      <select name="partNumbers" id="parts-select" onchange="handleDropdownChange('parts')">
         <option value="">Select a part number</option>
       </select>
     </div>
 
     <!-- Tab Navigation -->
     <div class="tabs">
-      <button class="tab-button active" onclick="switchTab('summary')">Summary</button>
-      <button class="tab-button" onclick="switchTab('all')">All</button>
-      <button class="tab-button" onclick="switchTab('lenovo')">Lenovo</button>
-      <button class="tab-button" onclick="switchTab('lenovo-warranty')">Lenovo Products</button>
-      <button class="tab-button" onclick="switchTab('lenovo-parts')">Lenovo Parts</button>
-      <button class="tab-button" onclick="switchTab('lenovo-asbuilt')">Lenovo As-Built</button>
-      <button class="tab-button" onclick="switchTab('distributors')">Distributors</button>
-      <button class="tab-button" onclick="switchTab('marketplaces')">Marketplaces</button>
-      <button class="tab-button" onclick="switchTab('inventory')">Inventory</button>
-      <button class="tab-button" onclick="switchTab('sales')">Sales</button>
-      <button class="tab-button" onclick="switchTab('purchases')">Purchases</button>
-      <button class="tab-button" onclick="switchTab('analysis')">Analysis</button>
+      <button class="tab-button active" data-workflow="parts" onclick="switchTab('summary')">Summary</button>
+      <button class="tab-button" data-workflow="parts" onclick="switchTab('all')">All</button>
+      <button class="tab-button" data-workflow="servers" onclick="switchTab('lenovo')">Lenovo</button>
+      <button class="tab-button" data-workflow="servers" onclick="switchTab('lenovo-warranty')">Lenovo Products</button>
+      <button class="tab-button" data-workflow="servers" onclick="switchTab('lenovo-parts')">Lenovo Parts</button>
+      <button class="tab-button" data-workflow="servers" onclick="switchTab('lenovo-asbuilt')">Lenovo As-Built</button>
+      <button class="tab-button" data-workflow="parts" onclick="switchTab('distributors')">Distributors</button>
+      <button class="tab-button" data-workflow="parts" onclick="switchTab('marketplaces')">Marketplaces</button>
+      <button class="tab-button" data-workflow="parts" onclick="switchTab('inventory')">Inventory</button>
+      <button class="tab-button" data-workflow="parts" onclick="switchTab('sales')">Sales</button>
+      <button class="tab-button" data-workflow="parts" onclick="switchTab('purchases')">Purchases</button>
+      <button class="tab-button" data-workflow="parts" onclick="switchTab('analysis')">Analysis</button>
     </div>
     
     <!-- Tab Contents -->
