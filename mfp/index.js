@@ -1,25 +1,4 @@
 /***************************************************
- * Welcome Modal Handler
- ***************************************************/
-function selectWorkflow(workflow) {
-  const modal = document.getElementById('welcome-modal');
-
-  if (workflow === 'servers') {
-    // Switch to Lenovo As-Built tab
-    switchTab('lenovo-asbuilt');
-  }
-  // If 'parts', do nothing (stay on current tab, which is Summary by default)
-
-  // Hide the modal
-  if (modal) {
-    modal.classList.add('hidden');
-  }
-
-  // Store preference in sessionStorage to not show again during this session
-  sessionStorage.setItem('workflowSelected', workflow);
-}
-
-/***************************************************
  * Configuration Variables
  ***************************************************/
 var serverDomain = "gpu.haielab.org";
@@ -241,7 +220,16 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
   document.querySelectorAll('.tab-button').forEach(button => button.classList.remove('active'));
   document.getElementById(tabId).classList.add('active');
-  document.querySelector(`button[onclick="switchTab('${tabId}')"]`).classList.add('active');
+
+  // Find and activate the corresponding tab button in the tabs bar
+  const allTabButtons = document.querySelectorAll('.tab-button');
+  allTabButtons.forEach(button => {
+    const onclickAttr = button.getAttribute('onclick');
+    if (onclickAttr && onclickAttr.includes(`'${tabId}'`)) {
+      button.classList.add('active');
+    }
+  });
+
   // Refresh the current tab's content based on selected part
   refreshCurrentTab();
 }
@@ -4202,24 +4190,6 @@ function exportAllToExcel() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-  // Check if user has already selected a workflow during this session
-  const workflowSelected = sessionStorage.getItem('workflowSelected');
-  const welcomeModal = document.getElementById('welcome-modal');
-
-  if (!workflowSelected && welcomeModal) {
-    // Show the modal (it's visible by default, but just in case)
-    welcomeModal.classList.remove('hidden');
-  } else if (welcomeModal) {
-    // Hide the modal if workflow was already selected
-    welcomeModal.classList.add('hidden');
-
-    // Restore the tab based on the selected workflow
-    if (workflowSelected === 'servers') {
-      switchTab('lenovo-asbuilt');
-    }
-    // If 'parts' was selected, stay on default tab (summary)
-  }
-
   // Microsoft Sign-In using MSAL (OAuth) as an SPA
   const msalConfig = {
     auth: {
