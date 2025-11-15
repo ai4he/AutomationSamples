@@ -277,7 +277,7 @@ Provide a buy and sell price recommendation
         </select>
       </div>
       
-      <div id="alternative-numbers" class="alternative-numbers"></div>
+      <div id="alternative-numbers" class="alternative-numbers" data-workflow="parts"></div>
       
       <div class="button-group">
         <button onclick="handleSearch()">Search</button>
@@ -293,10 +293,10 @@ Provide a buy and sell price recommendation
           <label data-workflow="parts"><input type="checkbox" id="toggle-brokerbin" checked> BrokerBin</label>
           <label data-workflow="parts"><input type="checkbox" id="toggle-tdsynnex" checked> TDSynnex</label>
           <label data-workflow="parts"><input type="checkbox" id="toggle-ingram" checked> Ingram</label>
-          <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo" checked> Lenovo</label>
+          <label data-workflow="parts"><input type="checkbox" id="toggle-lenovo-press" checked> Lenovo Press</label>
           <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo-warranty" checked> Lenovo Products</label>
-          <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo-parts" checked> Lenovo Parts</label>
           <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo-asbuilt" checked> Lenovo As-Built</label>
+          <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo-parts" checked> Lenovo All Parts</label>
           <label data-workflow="parts"><input type="checkbox" id="toggle-ebay" checked> eBay</label>
           <label data-workflow="parts"><input type="checkbox" id="toggle-amazon"> Amazon</label>
           <!-- TODO: review this -->
@@ -326,10 +326,10 @@ Provide a buy and sell price recommendation
     <div class="tabs">
       <button class="tab-button active" data-workflow="parts" onclick="switchTab('summary')">Summary</button>
       <button class="tab-button" data-workflow="parts" onclick="switchTab('all')">All</button>
-      <button class="tab-button" data-workflow="servers" onclick="switchTab('lenovo')">Lenovo</button>
+      <button class="tab-button" data-workflow="parts" onclick="switchTab('lenovo-press')">Lenovo Press</button>
       <button class="tab-button" data-workflow="servers" onclick="switchTab('lenovo-warranty')">Lenovo Products</button>
-      <button class="tab-button" data-workflow="servers" onclick="switchTab('lenovo-parts')">Lenovo Parts</button>
       <button class="tab-button" data-workflow="servers" onclick="switchTab('lenovo-asbuilt')">Lenovo As-Built</button>
+      <button class="tab-button" data-workflow="servers" onclick="switchTab('lenovo-parts')">Lenovo All Parts</button>
       <button class="tab-button" data-workflow="parts" onclick="switchTab('distributors')">Distributors</button>
       <button class="tab-button" data-workflow="parts" onclick="switchTab('marketplaces')">Marketplaces</button>
       <button class="tab-button" data-workflow="parts" onclick="switchTab('inventory')">Inventory</button>
@@ -352,6 +352,13 @@ Provide a buy and sell price recommendation
           </button>
         </div>
         <div class="all-results"></div>
+      </div>
+    </div>
+
+    <div id="lenovo-press" class="tab-content">
+      <div id="lenovo-press-content">
+        <div class="subtabs" id="lenovo-press-subtabs"></div>
+        <div id="lenovo-press-subcontent"></div>
       </div>
     </div>
 

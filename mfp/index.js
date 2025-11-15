@@ -79,6 +79,16 @@ function selectWorkflow(workflow) {
     }
   });
 
+  // Hide/show alternative-numbers div based on workflow
+  const alternativesDiv = document.getElementById('alternative-numbers');
+  if (alternativesDiv) {
+    if (workflow === 'parts') {
+      alternativesDiv.style.display = 'block';
+    } else {
+      alternativesDiv.style.display = 'none';
+    }
+  }
+
   // Restore workflow-specific data
   restoreWorkflowData(workflow);
 
@@ -246,6 +256,7 @@ let partsWorkflowData = {
     epicor: [],
     sales: [],
     purchases: [],
+    lenovoPress: [],
   },
   partAlternativesData: {},
   selectedPartNumber: null,
@@ -266,6 +277,7 @@ let searchResults = {
   epicor: [],
   sales: [],
   purchases: [],
+  lenovoPress: [],
   lenovo: [],
   lenovoWarranty: [],
   lenovoParts: [],
@@ -313,10 +325,10 @@ function stopSearch() {
 function cleanupUI() {
   const altDiv = document.getElementById('alternative-numbers');
   if (altDiv) altDiv.innerHTML = '';
- 
+
   const summaryDiv = document.getElementById('summary-content');
   if (summaryDiv) summaryDiv.innerHTML = '';
- 
+
   const resultContainers = [
     '.tdsynnex-results .results-container',
     '.ingram-results .results-container',
@@ -329,12 +341,12 @@ function cleanupUI() {
     '#sales-content .sales-results',
     '#purchases-content .purchases-results'
   ];
- 
+
   resultContainers.forEach(selector => {
     const container = document.querySelector(selector);
     if (container) container.innerHTML = '';
   });
- 
+
   const lenovoSubtabs = document.getElementById('lenovo-subtabs');
   const lenovoSubcontent = document.getElementById('lenovo-subcontent');
   if (lenovoSubtabs) lenovoSubtabs.innerHTML = '';
@@ -477,6 +489,9 @@ function refreshCurrentTab() {
       break;
     case 'lenovo-asbuilt':
       buildLenovoAsBuiltUI();
+      break;
+    case 'lenovo-press':
+      buildLenovoPressUI();
       break;
     case 'distributors':
       buildTDSynnexTable();
@@ -813,13 +828,13 @@ async function handleSearch() {
   if (nestedLevelInput) {
     configNestedLevel = parseInt(nestedLevelInput.value, 10);
   }
- 
+
   // Inicializar variables de estado
   stopSearchRequested = false;
   limitedSearchMode = false;
   analysisAlreadyCalled = false;
 
-  // Clear alternatives data for new search
+  // Clear alternatives data for new search (workflow-specific)
   partAlternativesData = {};
 
   // Limpiar la interfaz
@@ -1018,6 +1033,84 @@ function handlePartSelection(event) {
 /***************************************************
  * Update alternatives display for selected part
  ***************************************************/
+/**
+ * Extract description and category from distributor results when not available from alternatives
+ */
+function getDescriptionFromDistributors(partNumber) {
+  let description = null;
+  let category = null;
+  let longestDescription = '';
+
+  console.log('[getDescriptionFromDistributors] Looking for part:', partNumber);
+  console.log('[getDescriptionFromDistributors] Available sources:', {
+    ingram: searchResults.ingram?.length || 0,
+    tdsynnex: searchResults.tdsynnex?.length || 0,
+    brokerbin: searchResults.brokerbin?.length || 0
+  });
+
+  // Check Ingram results
+  if (searchResults.ingram && searchResults.ingram.length > 0) {
+    const ingramResult = searchResults.ingram.find(item =>
+      item.vendorPartNumber === partNumber ||
+      item.customerPartNumber === partNumber ||
+      item.sourcePartNumber === partNumber
+    );
+    if (ingramResult) {
+      console.log('[getDescriptionFromDistributors] Found in Ingram:', ingramResult);
+      if (ingramResult.description && ingramResult.description !== '-') {
+        if (ingramResult.description.length > longestDescription.length) {
+          longestDescription = ingramResult.description;
+          description = ingramResult.description;
+        }
+        // Keep category from Ingram if available
+        if (!category && ingramResult.category && ingramResult.category !== '-') {
+          category = ingramResult.category;
+        }
+      }
+    }
+  }
+
+  // Check TDSynnex results
+  if (searchResults.tdsynnex && searchResults.tdsynnex.length > 0) {
+    const tdsynnexResult = searchResults.tdsynnex.find(item =>
+      item.mfgPartNumber === partNumber ||
+      item.synnexSKU === partNumber ||
+      item.sourcePartNumber === partNumber
+    );
+    if (tdsynnexResult) {
+      console.log('[getDescriptionFromDistributors] Found in TDSynnex:', tdsynnexResult);
+      if (tdsynnexResult.description && tdsynnexResult.description !== '-') {
+        // Use this description only if it's longer than what we have
+        if (tdsynnexResult.description.length > longestDescription.length) {
+          longestDescription = tdsynnexResult.description;
+          description = tdsynnexResult.description;
+        }
+      }
+    }
+  }
+
+  // Check BrokerBin results
+  if (searchResults.brokerbin && searchResults.brokerbin.length > 0) {
+    const brokerbinResult = searchResults.brokerbin.find(item =>
+      item.part === partNumber ||
+      item.sourcePartNumber === partNumber
+    );
+    if (brokerbinResult) {
+      console.log('[getDescriptionFromDistributors] Found in BrokerBin:', brokerbinResult);
+      if (brokerbinResult.description && brokerbinResult.description !== '-') {
+        // Use this description only if it's longer than what we have
+        if (brokerbinResult.description.length > longestDescription.length) {
+          longestDescription = brokerbinResult.description;
+          description = brokerbinResult.description;
+        }
+      }
+    }
+  }
+
+  console.log('[getDescriptionFromDistributors] Result:', { description, category });
+  return { description, category };
+}
+
 function updateAlternativesForSelectedPart() {
   const altDiv = document.getElementById('alternative-numbers');
   if (!altDiv || !selectedPartNumber) return;
@@ -1037,9 +1130,31 @@ function updateAlternativesForSelectedPart() {
     return;
   }
 
+  console.log('[updateAlternativesForSelectedPart] Selected part:', selectedPartNumber);
+  console.log('[updateAlternativesForSelectedPart] Part data from alternatives:', partData);
+
+  // If description or category is missing, try to get from distributors
+  let description = partData.description;
+  let category = partData.category;
+
+  console.log('[updateAlternativesForSelectedPart] Initial values:', { description, category });
+
+  if (!description || !category) {
+    const distributorInfo = getDescriptionFromDistributors(selectedPartNumber);
+    console.log('[updateAlternativesForSelectedPart] Distributor info:', distributorInfo);
+    if (!description && distributorInfo.description) {
+      description = distributorInfo.description;
+    }
+    if (!category && distributorInfo.category) {
+      category = distributorInfo.category;
+    }
+  }
+
+  console.log('[updateAlternativesForSelectedPart] Final values:', { description, category });
+
   let html = `
-    <p><strong>Description:</strong> ${partData.description || 'N/A'}</p>
-    <p><strong>Category:</strong> ${partData.category || 'N/A'}</p>
+    <p><strong>Description:</strong> ${description || 'N/A'}</p>
+    <p><strong>Category:</strong> ${category || 'N/A'}</p>
   `;
 
   if (partData.alternatives && partData.alternatives.length > 0) {
@@ -1185,9 +1300,7 @@ async function executeEndpointSearches(partNumbers) {
     tasks.push(fetchSalesData(partNumbers).finally(() => updateSummaryTab()));
     tasks.push(fetchPurchasesData(partNumbers).finally(() => updateSummaryTab()));
   }
-  if (document.getElementById('toggle-lenovo').checked) {
-    tasks.push(fetchLenovoData(partNumbers));
-  }
+  // Note: toggle-lenovo checkbox was removed - Lenovo tab not needed anymore
   if (document.getElementById('toggle-lenovo-warranty').checked) {
     tasks.push(fetchLenovoWarrantyData(partNumbers));
   }
@@ -1196,6 +1309,9 @@ async function executeEndpointSearches(partNumbers) {
   }
   if (document.getElementById('toggle-lenovo-asbuilt').checked) {
     tasks.push(fetchLenovoAsBuiltData(partNumbers));
+  }
+  if (document.getElementById('toggle-lenovo-press').checked) {
+    tasks.push(fetchLenovoPressData(partNumbers));
   }
   await Promise.all(tasks);
 }
@@ -1309,6 +1425,8 @@ async function fetchTDSynnexData(partNumbers) {
     searchResults.tdsynnex.push(...newItems);
     buildTDSynnexTable();
     buildAllConsolidatedTable();
+    // Update alternatives display in case description/category are now available
+    updateAlternativesForSelectedPart();
   } catch (err) {
     console.error('fetchTDSynnexData error:', err);
   } finally {
@@ -1472,13 +1590,15 @@ async function fetchDistributorData(partNumbers) {
     searchResults.ingram.push(...newItems);
     buildIngramTable();
     buildAllConsolidatedTable();
+    // Update alternatives display in case description/category are now available
+    updateAlternativesForSelectedPart();
   } catch (err) {
     console.error('fetchDistributorData error:', err);
     if (resultsDiv) {
       resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
     }
   } finally {
-    if (loading) loading.style.display = 'none';
+    if (loading) loading.style.display = 'none';  
     activeRequestsCount--;
     checkIfAllDone();
   }
@@ -1569,6 +1689,8 @@ async function fetchBrokerBinData(partNumbers) {
     searchResults.brokerbin.push(...newItems);
     buildBrokerBinTable();
     buildAllConsolidatedTable();
+    // Update alternatives display in case description/category are now available
+    updateAlternativesForSelectedPart();
   } catch (error) {
     console.error('fetchBrokerBinData error:', error);
     if (resultsDiv) {
@@ -2478,10 +2600,18 @@ async function fetchLenovoWarrantyData(partNumbers) {
   }
 }
 function switchLenovoWarrantySubtab(index) {
-  document.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
-  document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
-  document.querySelectorAll('.subtab-button')[index].classList.add('active');
-  document.querySelector(`.subtab-content[data-subtab-index="${index}"]`).classList.add('active');
+  const subtabs = document.getElementById('lenovo-warranty-subtabs');
+  const subcontent = document.getElementById('lenovo-warranty-subcontent');
+  if (!subtabs || !subcontent) return;
+
+  subtabs.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
+  subcontent.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+
+  const buttons = subtabs.querySelectorAll('.subtab-button');
+  const contents = subcontent.querySelectorAll('.subtab-content');
+
+  if (buttons[index]) buttons[index].classList.add('active');
+  if (contents[index]) contents[index].classList.add('active');
 }
 /***************************************************
  * Lenovo Parts UI and Data Fetching
@@ -3253,6 +3383,9 @@ async function fetchLenovoData(partNumbers) {
   if (stopSearchRequested) return;
   if (!document.getElementById('toggle-lenovo').checked) return;
   activeRequestsCount++;
+  // Lenovo tab removed - this function is no longer called
+  return;
+  
   try {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
@@ -3281,15 +3414,129 @@ async function fetchLenovoData(partNumbers) {
       }
     }
   } finally {
+    
     activeRequestsCount--;
     checkIfAllDone();
   }
 }
 function switchLenovoSubtab(index) {
-  document.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
-  document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
-  document.querySelectorAll('.subtab-button')[index].classList.add('active');
-  document.querySelector(`.subtab-content[data-subtab-index="${index}"]`).classList.add('active');
+  const subtabs = document.getElementById('lenovo-subtabs');
+  const subcontent = document.getElementById('lenovo-subcontent');
+  if (!subtabs || !subcontent) return;
+
+  subtabs.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
+  subcontent.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+
+  const buttons = subtabs.querySelectorAll('.subtab-button');
+  const contents = subcontent.querySelectorAll('.subtab-content');
+
+  if (buttons[index]) buttons[index].classList.add('active');
+  if (contents[index]) contents[index].classList.add('active');
+}
+
+/***************************************************
+ * Lenovo Press UI and Data Fetching (PARTS workflow)
+ ***************************************************/
+function buildLenovoPressUI() {
+  const lenovoPressContentDiv = document.getElementById('lenovo-press-content');
+  if (!lenovoPressContentDiv) return;
+  let subtabs = document.getElementById('lenovo-press-subtabs');
+  let subcontent = document.getElementById('lenovo-press-subcontent');
+  if (!subtabs) {
+    subtabs = document.createElement('div');
+    subtabs.id = 'lenovo-press-subtabs';
+    subtabs.className = 'subtabs';
+    lenovoPressContentDiv.appendChild(subtabs);
+  }
+  if (!subcontent) {
+    subcontent = document.createElement('div');
+    subcontent.id = 'lenovo-press-subcontent';
+    lenovoPressContentDiv.appendChild(subcontent);
+  }
+  subtabs.innerHTML = '';
+  subcontent.innerHTML = '';
+  let allResults = searchResults.lenovoPress;
+  if (selectedPartNumber) {
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    allResults = allResults.filter(doc => relatedParts.includes(doc.sourcePartNumber));
+  }
+  if (!allResults || allResults.length === 0) {
+    subtabs.innerHTML = '<div class="error">No Lenovo Press data found for selected part</div>';
+    return;
+  }
+  allResults.forEach((doc, index) => {
+    const subtabButton = document.createElement('button');
+    subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
+    const title = doc.title || 'Untitled Document';
+    const cleanTitle = typeof title === 'string'
+      ? title.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
+      : 'Untitled Document';
+    subtabButton.textContent = `${doc.sourcePartNumber} - ${cleanTitle}`;
+    subtabButton.title = cleanTitle;
+    subtabButton.onclick = () => switchLenovoPressSubtab(index);
+    subtabs.appendChild(subtabButton);
+    const contentDiv = document.createElement('div');
+    contentDiv.className = `subtab-content ${index === 0 ? 'active' : ''}`;
+    contentDiv.setAttribute('data-subtab-index', index);
+    let processedContent = decodeUnicodeEscapes(doc.content);
+    if (!processedContent.trim().toLowerCase().startsWith('<table')) {
+      processedContent = `<table class="lenovo-data-table">${processedContent}</table>`;
+    }
+    contentDiv.innerHTML = processedContent;
+    subcontent.appendChild(contentDiv);
+  });
+}
+async function fetchLenovoPressData(partNumbers) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+  if (!document.getElementById('toggle-lenovo-press').checked) return;
+  
+  try {
+    for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
+      try {
+        const response = await fetch(`https://${serverDomain}/webhook/lenovo-scraper?item=${encodeURIComponent(number)}`);
+        if (!response.ok) continue;
+        const data = await response.json();
+        if (data?.[0]?.data?.length > 0) {
+          const docs = data[0].data
+            .filter(doc => doc && doc.content && doc.content.trim() !== '')
+            .map(doc => ({ ...doc, sourcePartNumber: source }));
+          searchResults.lenovoPress.push(...docs);
+        }
+      } catch (error) {
+        console.warn(`Lenovo Press error for ${number}:`, error);
+      }
+    }
+    buildLenovoPressUI();
+    buildAllConsolidatedTable();
+  } catch (err) {
+    console.error('Lenovo Press data fetch error:', err);
+    if (!searchResults.lenovoPress.length) {
+      const subtabs = document.getElementById('lenovo-press-subtabs');
+      if (subtabs) {
+        subtabs.innerHTML = `<div class="error">Error fetching Lenovo Press data: ${err.message}</div>`;
+      }
+    }
+  } finally {
+    
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+function switchLenovoPressSubtab(index) {
+  const subtabs = document.getElementById('lenovo-press-subtabs');
+  const subcontent = document.getElementById('lenovo-press-subcontent');
+  if (!subtabs || !subcontent) return;
+
+  subtabs.querySelectorAll('.subtab-button').forEach(btn => btn.classList.remove('active'));
+  subcontent.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+
+  const buttons = subtabs.querySelectorAll('.subtab-button');
+  const contents = subcontent.querySelectorAll('.subtab-content');
+
+  if (buttons[index]) buttons[index].classList.add('active');
+  if (contents[index]) contents[index].classList.add('active');
 }
 function decodeUnicodeEscapes(str) {
   if (typeof str !== 'string') return '';
