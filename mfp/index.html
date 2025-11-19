@@ -294,6 +294,7 @@ Provide a buy and sell price recommendation
           <label data-workflow="parts"><input type="checkbox" id="toggle-tdsynnex" checked> TDSynnex</label>
           <label data-workflow="parts"><input type="checkbox" id="toggle-ingram" checked> Ingram</label>
           <label data-workflow="parts"><input type="checkbox" id="toggle-lenovo-press" checked> Lenovo Press</label>
+          <label data-workflow="parts"><input type="checkbox" id="toggle-google-search" checked> Google Search</label>
           <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo-warranty" checked> Lenovo Products</label>
           <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo-asbuilt" checked> Lenovo As-Built</label>
           <label data-workflow="servers"><input type="checkbox" id="toggle-lenovo-parts" checked> Lenovo All Parts</label>
@@ -332,6 +333,7 @@ Provide a buy and sell price recommendation
       <button class="tab-button" data-workflow="servers" onclick="switchTab('lenovo-parts')">Lenovo All Parts</button>
       <button class="tab-button" data-workflow="parts" onclick="switchTab('distributors')">Distributors</button>
       <button class="tab-button" data-workflow="parts" onclick="switchTab('marketplaces')">Marketplaces</button>
+      <button class="tab-button" data-workflow="parts" onclick="switchTab('google-search')">Google Search</button>
       <button class="tab-button" data-workflow="parts" onclick="switchTab('inventory')">Inventory</button>
       <button class="tab-button" data-workflow="parts" onclick="switchTab('sales')">Sales</button>
       <button class="tab-button" data-workflow="parts" onclick="switchTab('purchases')">Purchases</button>
@@ -434,7 +436,17 @@ Provide a buy and sell price recommendation
         </div>
       </div>
     </div>
-    
+
+    <div id="google-search" class="tab-content">
+      <div id="google-search-content">
+        <div class="google-search-results">
+          <h3>Google Search Results</h3>
+          <div class="loading" style="display: none;">Loading Google search data...</div>
+          <div class="results-container"></div>
+        </div>
+      </div>
+    </div>
+
     <div id="inventory" class="tab-content">
       <div id="inventory-content">
         <div class="loading" style="display: none;">Loading inventory data...</div>

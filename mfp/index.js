@@ -257,6 +257,7 @@ let partsWorkflowData = {
     sales: [],
     purchases: [],
     lenovoPress: [],
+    googleSearch: [],
   },
   partAlternativesData: {},
   selectedPartNumber: null,
@@ -278,6 +279,7 @@ let searchResults = {
   sales: [],
   purchases: [],
   lenovoPress: [],
+  googleSearch: [],
   lenovo: [],
   lenovoWarranty: [],
   lenovoParts: [],
@@ -503,6 +505,9 @@ function refreshCurrentTab() {
       buildEbayConnectorTable();
       buildAmazonScraperTable();
       buildEbayScraperTable();
+      break;
+    case 'google-search':
+      buildGoogleSearchTable();
       break;
     case 'inventory':
       buildEpicorInventoryTable();
@@ -1299,6 +1304,10 @@ async function executeEndpointSearches(partNumbers) {
   if (currentWorkflow === 'parts') {
     tasks.push(fetchSalesData(partNumbers).finally(() => updateSummaryTab()));
     tasks.push(fetchPurchasesData(partNumbers).finally(() => updateSummaryTab()));
+  }
+  // Google Search for parts workflow
+  if (currentWorkflow === 'parts' && document.getElementById('toggle-google-search').checked) {
+    tasks.push(fetchGoogleSearchData(partNumbers).finally(() => updateSummaryTab()));
   }
   // Note: toggle-lenovo checkbox was removed - Lenovo tab not needed anymore
   if (document.getElementById('toggle-lenovo-warranty').checked) {
@@ -2465,6 +2474,128 @@ function buildEbayScraperTable() {
       `).join('')}
     </tbody>
   `;
+  const container = document.createElement('div');
+  container.className = 'table-container';
+  container.appendChild(table);
+  resultsDiv.appendChild(container);
+  makeTableSortable(table);
+}
+/***************************************************
+ * Google Search Data Fetching and UI
+ ***************************************************/
+async function fetchGoogleSearchData(partNumbers) {
+  if (stopSearchRequested) return;
+  activeRequestsCount++;
+
+  const loading = document.querySelector('.google-search-results .loading');
+  if (loading) loading.style.display = 'block';
+
+  try {
+    const newItems = [];
+    for (const { number, source } of partNumbers) {
+      if (stopSearchRequested) break;
+      try {
+        console.log(`Google Search: Searching for ${number}`);
+        const res = await fetch(`https://${serverDomain}/webhook/google-search?item=${encodeURIComponent(number)}`);
+
+        if (!res.ok) {
+          console.warn(`Google Search: HTTP error ${res.status} for ${number}`);
+          continue;
+        }
+
+        const data = await res.json();
+        console.log(`Google Search: Raw response for ${number}:`, data);
+
+        // Handle response - might be array directly or wrapped in an object
+        let results = Array.isArray(data) ? data : (data.items || []);
+        console.log(`Google Search: Received ${results.length} results for ${number}`);
+
+        // Add source part number to each result
+        const withSource = results.map(item => ({
+          ...item,
+          sourcePartNumber: source
+        }));
+
+        newItems.push(...withSource);
+      } catch (err) {
+        console.warn('Google Search error for', number, err);
+      }
+    }
+
+    searchResults.googleSearch.push(...newItems);
+    buildGoogleSearchTable();
+    buildAllConsolidatedTable();
+    // Update alternatives display in case description/category are now available
+    updateAlternativesForSelectedPart();
+  } catch (err) {
+    console.error('fetchGoogleSearchData error:', err);
+  } finally {
+    if (loading) loading.style.display = 'none';
+    activeRequestsCount--;
+    checkIfAllDone();
+  }
+}
+
+function buildGoogleSearchTable() {
+  const resultsDiv = document.querySelector('.google-search-results .results-container');
+  if (!resultsDiv) return;
+  resultsDiv.innerHTML = '';
+
+  let items = searchResults.googleSearch;
+  console.log(`buildGoogleSearchTable: Total items before filter: ${items.length}`);
+  console.log(`buildGoogleSearchTable: selectedPartNumber: ${selectedPartNumber}`);
+
+  if (selectedPartNumber) {
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    console.log(`buildGoogleSearchTable: relatedParts:`, relatedParts);
+    console.log(`buildGoogleSearchTable: Sample item sourcePartNumber:`, items[0]?.sourcePartNumber);
+    items = items.filter(item => relatedParts.includes(item.sourcePartNumber));
+    console.log(`buildGoogleSearchTable: Items after filter: ${items.length}`);
+  }
+
+  if (items.length === 0) {
+    resultsDiv.innerHTML = '<p>No Google search results available for selected part.</p>';
+    return;
+  }
+
+  const table = document.createElement('table');
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Source Part</th>
+        <th>Image</th>
+        <th>Title</th>
+        <th>Snippet</th>
+        <th>Domain</th>
+        <th>Link</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${items.map(item => {
+        // Check if image data exists (from pagemap or direct image field)
+        let imageUrl = null;
+        if (item.pagemap && item.pagemap.cse_thumbnail && item.pagemap.cse_thumbnail.length > 0) {
+          imageUrl = item.pagemap.cse_thumbnail[0].src;
+        } else if (item.pagemap && item.pagemap.cse_image && item.pagemap.cse_image.length > 0) {
+          imageUrl = item.pagemap.cse_image[0].src;
+        } else if (item.image) {
+          imageUrl = item.image;
+        }
+
+        return `
+        <tr>
+          <td>${item.sourcePartNumber || '-'}</td>
+          <td>${imageUrl ? `<img src="${imageUrl}" alt="Product" style="max-width: 80px; max-height: 80px; object-fit: contain;">` : '-'}</td>
+          <td>${item.title || '-'}</td>
+          <td>${item.snippet || '-'}</td>
+          <td>${item.displayLink || '-'}</td>
+          <td><a href="${item.link || '#'}" target="_blank">View</a></td>
+        </tr>
+        `;
+      }).join('')}
+    </tbody>
+  `;
+
   const container = document.createElement('div');
   container.className = 'table-container';
   container.appendChild(table);
