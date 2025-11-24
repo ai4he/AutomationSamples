@@ -2388,7 +2388,7 @@ function buildAmazonScraperTable() {
   resultsDiv.appendChild(container);
   makeTableSortable(table);
 }
-// 10) eBayScraper
+// 10) eBay Browse API
 async function fetchEbayData(partNumbers) {
   if (stopSearchRequested) return;
   if (!document.getElementById('toggle-ebay').checked) return;
@@ -2401,23 +2401,37 @@ async function fetchEbayData(partNumbers) {
     for (const { number, source } of partNumbers) {
       if (stopSearchRequested) break;
       try {
-        const resp = await fetch(`https://${serverDomain}/webhook/ebay-scraper?item=${encodeURIComponent(number)}`);
+        const resp = await fetch(`https://${serverDomain}/webhook/ebay-browse?item=${encodeURIComponent(number)}`);
         if (!resp.ok) continue;
         const data = await resp.json();
-        if (Array.isArray(data) && data.length > 0) {
-          const { title = [], price = [], image = [], link = [] } = data[0];
-          for (let i = 0; i < title.length; i++) {
+
+        // eBay Browse API returns data in { items: [...] } format
+        if (data && data.items && Array.isArray(data.items)) {
+          for (const item of data.items) {
+            // Format price with currency
+            let priceDisplay = '-';
+            if (item.price) {
+              priceDisplay = `${item.currency || 'USD'} $${item.price}`;
+              if (item.shippingCost && item.shippingCost !== '0.0') {
+                priceDisplay += ` (+$${item.shippingCost} shipping)`;
+              }
+            }
+
             newItems.push({
               sourcePartNumber: source,
-              title: title[i] || '-',
-              rawPrice: price[i] || '-',
-              image: image[i] || null,
-              link: link[i] || '#'
+              title: item.title || '-',
+              rawPrice: priceDisplay,
+              image: item.image || null,
+              link: item.link || '#',
+              condition: item.condition || 'Unknown',
+              location: item.location || '',
+              seller: item.sellerName || '',
+              feedbackScore: item.feedbackScore || null
             });
           }
         }
       } catch (err) {
-        console.warn('ebayScraper error', err);
+        console.warn('eBay Browse API error', err);
       }
     }
     searchResults.ebay.push(...newItems);
@@ -2454,7 +2468,10 @@ function buildEbayScraperTable() {
         <th>Source Part</th>
         <th>Image</th>
         <th>Description</th>
+        <th>Condition</th>
         <th>Price</th>
+        <th>Seller</th>
+        <th>Location</th>
       </tr>
     </thead>
     <tbody>
@@ -2469,7 +2486,10 @@ function buildEbayScraperTable() {
               ? `<a href="${it.link}" target="_blank">${it.title}</a>`
               : it.title}
           </td>
+          <td>${it.condition || '-'}</td>
           <td>${it.rawPrice}</td>
+          <td>${it.seller || '-'}${it.feedbackScore ? ` (${it.feedbackScore})` : ''}</td>
+          <td>${it.location || '-'}</td>
         </tr>
       `).join('')}
     </tbody>
