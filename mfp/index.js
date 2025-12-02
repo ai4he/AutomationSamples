@@ -528,7 +528,7 @@ function refreshCurrentTab() {
  ***************************************************/
 async function getAlternativePartNumbers(partNumber) {
   try {
-    const response = await fetch(`https://${serverDomain}/webhook/get-parts?item=${encodeURIComponent(partNumber)}`);
+    const response = await fetch(`https://${serverDomain}/webhook/get-parts-prioritized?item=${encodeURIComponent(partNumber)}`);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
