@@ -194,7 +194,7 @@ function refreshAllTabs() {
 /***************************************************
  * Configuration Variables
  ***************************************************/
-var serverDomain = "gpu.haielab.org";
+var serverDomain = "workflows.haielab.org";
 // You can override the domain or keep the same
 // let serverDomain = "n8n.haielab.org";
 // Master toggles for LLM model (if you want to set a default)
@@ -3057,7 +3057,7 @@ async function fetchLenovoAsBuiltData(partNumbers) {
       asBuiltSearched.add(numberUpper);
 
       try {
-        const response = await fetch(`https://gpu.haielab.org/webhook/lenovo-parts?item=${encodeURIComponent(number)}`);
+        const response = await fetch(`https://${serverDomain}/webhook/lenovo-parts?item=${encodeURIComponent(number)}`);
         if (!response.ok) continue;
         const data = await response.json();
         if (data && data.products && Array.isArray(data.products) && data.products.length > 0) {
