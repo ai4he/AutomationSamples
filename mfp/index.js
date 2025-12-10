@@ -186,7 +186,14 @@ function handleDropdownChange(workflowType) {
   const select = document.getElementById(selectId);
   if (!select) return;
 
-  selectedPartNumber = select.value || null;
+  const selectedValue = select.value || null;
+
+  // Handle "__ALL__" special value - only affects the All tab
+  if (selectedValue === '__ALL__') {
+    selectedPartNumber = '__ALL__';
+  } else {
+    selectedPartNumber = selectedValue;
+  }
 
   // Save to workflow data
   if (currentWorkflow === 'servers') {
@@ -195,8 +202,16 @@ function handleDropdownChange(workflowType) {
     partsWorkflowData.selectedPartNumber = selectedPartNumber;
   }
 
-  // Update alternatives display for the selected part
-  updateAlternativesForSelectedPart();
+  // Update alternatives display for the selected part (skip if "All" is selected)
+  if (selectedPartNumber !== '__ALL__') {
+    updateAlternativesForSelectedPart();
+  } else {
+    // Clear alternatives display when "All" is selected
+    const altDiv = document.getElementById('alternatives-display');
+    if (altDiv) {
+      altDiv.innerHTML = '<p>Showing all parts in the "All" tab.</p>';
+    }
+  }
 
   // Refresh all tabs to show selected part data
   refreshAllTabs();
@@ -890,6 +905,14 @@ async function handleSearch() {
   if (partsSelect) {
     partsSelect.innerHTML = `<option value="">Select a ${currentWorkflow === 'servers' ? 'server' : 'part number'}</option>`;
 
+    // Add "All" option only for parts workflow and when there's more than 1 part number
+    if (currentWorkflow === 'parts' && partNumbersArray.length > 1) {
+      const allOption = document.createElement('option');
+      allOption.value = '__ALL__';
+      allOption.textContent = 'All';
+      partsSelect.appendChild(allOption);
+    }
+
     partNumbersArray.forEach((partNumber, index) => {
       console.log('[handleSearch] Adding to dropdown:', partNumber);
       const option = document.createElement('option');
@@ -1368,6 +1391,22 @@ async function addPartNumberToSearch(partNumber) {
   option.textContent = partNumber;
   option.selected = true;
   partsSelect.appendChild(option);
+
+  // Check if we need to add "All" option (when there are now more than 1 part numbers)
+  // Count actual part numbers (excluding empty option and __ALL__ option)
+  const partNumberCount = Array.from(partsSelect.options).filter(opt => opt.value && opt.value !== '__ALL__').length;
+  const hasAllOption = Array.from(partsSelect.options).some(opt => opt.value === '__ALL__');
+
+  if (partNumberCount > 1 && !hasAllOption) {
+    // Add "All" option after the first empty option
+    const allOption = document.createElement('option');
+    allOption.value = '__ALL__';
+    allOption.textContent = 'All';
+    // Insert after the first option (the empty "Select a part number" option)
+    if (partsSelect.options.length > 1) {
+      partsSelect.insertBefore(allOption, partsSelect.options[1]);
+    }
+  }
 
   // Update selected part number
   selectedPartNumber = partNumber;
@@ -4781,10 +4820,12 @@ function buildAllConsolidatedTable() {
   if (!allResultsContainer) return;
 
   // Filter by selected part number if one is selected
+  // If "__ALL__" is selected, show all parts
   let partDataEntries = Object.entries(partAlternativesData);
-  if (selectedPartNumber && partAlternativesData[selectedPartNumber]) {
+  if (selectedPartNumber && selectedPartNumber !== '__ALL__' && partAlternativesData[selectedPartNumber]) {
     partDataEntries = [[selectedPartNumber, partAlternativesData[selectedPartNumber]]];
   }
+  // When "__ALL__" is selected, we use all partDataEntries (no filtering)
 
   if (partDataEntries.length === 0) {
     allResultsContainer.innerHTML = '<p>No data available. Please search for a part number first.</p>';
