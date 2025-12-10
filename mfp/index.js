@@ -1075,19 +1075,61 @@ function getDescriptionFromDistributors(partNumbers) {
 
   console.log('[getDescriptionFromDistributors] Looking for parts:', partsArray);
   console.log('[getDescriptionFromDistributors] Available sources:', {
+    lenovoPress: searchResults.lenovoPress?.length || 0,
     ingram: searchResults.ingram?.length || 0,
-    tdsynnex: searchResults.tdsynnex?.length || 0,
     brokerbin: searchResults.brokerbin?.length || 0,
+    tdsynnex: searchResults.tdsynnex?.length || 0,
     googleSearch: searchResults.googleSearch?.length || 0
   });
 
   // Collect all descriptions with priority
+  // Priority order: 1. Lenovo Press, 2. Ingram, 3. BrokerBin, 4. TDSynnex, 5. Google Search
   const descriptions = [];
   const categories = [];
 
   // Search through all related part numbers
   for (const partNumber of partsArray) {
-    // Priority 5: Ingram
+    // Priority 1: Lenovo Press (highest priority)
+    // Try to extract description from the HTML content table
+    if (searchResults.lenovoPress && searchResults.lenovoPress.length > 0) {
+      const lenovoPressResult = searchResults.lenovoPress.find(item =>
+        item.sourcePartNumber === partNumber
+      );
+      if (lenovoPressResult) {
+        console.log('[getDescriptionFromDistributors] Found in Lenovo Press:', lenovoPressResult);
+        // Try to extract description from HTML content
+        let extractedDescription = null;
+        if (lenovoPressResult.content) {
+          // Parse the HTML content to find the description
+          // Look for the part number row and get the description column
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = lenovoPressResult.content;
+          const rows = tempDiv.querySelectorAll('tr');
+          for (const row of rows) {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 3) {
+              // Check if this row contains our part number
+              const cellText = cells[0]?.textContent?.trim() || '';
+              if (cellText === partNumber || cellText.includes(partNumber)) {
+                // Description is typically in the 3rd column (index 2)
+                extractedDescription = cells[2]?.textContent?.trim() || null;
+                if (extractedDescription) break;
+              }
+            }
+          }
+        }
+        if (extractedDescription && extractedDescription !== '-') {
+          descriptions.push({
+            value: extractedDescription,
+            priority: 1,
+            source: 'Lenovo Press',
+            partNumber: partNumber
+          });
+        }
+      }
+    }
+
+    // Priority 2: Ingram
     if (searchResults.ingram && searchResults.ingram.length > 0) {
       const ingramResult = searchResults.ingram.find(item =>
         item.vendorPartNumber === partNumber ||
@@ -1099,7 +1141,7 @@ function getDescriptionFromDistributors(partNumbers) {
         if (ingramResult.description && ingramResult.description !== '-') {
           descriptions.push({
             value: ingramResult.description,
-            priority: 5,
+            priority: 2,
             source: 'Ingram',
             partNumber: partNumber
           });
@@ -1107,7 +1149,7 @@ function getDescriptionFromDistributors(partNumbers) {
         if (ingramResult.category && ingramResult.category !== '-') {
           categories.push({
             value: ingramResult.category,
-            priority: 5,
+            priority: 2,
             source: 'Ingram',
             partNumber: partNumber
           });
@@ -1115,7 +1157,26 @@ function getDescriptionFromDistributors(partNumbers) {
       }
     }
 
-    // Priority 6: TDSynnex
+    // Priority 3: BrokerBin
+    if (searchResults.brokerbin && searchResults.brokerbin.length > 0) {
+      const brokerbinResult = searchResults.brokerbin.find(item =>
+        item.part === partNumber ||
+        item.sourcePartNumber === partNumber
+      );
+      if (brokerbinResult) {
+        console.log('[getDescriptionFromDistributors] Found in BrokerBin:', brokerbinResult);
+        if (brokerbinResult.description && brokerbinResult.description !== '-') {
+          descriptions.push({
+            value: brokerbinResult.description,
+            priority: 3,
+            source: 'BrokerBin',
+            partNumber: partNumber
+          });
+        }
+      }
+    }
+
+    // Priority 4: TDSynnex
     if (searchResults.tdsynnex && searchResults.tdsynnex.length > 0) {
       const tdsynnexResult = searchResults.tdsynnex.find(item =>
         item.mfgPartNumber === partNumber ||
@@ -1127,7 +1188,7 @@ function getDescriptionFromDistributors(partNumbers) {
         if (tdsynnexResult.description && tdsynnexResult.description !== '-') {
           descriptions.push({
             value: tdsynnexResult.description,
-            priority: 6,
+            priority: 4,
             source: 'TDSynnex',
             partNumber: partNumber
           });
@@ -1135,26 +1196,7 @@ function getDescriptionFromDistributors(partNumbers) {
       }
     }
 
-    // Priority 7: BrokerBin
-    if (searchResults.brokerbin && searchResults.brokerbin.length > 0) {
-      const brokerbinResult = searchResults.brokerbin.find(item =>
-        item.part === partNumber ||
-        item.sourcePartNumber === partNumber
-      );
-      if (brokerbinResult) {
-        console.log('[getDescriptionFromDistributors] Found in BrokerBin:', brokerbinResult);
-        if (brokerbinResult.description && brokerbinResult.description !== '-') {
-          descriptions.push({
-            value: brokerbinResult.description,
-            priority: 7,
-            source: 'BrokerBin',
-            partNumber: partNumber
-          });
-        }
-      }
-    }
-
-    // Priority 8: Google Search (last resort)
+    // Priority 5: Google Search (last resort)
     if (searchResults.googleSearch && searchResults.googleSearch.length > 0) {
       const googleResult = searchResults.googleSearch.find(item =>
         item.partNumber === partNumber ||
@@ -1165,7 +1207,7 @@ function getDescriptionFromDistributors(partNumbers) {
         if (googleResult.title && googleResult.title !== '-') {
           descriptions.push({
             value: googleResult.title,
-            priority: 8,
+            priority: 5,
             source: 'Google Search',
             partNumber: partNumber
           });
@@ -1216,25 +1258,26 @@ function updateAlternativesForSelectedPart() {
   console.log('[updateAlternativesForSelectedPart] Selected part:', selectedPartNumber);
   console.log('[updateAlternativesForSelectedPart] Part data from alternatives:', partData);
 
-  // If description or category is missing, try to get from distributors
+  // Always try to get the best description based on priority
+  // Priority: Lenovo Press > Ingram > BrokerBin > TDSynnex > Google Search > partData
   let description = partData.description;
   let category = partData.category;
 
-  console.log('[updateAlternativesForSelectedPart] Initial values:', { description, category });
+  console.log('[updateAlternativesForSelectedPart] Initial values from partData:', { description, category });
 
-  if (!description || !category) {
-    // Get all related part numbers (selected + alternatives)
-    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
-    console.log('[updateAlternativesForSelectedPart] Searching descriptions for parts:', relatedParts);
+  // Get all related part numbers (selected + alternatives)
+  const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+  console.log('[updateAlternativesForSelectedPart] Searching descriptions for parts:', relatedParts);
 
-    const distributorInfo = getDescriptionFromDistributors(relatedParts);
-    console.log('[updateAlternativesForSelectedPart] Distributor info:', distributorInfo);
-    if (!description && distributorInfo.description) {
-      description = distributorInfo.description;
-    }
-    if (!category && distributorInfo.category) {
-      category = distributorInfo.category;
-    }
+  const distributorInfo = getDescriptionFromDistributors(relatedParts);
+  console.log('[updateAlternativesForSelectedPart] Distributor info:', distributorInfo);
+
+  // Use distributor description if found (it has priority order built-in)
+  if (distributorInfo.description) {
+    description = distributorInfo.description;
+  }
+  if (distributorInfo.category) {
+    category = distributorInfo.category;
   }
 
   console.log('[updateAlternativesForSelectedPart] Final values:', { description, category });
@@ -3783,6 +3826,8 @@ async function fetchLenovoPressData(partNumbers) {
     }
     buildLenovoPressUI();
     buildAllConsolidatedTable();
+    // Update description since Lenovo Press has highest priority
+    updateAlternativesForSelectedPart();
   } catch (err) {
     console.error('Lenovo Press data fetch error:', err);
     if (!searchResults.lenovoPress.length) {
