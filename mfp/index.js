@@ -3,10 +3,10 @@
  ***************************************************/
 let currentWorkflow = null;
 
-function selectWorkflow(workflow) {
+function selectWorkflow(workflow, skipInputSave = false) {
   // Save current workflow data before switching
   if (currentWorkflow) {
-    saveCurrentWorkflowData();
+    saveCurrentWorkflowData(skipInputSave);
   }
 
   // Update current workflow
@@ -109,7 +109,7 @@ function selectWorkflow(workflow) {
 /***************************************************
  * Save/Restore Workflow Data
  ***************************************************/
-function saveCurrentWorkflowData() {
+function saveCurrentWorkflowData(skipInputSave = false) {
   const inputElement = document.getElementById('part-numbers');
   const currentInputValue = inputElement ? inputElement.value : '';
 
@@ -117,12 +117,17 @@ function saveCurrentWorkflowData() {
     serversWorkflowData.searchResults = { ...searchResults };
     serversWorkflowData.partAlternativesData = { ...partAlternativesData };
     serversWorkflowData.selectedPartNumber = selectedPartNumber;
-    serversWorkflowData.inputValue = currentInputValue;
+    // Only save input value if not skipping (allows pre-setting before workflow switch)
+    if (!skipInputSave) {
+      serversWorkflowData.inputValue = currentInputValue;
+    }
   } else if (currentWorkflow === 'parts') {
     partsWorkflowData.searchResults = { ...searchResults };
     partsWorkflowData.partAlternativesData = { ...partAlternativesData };
     partsWorkflowData.selectedPartNumber = selectedPartNumber;
-    partsWorkflowData.inputValue = currentInputValue;
+    if (!skipInputSave) {
+      partsWorkflowData.inputValue = currentInputValue;
+    }
   }
 }
 
@@ -1273,6 +1278,25 @@ async function addPartNumberToSearch(partNumber) {
   // we want to search it in 'parts' workflow
   if (currentWorkflow === 'servers') {
     console.log('[addPartNumberToSearch] Switching to parts workflow and searching');
+
+    // Add the part number to the PARTS input (not servers)
+    // Calculate the new input value for parts workflow
+    const currentPartsInputValue = partsWorkflowData.inputValue || '';
+    let newPartsInputValue = currentPartsInputValue.trim();
+
+    if (newPartsInputValue) {
+      // Check if part number already exists in input (split by comma, pipe, or space)
+      const existingParts = newPartsInputValue.split(/[,|\s]+/).map(p => p.trim()).filter(p => p);
+      if (!existingParts.includes(partNumber)) {
+        newPartsInputValue = newPartsInputValue + ' ' + partNumber;
+      }
+    } else {
+      newPartsInputValue = partNumber;
+    }
+
+    // Save the NEW value directly to partsWorkflowData
+    partsWorkflowData.inputValue = newPartsInputValue;
+
     searchPartNumber(partNumber);
     return;
   }
