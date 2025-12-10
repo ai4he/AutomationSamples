@@ -4833,21 +4833,60 @@ function buildAllConsolidatedTable() {
     const alt2 = alternatives[1] ? `${alternatives[1].type}: ${alternatives[1].value}` : '';
     const alt3 = alternatives[2] ? `${alternatives[2].type}: ${alternatives[2].value}` : '';
 
-    // Get data ONLY from the main part number (not alternatives)
-    // Alternatives are shown only as informational columns
-    const ingramData = getIngramDataForParts([mainPart]);
-    const tdsynnexData = getTDSynnexDataForParts([mainPart]);
-    const brokerbinData = getBrokerBinDataForParts([mainPart]);
-    const ebayData = getEbayDataForParts([mainPart]);
-    const inventoryData = getInventoryDataForParts([mainPart]);
-    const salesData = getSalesDataForParts([mainPart]);
-    const purchasesData = getPurchasesDataForParts([mainPart]);
+    // Build array of all part numbers to search (main + alternatives)
+    const allPartsToSearch = [mainPart];
+    for (const alt of alternatives) {
+      if (alt.value && !allPartsToSearch.includes(alt.value)) {
+        allPartsToSearch.push(alt.value);
+      }
+    }
+
+    // Get data from main part AND all alternatives
+    const ingramData = getIngramDataForParts(allPartsToSearch);
+    const tdsynnexData = getTDSynnexDataForParts(allPartsToSearch);
+    const brokerbinData = getBrokerBinDataForParts(allPartsToSearch);
+    const ebayData = getEbayDataForParts(allPartsToSearch);
+    const inventoryData = getInventoryDataForParts(allPartsToSearch);
+    const salesData = getSalesDataForParts(allPartsToSearch);
+    const purchasesData = getPurchasesDataForParts(allPartsToSearch);
 
     // Get description and category from available sources
+    // Priority: 1. Lenovo Press, 2. Ingram, 3. BrokerBin, 4. TDSynnex, 5. Inventory
     let description = 'N/A';
     let category = 'N/A';
 
-    if (ingramData.description) {
+    // Priority 1: Lenovo Press - extract description from HTML content
+    let lenovoPressDescription = null;
+    if (searchResults.lenovoPress && searchResults.lenovoPress.length > 0) {
+      // Search for any of the part numbers (main or alternatives)
+      for (const searchPart of allPartsToSearch) {
+        if (lenovoPressDescription) break;
+        const lenovoPressResult = searchResults.lenovoPress.find(item => item.sourcePartNumber === searchPart);
+        if (lenovoPressResult?.content) {
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = lenovoPressResult.content;
+          const rows = tempDiv.querySelectorAll('tr');
+          for (const row of rows) {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 3) {
+              const cellText = cells[0]?.textContent?.trim() || '';
+              // Check if this row contains any of our part numbers
+              for (const partToMatch of allPartsToSearch) {
+                if (cellText === partToMatch || cellText.includes(partToMatch)) {
+                  lenovoPressDescription = cells[2]?.textContent?.trim() || null;
+                  if (lenovoPressDescription && lenovoPressDescription !== '-') break;
+                }
+              }
+              if (lenovoPressDescription && lenovoPressDescription !== '-') break;
+            }
+          }
+        }
+      }
+    }
+
+    if (lenovoPressDescription && lenovoPressDescription !== '-') {
+      description = lenovoPressDescription;
+    } else if (ingramData.description) {
       description = ingramData.description;
       category = ingramData.category || 'N/A';
     } else if (brokerbinData.description) {
@@ -4855,6 +4894,15 @@ function buildAllConsolidatedTable() {
     } else if (inventoryData.description) {
       description = inventoryData.description;
       category = inventoryData.category || 'N/A';
+    }
+
+    // Get category from Ingram if we got description from Lenovo Press (Lenovo Press doesn't have category)
+    if (lenovoPressDescription && lenovoPressDescription !== '-' && category === 'N/A') {
+      if (ingramData.category) {
+        category = ingramData.category;
+      } else if (inventoryData.category) {
+        category = inventoryData.category;
+      }
     }
 
     tableHTML += `
@@ -4939,30 +4987,51 @@ function getEbayDataForParts(parts) {
 }
 
 function getInventoryDataForParts(parts) {
-  const invResults = searchResults.epicor.filter(item => parts.includes(item.sourcePartNumber));
-  const totalQty = invResults.reduce((sum, item) => sum + (parseInt(item.quantity) || 0), 0);
-  const prices = invResults.map(item => parseFloat(item.basePrice)).filter(p => !isNaN(p) && p > 0);
+  // Filter by sourcePartNumber OR PartNum (Epicor uses PartNum)
+  const invResults = searchResults.epicor.filter(item =>
+    parts.includes(item.sourcePartNumber) ||
+    (item.PartNum && parts.includes(item.PartNum.trim()))
+  );
+  // Epicor uses Quantity (capital Q) not quantity
+  const totalQty = invResults.reduce((sum, item) => sum + (Number.parseInt(item.Quantity) || Number.parseInt(item.quantity) || 0), 0);
+  // Epicor uses BasePrice (capital B) not basePrice
+  const prices = invResults.map(item => Number.parseFloat(item.BasePrice) || Number.parseFloat(item.basePrice)).filter(p => !Number.isNaN(p) && p > 0);
   const price = prices.length > 0 ? `$${prices[0].toFixed(2)}` : '-';
-  const description = invResults.length > 0 ? (invResults[0].description || null) : null;
-  const category = invResults.length > 0 ? (invResults[0].class || null) : null;
+  // Epicor uses PartDescription not description
+  const description = invResults.length > 0 ? (invResults[0].PartDescription || invResults[0].description || null) : null;
+  // Epicor uses ClassDescription not class
+  const category = invResults.length > 0 ? (invResults[0].ClassDescription || invResults[0].class || null) : null;
   return { totalQty, price, description, category };
 }
 
 function getSalesDataForParts(parts) {
-  const salesResults = searchResults.sales.filter(item => parts.includes(item.sourcePartNumber)).slice(0, 5);
-  const prices = salesResults.map(item => parseFloat(item.unitPrice)).filter(p => !isNaN(p) && p > 0);
+  // Filter by sourcePartNumber OR PartNum
+  const salesResults = searchResults.sales.filter(item =>
+    parts.includes(item.sourcePartNumber) ||
+    (item.PartNum && parts.includes(item.PartNum.trim()))
+  ).slice(0, 5);
+  // Sales uses UnitPrice (capital U) not unitPrice
+  const prices = salesResults.map(item => Number.parseFloat(item.UnitPrice) || Number.parseFloat(item.unitPrice)).filter(p => !Number.isNaN(p) && p > 0);
   const lastPrice = prices.length > 0 ? `$${prices[0].toFixed(2)}` : '-';
   const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
-  const lastCustomer = salesResults.length > 0 ? (salesResults[0].customerName || '-') : '-';
+  // Sales uses CustomerName (capital C) not customerName
+  const lastCustomer = salesResults.length > 0 ? (salesResults[0].CustomerName || salesResults[0].customerName || '-') : '-';
   return { lastPrice, avgPrice, lastCustomer };
 }
 
 function getPurchasesDataForParts(parts) {
-  const purchResults = searchResults.purchases.filter(item => parts.includes(item.sourcePartNumber)).slice(0, 5);
-  const sumQty = purchResults.reduce((sum, item) => sum + (parseInt(item.orderQty) || 0), 0);
-  const prices = purchResults.map(item => parseFloat(item.unitCost)).filter(p => !isNaN(p) && p > 0);
+  // Filter by sourcePartNumber OR PartNum
+  const purchResults = searchResults.purchases.filter(item =>
+    parts.includes(item.sourcePartNumber) ||
+    (item.PartNum && parts.includes(item.PartNum.trim()))
+  ).slice(0, 5);
+  // Purchases uses VendorQty (capital V) not orderQty
+  const sumQty = purchResults.reduce((sum, item) => sum + (Number.parseInt(item.VendorQty) || Number.parseInt(item.orderQty) || 0), 0);
+  // Purchases uses VendorUnitCost not unitCost
+  const prices = purchResults.map(item => Number.parseFloat(item.VendorUnitCost) || Number.parseFloat(item.unitCost)).filter(p => !Number.isNaN(p) && p > 0);
   const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
-  const lastSupplier = purchResults.length > 0 ? (purchResults[0].vendorId || '-') : '-';
+  // Purchases uses VendorName not vendorId
+  const lastSupplier = purchResults.length > 0 ? (purchResults[0].VendorName || purchResults[0].vendorId || '-') : '-';
   return { sumQty, avgPrice, lastSupplier };
 }
 
