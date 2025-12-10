@@ -110,14 +110,19 @@ function selectWorkflow(workflow) {
  * Save/Restore Workflow Data
  ***************************************************/
 function saveCurrentWorkflowData() {
+  const inputElement = document.getElementById('part-numbers');
+  const currentInputValue = inputElement ? inputElement.value : '';
+
   if (currentWorkflow === 'servers') {
     serversWorkflowData.searchResults = { ...searchResults };
     serversWorkflowData.partAlternativesData = { ...partAlternativesData };
     serversWorkflowData.selectedPartNumber = selectedPartNumber;
+    serversWorkflowData.inputValue = currentInputValue;
   } else if (currentWorkflow === 'parts') {
     partsWorkflowData.searchResults = { ...searchResults };
     partsWorkflowData.partAlternativesData = { ...partAlternativesData };
     partsWorkflowData.selectedPartNumber = selectedPartNumber;
+    partsWorkflowData.inputValue = currentInputValue;
   }
 }
 
@@ -134,6 +139,12 @@ function restoreWorkflowData(workflow) {
 
   // Restore selected part number
   selectedPartNumber = workflowData.selectedPartNumber;
+
+  // Restore input value
+  const inputElement = document.getElementById('part-numbers');
+  if (inputElement) {
+    inputElement.value = workflowData.inputValue || '';
+  }
 
   // Update dropdown
   updateWorkflowDropdown(workflow);
@@ -240,7 +251,8 @@ let serversWorkflowData = {
   },
   partAlternativesData: {},
   selectedPartNumber: null,
-  searchedItems: [] // List of searched serials/parts for dropdown
+  searchedItems: [], // List of searched serials/parts for dropdown
+  inputValue: '' // Stores the search input value for this workflow
 };
 
 // Parts workflow data
@@ -261,7 +273,8 @@ let partsWorkflowData = {
   },
   partAlternativesData: {},
   selectedPartNumber: null,
-  searchedItems: [] // List of searched parts for dropdown
+  searchedItems: [], // List of searched parts for dropdown
+  inputValue: '' // Stores the search input value for this workflow
 };
 
 /***************************************************
