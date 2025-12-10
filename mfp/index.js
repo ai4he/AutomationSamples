@@ -4946,6 +4946,36 @@ function buildAllConsolidatedTable() {
       }
     }
 
+    // Calculate Buy Price Recommendation
+    // Priority: lowest price from distributors (Ingram, TDSynnex) or BrokerBin
+    const buyPrices = [
+      ingramData.minPrice,
+      tdsynnexData.minPrice,
+      brokerbinData.minPrice,
+      purchasesData.rawAvgPrice
+    ].filter(p => p !== null && p > 0);
+    const buyPriceRecommendation = buyPrices.length > 0
+      ? `$${Math.min(...buyPrices).toFixed(2)}`
+      : '-';
+
+    // Calculate Sell Price Recommendation
+    // Based on: average of sales prices, eBay avg, or markup from buy price
+    const sellPrices = [
+      salesData.rawAvgPrice,
+      ebayData.rawAvgPrice,
+      brokerbinData.rawAvgPrice
+    ].filter(p => p !== null && p > 0);
+    let sellPriceRecommendation = '-';
+    if (sellPrices.length > 0) {
+      // Use average of available sell prices
+      const avgSellPrice = sellPrices.reduce((a, b) => a + b, 0) / sellPrices.length;
+      sellPriceRecommendation = `$${avgSellPrice.toFixed(2)}`;
+    } else if (buyPrices.length > 0) {
+      // Fallback: 30% markup on buy price
+      const markup = Math.min(...buyPrices) * 1.30;
+      sellPriceRecommendation = `$${markup.toFixed(2)}`;
+    }
+
     tableHTML += `
       <tr>
         <td>${mainPart}</td>
@@ -4970,8 +5000,8 @@ function buildAllConsolidatedTable() {
         <td>${purchasesData.sumQty}</td>
         <td>${purchasesData.avgPrice}</td>
         <td>${purchasesData.lastSupplier}</td>
-        <td>-</td>
-        <td>-</td>
+        <td>${buyPriceRecommendation}</td>
+        <td>${sellPriceRecommendation}</td>
       </tr>
     `;
   }
@@ -4991,40 +5021,51 @@ function getIngramDataForParts(parts) {
   const totalQty = ingramResults.reduce((sum, item) => {
     const availability = item.availability;
     if (typeof availability === 'object' && availability.totalAvailability !== undefined) {
-      return sum + (parseInt(availability.totalAvailability) || 0);
+      return sum + (Number.parseInt(availability.totalAvailability) || 0);
     }
-    return sum + (parseInt(availability) || 0);
+    return sum + (Number.parseInt(availability) || 0);
   }, 0);
-  const prices = ingramResults.map(item => parseFloat(item.price)).filter(p => !isNaN(p));
+  // Filter prices > 0 to exclude zero prices
+  const prices = ingramResults.map(item => Number.parseFloat(item.price)).filter(p => !Number.isNaN(p) && p > 0);
   const price = prices.length > 0 ? `$${Math.min(...prices).toFixed(2)}` : '-';
+  // Also return raw min price for recommendations
+  const minPrice = prices.length > 0 ? Math.min(...prices) : null;
   const description = ingramResults.length > 0 ? (ingramResults[0].description || null) : null;
   const category = ingramResults.length > 0 ? (ingramResults[0].category || null) : null;
-  return { totalQty, price, description, category };
+  return { totalQty, price, minPrice, description, category };
 }
 
 function getTDSynnexDataForParts(parts) {
   const tdResults = searchResults.tdsynnex.filter(item => parts.includes(item.sourcePartNumber));
-  const totalQty = tdResults.reduce((sum, item) => sum + (parseInt(item.totalQuantity) || 0), 0);
-  const prices = tdResults.map(item => parseFloat(item.price)).filter(p => !isNaN(p));
+  const totalQty = tdResults.reduce((sum, item) => sum + (Number.parseInt(item.totalQuantity) || 0), 0);
+  // Filter prices > 0 to exclude zero prices
+  const prices = tdResults.map(item => Number.parseFloat(item.price)).filter(p => !Number.isNaN(p) && p > 0);
   const price = prices.length > 0 ? `$${Math.min(...prices).toFixed(2)}` : '-';
-  return { totalQty, price };
+  // Also return raw min price for recommendations
+  const minPrice = prices.length > 0 ? Math.min(...prices) : null;
+  return { totalQty, price, minPrice };
 }
 
 function getBrokerBinDataForParts(parts) {
   const bbResults = searchResults.brokerbin.filter(item => parts.includes(item.sourcePartNumber));
-  const prices = bbResults.map(item => parseFloat(item.price)).filter(p => !isNaN(p) && p > 0);
+  const prices = bbResults.map(item => Number.parseFloat(item.price)).filter(p => !Number.isNaN(p) && p > 0);
   const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
-  const sumQty = bbResults.reduce((sum, item) => sum + (parseInt(item.quantity) || 0), 0);
+  // Return raw values for recommendations
+  const rawAvgPrice = prices.length > 0 ? (prices.reduce((a,b) => a+b, 0) / prices.length) : null;
+  const minPrice = prices.length > 0 ? Math.min(...prices) : null;
+  const sumQty = bbResults.reduce((sum, item) => sum + (Number.parseInt(item.quantity) || 0), 0);
   const description = bbResults.length > 0 ? (bbResults[0].description || null) : null;
-  return { avgPrice, sumQty, description };
+  return { avgPrice, rawAvgPrice, minPrice, sumQty, description };
 }
 
 function getEbayDataForParts(parts) {
   const ebayResults = searchResults.ebay.filter(item => parts.includes(item.sourcePartNumber));
-  const prices = ebayResults.map(item => parseFloat(item.price)).filter(p => !isNaN(p) && p > 0);
+  const prices = ebayResults.map(item => Number.parseFloat(item.price)).filter(p => !Number.isNaN(p) && p > 0);
   const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
+  // Return raw values for recommendations
+  const rawAvgPrice = prices.length > 0 ? (prices.reduce((a,b) => a+b, 0) / prices.length) : null;
   const sumQty = ebayResults.length;
-  return { avgPrice, sumQty };
+  return { avgPrice, rawAvgPrice, sumQty };
 }
 
 function getInventoryDataForParts(parts) {
@@ -5038,11 +5079,13 @@ function getInventoryDataForParts(parts) {
   // Epicor uses BasePrice (capital B) not basePrice
   const prices = invResults.map(item => Number.parseFloat(item.BasePrice) || Number.parseFloat(item.basePrice)).filter(p => !Number.isNaN(p) && p > 0);
   const price = prices.length > 0 ? `$${prices[0].toFixed(2)}` : '-';
+  // Return raw price for recommendations
+  const rawPrice = prices.length > 0 ? prices[0] : null;
   // Epicor uses PartDescription not description
   const description = invResults.length > 0 ? (invResults[0].PartDescription || invResults[0].description || null) : null;
   // Epicor uses ClassDescription not class
   const category = invResults.length > 0 ? (invResults[0].ClassDescription || invResults[0].class || null) : null;
-  return { totalQty, price, description, category };
+  return { totalQty, price, rawPrice, description, category };
 }
 
 function getSalesDataForParts(parts) {
@@ -5055,9 +5098,12 @@ function getSalesDataForParts(parts) {
   const prices = salesResults.map(item => Number.parseFloat(item.UnitPrice) || Number.parseFloat(item.unitPrice)).filter(p => !Number.isNaN(p) && p > 0);
   const lastPrice = prices.length > 0 ? `$${prices[0].toFixed(2)}` : '-';
   const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
+  // Return raw values for recommendations
+  const rawLastPrice = prices.length > 0 ? prices[0] : null;
+  const rawAvgPrice = prices.length > 0 ? (prices.reduce((a,b) => a+b, 0) / prices.length) : null;
   // Sales uses CustomerName (capital C) not customerName
   const lastCustomer = salesResults.length > 0 ? (salesResults[0].CustomerName || salesResults[0].customerName || '-') : '-';
-  return { lastPrice, avgPrice, lastCustomer };
+  return { lastPrice, avgPrice, rawLastPrice, rawAvgPrice, lastCustomer };
 }
 
 function getPurchasesDataForParts(parts) {
@@ -5071,9 +5117,11 @@ function getPurchasesDataForParts(parts) {
   // Purchases uses VendorUnitCost not unitCost
   const prices = purchResults.map(item => Number.parseFloat(item.VendorUnitCost) || Number.parseFloat(item.unitCost)).filter(p => !Number.isNaN(p) && p > 0);
   const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
+  // Return raw value for recommendations
+  const rawAvgPrice = prices.length > 0 ? (prices.reduce((a,b) => a+b, 0) / prices.length) : null;
   // Purchases uses VendorName not vendorId
   const lastSupplier = purchResults.length > 0 ? (purchResults[0].VendorName || purchResults[0].vendorId || '-') : '-';
-  return { sumQty, avgPrice, lastSupplier };
+  return { sumQty, avgPrice, rawAvgPrice, lastSupplier };
 }
 
 /***************************************************
