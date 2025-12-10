@@ -2858,6 +2858,27 @@ function buildLenovoPartsUI() {
     subtabs.innerHTML = '<div class="error">No Lenovo Parts data found for selected part</div>';
     return;
   }
+
+  // Add header with download button
+  let headerDiv = document.getElementById('lenovo-parts-header');
+  if (!headerDiv) {
+    headerDiv = document.createElement('div');
+    headerDiv.id = 'lenovo-parts-header';
+    lenovoPartsDiv.insertBefore(headerDiv, subtabs);
+  }
+  headerDiv.innerHTML = `
+    <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 10px;">
+      <button onclick="downloadLenovoPartsListExcel()" style="padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        Download Parts List
+      </button>
+    </div>
+  `;
+
   allResults.forEach((doc, index) => {
     const subtabButton = document.createElement('button');
     subtabButton.className = `subtab-button ${index === 0 ? 'active' : ''}`;
@@ -4546,6 +4567,90 @@ function downloadAsBuiltPartsListExcel() {
     : 'parts_list';
 
   const filename = `${serialNumber}_parts_list.xlsx`;
+
+  // Download the file
+  XLSX.writeFile(wb, filename);
+}
+
+/***************************************************
+ * Download Lenovo Parts List as Excel
+ ***************************************************/
+function downloadLenovoPartsListExcel() {
+  let allResults = searchResults.lenovoParts;
+  if (selectedPartNumber) {
+    const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
+    allResults = allResults.filter(doc => relatedParts.includes(doc.sourcePartNumber));
+  }
+
+  if (!allResults || allResults.length === 0) {
+    alert('No Lenovo Parts data available to export');
+    return;
+  }
+
+  // Collect all parts from all documents, applying the same filters as the UI
+  const allParts = [];
+  allResults.forEach(doc => {
+    if (doc.parts && doc.parts.length > 0) {
+      doc.parts.forEach(part => {
+        const partId = part.id || '';
+        const partType = part.type || 'N/A';
+        const partName = part.name || 'N/A';
+
+        // Apply same filters as UI
+        if (partId.startsWith('(PPN)')) return;
+        if (partId === 'N/A' || partId === '') return;
+        if (partType === 'N/A' && partName === 'N/A') return;
+
+        allParts.push({
+          sourcePartNumber: doc.sourcePartNumber,
+          ...part
+        });
+      });
+    }
+  });
+
+  if (allParts.length === 0) {
+    alert('No parts available to export');
+    return;
+  }
+
+  // Prepare data for Excel - headers first
+  const excelData = [];
+  excelData.push(['Source Part Number', 'ID', 'Type', 'Name', 'Level']);
+
+  // Add parts data
+  allParts.forEach(part => {
+    excelData.push([
+      part.sourcePartNumber || '',
+      part.id || '',
+      part.type || '',
+      part.name || '',
+      part.level || ''
+    ]);
+  });
+
+  // Create workbook and worksheet
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(excelData);
+
+  // Set column widths
+  ws['!cols'] = [
+    { wch: 20 }, // Source Part Number
+    { wch: 20 }, // ID
+    { wch: 25 }, // Type
+    { wch: 50 }, // Name
+    { wch: 10 }  // Level
+  ];
+
+  // Set row height for header
+  ws['!rows'] = [{ hpt: 25 }];
+
+  // Add worksheet to workbook
+  XLSX.utils.book_append_sheet(wb, ws, 'All Parts');
+
+  // Generate filename
+  const serialNumber = selectedPartNumber || (allResults.length > 0 ? allResults[0].sourcePartNumber : 'lenovo_parts');
+  const filename = `${serialNumber}_all_parts.xlsx`;
 
   // Download the file
   XLSX.writeFile(wb, filename);
