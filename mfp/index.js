@@ -213,6 +213,9 @@ function handleDropdownChange(workflowType) {
     }
   }
 
+  // Load analysis for the selected part
+  loadAnalysisForPart(selectedPartNumber);
+
   // Refresh all tabs to show selected part data
   refreshAllTabs();
 }
@@ -255,6 +258,10 @@ let conversationHistory = [];
 let chatContainer = null;
 // Prevents repeated calls to performFinalAnalysis
 let analysisAlreadyCalled = false;
+// Store analysis data per part number
+let analysisDataByPart = {};
+// Store conversation history per part number
+let conversationHistoryByPart = {};
 // Flag to indicate if search should be stopped
 let stopSearchRequested = false;
 
@@ -708,60 +715,123 @@ async function performFinalAnalysis() {
     analysisProgress.textContent = "Analysis in progress…";
   }
   updateSummaryTab();
-  try {
-    const analysisData = gatherResultsForAnalysis();
-    const selectedModel = document.getElementById('llm-model').value;
-    const promptText = document.getElementById('prompt').value;
-    const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
-    const response = await fetch(analyzeUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(analysisData)
-    });
-    const analyzeResult = await response.json();
-    let analyzeResultText = '';
-    if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
-      analyzeResultText = analyzeResult[0].text;
-    } else {
-      analyzeResultText = JSON.stringify(analyzeResult);
-    }
-    analyzeResultText = analyzeResultText
-      .replaceAll("```html", '')
-      .replaceAll("```", '');
+
+  // Get all searched part numbers
+  const allPartNumbers = Object.keys(partAlternativesData);
+
+  if (allPartNumbers.length === 0) {
+    if (analysisProgress) analysisProgress.style.display = 'none';
+    return;
+  }
+
+  const selectedModel = document.getElementById('llm-model').value;
+  const promptText = document.getElementById('prompt').value;
+  const analyzeUrl = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${encodeURIComponent(promptText)}`;
+
+  // Analyze each part number
+  let completedCount = 0;
+  const totalParts = allPartNumbers.length;
+
+  for (const partNumber of allPartNumbers) {
     try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(analyzeResultText, 'text/html');
-      if (doc.body && doc.body.innerHTML) {
-        analyzeResultText = doc.body.innerHTML;
+      if (analysisProgress) {
+        analysisProgress.textContent = `Analyzing part ${completedCount + 1} of ${totalParts}: ${partNumber}...`;
       }
-    } catch (e) {
-      console.warn('Error parsing HTML content:', e);
+
+      const analysisData = gatherResultsForAnalysis(partNumber);
+      const response = await fetch(analyzeUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(analysisData)
+      });
+      const analyzeResult = await response.json();
+      let analyzeResultText = '';
+      if (Array.isArray(analyzeResult) && analyzeResult.length > 0 && analyzeResult[0].text) {
+        analyzeResultText = analyzeResult[0].text;
+      } else {
+        analyzeResultText = JSON.stringify(analyzeResult);
+      }
+      analyzeResultText = analyzeResultText
+        .replaceAll("```html", '')
+        .replaceAll("```", '');
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(analyzeResultText, 'text/html');
+        if (doc.body && doc.body.innerHTML) {
+          analyzeResultText = doc.body.innerHTML;
+        }
+      } catch (e) {
+        console.warn('Error parsing HTML content:', e);
+      }
+
+      // Store analysis and conversation for this part
+      conversationHistoryByPart[partNumber] = [
+        { role: 'user', content: promptText || '(No prompt provided)' },
+        { role: 'assistant', content: analyzeResultText }
+      ];
+      analysisDataByPart[partNumber] = analyzeResultText;
+
+      completedCount++;
+    } catch (err) {
+      console.error(`Analysis error for part ${partNumber}:`, err);
+      analysisDataByPart[partNumber] = `<p class="error">Error analyzing part: ${err.message}</p>`;
+      conversationHistoryByPart[partNumber] = [];
+      completedCount++;
     }
-    conversationHistory.push({
-      role: 'user',
-      content: promptText || '(No prompt provided)'
-    });
-    conversationHistory.push({
-      role: 'assistant',
-      content: analyzeResultText
-    });
-    const analyzeResultTextDiv = document.querySelector('#analysis-content .analyze-result-text');
+  }
+
+  // Show analysis for currently selected part
+  if (selectedPartNumber && selectedPartNumber !== '__ALL__') {
+    loadAnalysisForPart(selectedPartNumber);
+  } else if (allPartNumbers.length > 0) {
+    loadAnalysisForPart(allPartNumbers[0]);
+  }
+
+  // Hide progress and spinners
+  if (analysisProgress) {
+    analysisProgress.style.display = 'none';
+  }
+  const spinner = document.getElementById('loading-spinner');
+  const stopBtn = document.getElementById('stop-search-btn');
+  if (spinner) spinner.style.display = 'none';
+  if (stopBtn) stopBtn.style.display = 'none';
+}
+
+// Load and display analysis for a specific part number
+function loadAnalysisForPart(partNumber) {
+  const analyzeResultTextDiv = document.querySelector('#analysis-content .analyze-result-text');
+  const chatContainerDiv = document.getElementById('chat-container-analysis');
+
+  // Clear both containers first
+  if (analyzeResultTextDiv) {
+    analyzeResultTextDiv.innerHTML = '';
+  }
+  if (chatContainerDiv) {
+    chatContainerDiv.innerHTML = '';
+  }
+
+  if (!partNumber || partNumber === '__ALL__') {
+    // Show message for "All" selection
     if (analyzeResultTextDiv) {
-      analyzeResultTextDiv.innerHTML = '';
+      analyzeResultTextDiv.innerHTML = '<p>Select a specific part number to view its analysis.</p>';
     }
+    return;
+  }
+
+  // Load conversation history for this part
+  conversationHistory = conversationHistoryByPart[partNumber] || [];
+
+  if (conversationHistory.length > 0) {
     initializeConversationUI();
-  } catch (err) {
-    console.error('Analyze data error:', err);
-  } finally {
-    // Hide analysis progress indicator
-    if (analysisProgress) {
-      analysisProgress.style.display = 'none';
+  } else if (analysisDataByPart[partNumber]) {
+    // If we have analysis but no conversation, show the analysis directly
+    if (analyzeResultTextDiv) {
+      analyzeResultTextDiv.innerHTML = analysisDataByPart[partNumber];
     }
-    // Hide spinner and stop button now that analysis is complete
-    const spinner = document.getElementById('loading-spinner');
-    const stopBtn = document.getElementById('stop-search-btn');
-    if (spinner) spinner.style.display = 'none';
-    if (stopBtn) stopBtn.style.display = 'none';
+  } else {
+    if (analyzeResultTextDiv) {
+      analyzeResultTextDiv.innerHTML = '<p>No analysis available for this part yet.</p>';
+    }
   }
 }
 function initializeConversationUI() {
@@ -825,6 +895,12 @@ function handleUserChatSubmit() {
     content: userMessage
   });
   inputField.value = '';
+
+  // Save conversation to the current part's history
+  if (selectedPartNumber && selectedPartNumber !== '__ALL__') {
+    conversationHistoryByPart[selectedPartNumber] = [...conversationHistory];
+  }
+
   renderConversationUI();
   sendChatMessageToLLM();
 }
@@ -833,7 +909,9 @@ async function sendChatMessageToLLM() {
     const selectedModel = document.getElementById('llm-model').value;
     const conversationJSON = encodeURIComponent(JSON.stringify(conversationHistory));
     const url = `https://${serverDomain}/webhook/analyze-data?model=${selectedModel}&prompt=${conversationJSON}`;
-    const analysisData = gatherResultsForAnalysis();
+    // Pass the selected part number to filter data correctly
+    const currentPart = (selectedPartNumber && selectedPartNumber !== '__ALL__') ? selectedPartNumber : null;
+    const analysisData = gatherResultsForAnalysis(currentPart);
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -852,6 +930,12 @@ async function sendChatMessageToLLM() {
         .replaceAll("```html", '')
         .replaceAll("```", '')
     });
+
+    // Save conversation to the current part's history
+    if (selectedPartNumber && selectedPartNumber !== '__ALL__') {
+      conversationHistoryByPart[selectedPartNumber] = [...conversationHistory];
+    }
+
     renderConversationUI();
   } catch (err) {
     console.error('sendChatMessageToLLM error:', err);
@@ -871,6 +955,11 @@ async function handleSearch() {
   stopSearchRequested = false;
   limitedSearchMode = false;
   analysisAlreadyCalled = false;
+
+  // Clear analysis data for new search
+  analysisDataByPart = {};
+  conversationHistoryByPart = {};
+  conversationHistory = [];
 
   // Clear alternatives data for new search (workflow-specific)
   partAlternativesData = {};
@@ -4107,41 +4196,137 @@ function generateSummaryTableHtml() {
 }
 /***************************************************
  * Gathers final results for LLM analysis
+ * @param {string} forPartNumber - Optional part number to filter results for
  ***************************************************/
-function gatherResultsForAnalysis() {
+function gatherResultsForAnalysis(forPartNumber = null) {
   const results = {};
+
+  // Get related parts for filtering
+  let relatedParts = null;
+  if (forPartNumber) {
+    relatedParts = getAllRelatedPartNumbers(forPartNumber);
+    results['part_number'] = forPartNumber;
+    results['related_parts'] = relatedParts;
+
+    // Include part info
+    const partData = partAlternativesData[forPartNumber];
+    if (partData) {
+      results['part_info'] = {
+        description: partData.description,
+        category: partData.category,
+        alternatives: partData.alternatives
+      };
+    }
+  }
+
+  // Helper function to filter items by part number
+  const filterByPart = (items) => {
+    if (!relatedParts || !items) return items;
+    return items.filter(item => relatedParts.includes(item.sourcePartNumber));
+  };
+
   if (document.getElementById('toggle-inventory').checked) {
-    const invElem = document.querySelector('#inventory-content .inventory-results');
-    results['epicor-search'] = invElem ? invElem.innerHTML : "";
+    const filtered = filterByPart(searchResults.epicor);
+    results['epicor'] = filtered.map(item => ({
+      partNum: item.PartNum,
+      description: item.PartDescription,
+      quantity: item.Quantity,
+      basePrice: item.BasePrice,
+      class: item.ClassDescription
+    }));
   }
+
   if (document.getElementById('toggle-brokerbin').checked) {
-    const bbElem = document.querySelector('.brokerbin-results .results-container');
-    results['brokerbin-search'] = bbElem ? bbElem.innerHTML : "";
+    const filtered = filterByPart(searchResults.brokerbin);
+    results['brokerbin'] = filtered.map(item => ({
+      part: item.part,
+      company: item.company,
+      description: item.description,
+      condition: item.condition,
+      quantity: item.quantity,
+      price: item.price
+    }));
   }
+
   if (document.getElementById('toggle-tdsynnex').checked) {
-    const tdElem = document.querySelector('.tdsynnex-results .results-container');
-    results['tdsynnex-search'] = tdElem ? tdElem.innerHTML : "";
+    const filtered = filterByPart(searchResults.tdsynnex);
+    results['tdsynnex'] = filtered.map(item => ({
+      mfgPartNumber: item.mfgPartNumber,
+      description: item.description,
+      totalQuantity: item.totalQuantity,
+      price: item.price
+    }));
   }
+
   if (document.getElementById('toggle-ingram').checked) {
-    const ingElem = document.querySelector('.ingram-results .results-container');
-    results['ingram-search'] = ingElem ? ingElem.innerHTML : "";
+    const filtered = filterByPart(searchResults.ingram);
+    results['ingram'] = filtered.map(item => ({
+      vendorPartNumber: item.vendorPartNumber,
+      description: item.description,
+      category: item.category,
+      availability: item.availability,
+      price: item.price
+    }));
   }
+
   if (document.getElementById('toggle-amazon-connector').checked) {
-    const acElem = document.querySelector('.amazon-connector-results .results-container');
-    results['amazon-connector'] = acElem ? acElem.innerHTML : "";
+    const filtered = filterByPart(searchResults.amazonConnector);
+    results['amazonConnector'] = filtered.map(item => ({
+      title: item.title,
+      price: item.price,
+      rating: item.rating
+    }));
   }
+
   if (document.getElementById('toggle-ebay-connector').checked) {
-    const ecElem = document.querySelector('.ebay-connector-results .results-container');
-    results['ebay-connector'] = ecElem ? ecElem.innerHTML : "";
+    const filtered = filterByPart(searchResults.ebayConnector);
+    results['ebayConnector'] = filtered.map(item => ({
+      title: item.title,
+      price: item.price,
+      condition: item.condition
+    }));
   }
+
   if (document.getElementById('toggle-amazon').checked) {
-    const amzScrElem = document.querySelector('.amazon-results .results-container');
-    results['amazon-scraper'] = amzScrElem ? amzScrElem.innerHTML : "";
+    const filtered = filterByPart(searchResults.amazon);
+    results['amazon'] = filtered.map(item => ({
+      title: item.title,
+      price: item.rawPrice || item.priceWithCurrency
+    }));
   }
+
   if (document.getElementById('toggle-ebay').checked) {
-    const eScrElem = document.querySelector('.ebay-results .results-container');
-    results['ebay-scraper'] = eScrElem ? eScrElem.innerHTML : "";
+    const filtered = filterByPart(searchResults.ebay);
+    results['ebay'] = filtered.map(item => ({
+      title: item.title,
+      price: item.rawPrice || item.priceWithCurrency,
+      condition: item.condition
+    }));
   }
+
+  // Include sales and purchases data if available
+  if (searchResults.sales && searchResults.sales.length > 0) {
+    const filtered = filterByPart(searchResults.sales);
+    results['sales'] = filtered.slice(0, 10).map(item => ({
+      partNum: item.PartNum,
+      customerName: item.CustomerName,
+      orderDate: item.OrderDate,
+      orderQty: item.OrderQty,
+      unitPrice: item.UnitPrice
+    }));
+  }
+
+  if (searchResults.purchases && searchResults.purchases.length > 0) {
+    const filtered = filterByPart(searchResults.purchases);
+    results['purchases'] = filtered.slice(0, 10).map(item => ({
+      partNum: item.PartNum,
+      vendorName: item.VendorName,
+      orderDate: item.OrderDate,
+      vendorQty: item.VendorQty,
+      vendorUnitCost: item.VendorUnitCost
+    }));
+  }
+
   return results;
 }
 
