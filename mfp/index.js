@@ -5033,10 +5033,10 @@ function buildAllConsolidatedTable() {
             <th>Ingram Price</th>
             <th>TDSynnex Quantity (total)</th>
             <th>TDSynnex Price</th>
-            <th>BrokerBin Avg Price ($ cheapest)</th>
-            <th>BrokerBin Sum Qty ($ cheapest)</th>
-            <th>eBay Avg Price ($ cheapest)</th>
-            <th>eBay Sum Quantity ($ cheapest)</th>
+            <th>BrokerBin Avg Price</th>
+            <th>BrokerBin Sum Qty</th>
+            <th>eBay Avg Price</th>
+            <th>eBay Sum Quantity</th>
             <th>MFP Stock Quantity (total)</th>
             <th>MFP Stock Price</th>
             <th>MFP Sales Price (last of last 5 sales)</th>
@@ -5122,13 +5122,21 @@ function buildAllConsolidatedTable() {
       category = inventoryData.category || 'N/A';
     }
 
-    // Get category from Ingram if we got description from Lenovo Press (Lenovo Press doesn't have category)
-    if (lenovoPressDescription && lenovoPressDescription !== '-' && category === 'N/A') {
-      if (ingramData.category) {
-        category = ingramData.category;
-      } else if (inventoryData.category) {
+    // Get category from available sources (Lenovo Press doesn't have category)
+    // Priority: Inventory (Epicor/MFPUS) > Ingram > TDSynnex
+    // Check for N/A, -, null, undefined, or empty string
+    if (!category || category === 'N/A' || category === '-') {
+      if (inventoryData.category && inventoryData.category !== '-') {
         category = inventoryData.category;
+      } else if (ingramData.category && ingramData.category !== '-') {
+        category = ingramData.category;
+      } else if (tdsynnexData.category && tdsynnexData.category !== '-') {
+        category = tdsynnexData.category;
       }
+    }
+    // Strip numeric prefix like "347 - " from category
+    if (category && category.includes(' - ')) {
+      category = category.split(' - ').slice(1).join(' - ');
     }
 
     // Calculate Buy Price Recommendation
@@ -5259,26 +5267,46 @@ function getInventoryDataForParts(parts) {
     parts.includes(item.sourcePartNumber) ||
     (item.PartNum && parts.includes(item.PartNum.trim()))
   );
-  // Epicor uses Quantity (capital Q) not quantity
-  const totalQty = invResults.reduce((sum, item) => sum + (Number.parseInt(item.Quantity) || Number.parseInt(item.quantity) || 0), 0);
-  // Epicor uses BasePrice (capital B) not basePrice
-  const prices = invResults.map(item => Number.parseFloat(item.BasePrice) || Number.parseFloat(item.basePrice)).filter(p => !Number.isNaN(p) && p > 0);
-  const price = prices.length > 0 ? `$${prices[0].toFixed(2)}` : '-';
-  // Return raw price for recommendations
-  const rawPrice = prices.length > 0 ? prices[0] : null;
+
+  // Filter only MFPUS company for price and quantity
+  const mfpusResults = invResults.filter(item => item.Company === 'MFPUS');
+
+  // Epicor uses Quantity (capital Q) not quantity - only from MFPUS
+  const totalQty = mfpusResults.reduce((sum, item) => sum + (Number.parseInt(item.Quantity) || Number.parseInt(item.quantity) || 0), 0);
+
+  // Get highest price from MFPUS records
+  const prices = mfpusResults
+    .map(item => Number.parseFloat(item.BasePrice) || Number.parseFloat(item.basePrice))
+    .filter(p => !Number.isNaN(p) && p > 0);
+  const rawPrice = prices.length > 0 ? Math.max(...prices) : null;
+
+  const price = rawPrice !== null ? `$${rawPrice.toFixed(2)}` : '-';
+  // Use first MFPUS record for description/category
+  const mainRecord = mfpusResults.length > 0 ? mfpusResults[0] : (invResults.length > 0 ? invResults[0] : null);
   // Epicor uses PartDescription not description
-  const description = invResults.length > 0 ? (invResults[0].PartDescription || invResults[0].description || null) : null;
+  const description = mainRecord ? (mainRecord.PartDescription || mainRecord.description || null) : null;
   // Epicor uses ClassDescription not class
-  const category = invResults.length > 0 ? (invResults[0].ClassDescription || invResults[0].class || null) : null;
+  const category = mainRecord ? (mainRecord.ClassDescription || mainRecord.class || null) : null;
   return { totalQty, price, rawPrice, description, category };
 }
 
 function getSalesDataForParts(parts) {
   // Filter by sourcePartNumber OR PartNum
-  const salesResults = searchResults.sales.filter(item =>
+  const filteredResults = searchResults.sales.filter(item =>
     parts.includes(item.sourcePartNumber) ||
     (item.PartNum && parts.includes(item.PartNum.trim()))
-  ).slice(0, 5);
+  );
+
+  // Sort by OrderDate descending (most recent first) to get correct "last" values
+  const salesResults = [...filteredResults].sort((a, b) => {
+    const dateA = a.OrderDate ? new Date(a.OrderDate) : null;
+    const dateB = b.OrderDate ? new Date(b.OrderDate) : null;
+    if (!dateA && !dateB) return 0;
+    if (!dateA) return 1;
+    if (!dateB) return -1;
+    return dateB - dateA;
+  }).slice(0, 5);
+
   // Sales uses UnitPrice (capital U) not unitPrice
   const prices = salesResults.map(item => Number.parseFloat(item.UnitPrice) || Number.parseFloat(item.unitPrice)).filter(p => !Number.isNaN(p) && p > 0);
   const lastPrice = prices.length > 0 ? `$${prices[0].toFixed(2)}` : '-';
@@ -5286,17 +5314,28 @@ function getSalesDataForParts(parts) {
   // Return raw values for recommendations
   const rawLastPrice = prices.length > 0 ? prices[0] : null;
   const rawAvgPrice = prices.length > 0 ? (prices.reduce((a,b) => a+b, 0) / prices.length) : null;
-  // Sales uses CustomerName (capital C) not customerName
+  // Sales uses CustomerName (capital C) not customerName - get from most recent (first after sort)
   const lastCustomer = salesResults.length > 0 ? (salesResults[0].CustomerName || salesResults[0].customerName || '-') : '-';
   return { lastPrice, avgPrice, rawLastPrice, rawAvgPrice, lastCustomer };
 }
 
 function getPurchasesDataForParts(parts) {
   // Filter by sourcePartNumber OR PartNum
-  const purchResults = searchResults.purchases.filter(item =>
+  const filteredResults = searchResults.purchases.filter(item =>
     parts.includes(item.sourcePartNumber) ||
     (item.PartNum && parts.includes(item.PartNum.trim()))
-  ).slice(0, 5);
+  );
+
+  // Sort by OrderDate descending (most recent first) to get correct "last" values
+  const purchResults = [...filteredResults].sort((a, b) => {
+    const dateA = a.OrderDate ? new Date(a.OrderDate) : null;
+    const dateB = b.OrderDate ? new Date(b.OrderDate) : null;
+    if (!dateA && !dateB) return 0;
+    if (!dateA) return 1;
+    if (!dateB) return -1;
+    return dateB - dateA;
+  }).slice(0, 5);
+
   // Purchases uses VendorQty (capital V) not orderQty
   const sumQty = purchResults.reduce((sum, item) => sum + (Number.parseInt(item.VendorQty) || Number.parseInt(item.orderQty) || 0), 0);
   // Purchases uses VendorUnitCost not unitCost
@@ -5304,7 +5343,7 @@ function getPurchasesDataForParts(parts) {
   const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
   // Return raw value for recommendations
   const rawAvgPrice = prices.length > 0 ? (prices.reduce((a,b) => a+b, 0) / prices.length) : null;
-  // Purchases uses VendorName not vendorId
+  // Purchases uses VendorName not vendorId - get from most recent (first after sort)
   const lastSupplier = purchResults.length > 0 ? (purchResults[0].VendorName || purchResults[0].vendorId || '-') : '-';
   return { sumQty, avgPrice, rawAvgPrice, lastSupplier };
 }
@@ -5334,10 +5373,10 @@ function exportAllToExcel() {
     'Ingram Price',
     'TDSynnex Quantity (total)',
     'TDSynnex Price',
-    'BrokerBin Avg Price ($ cheapest)',
-    'BrokerBin Sum Qty ($ cheapest)',
-    'eBay Avg Price ($ cheapest)',
-    'eBay Sum Quantity ($ cheapest)',
+    'BrokerBin Avg Price',
+    'BrokerBin Sum Qty',
+    'eBay Avg Price',
+    'eBay Sum Quantity',
     'MFP Stock Quantity (total)',
     'MFP Stock Price',
     'MFP Sales Price (last of last 5 sales)',
@@ -5357,26 +5396,73 @@ function exportAllToExcel() {
     const alt2 = alternatives[1] ? `${alternatives[1].type}: ${alternatives[1].value}` : '';
     const alt3 = alternatives[2] ? `${alternatives[2].type}: ${alternatives[2].value}` : '';
 
-    // Get data ONLY from the main part number
-    const ingramData = getIngramDataForParts([mainPart]);
-    const tdsynnexData = getTDSynnexDataForParts([mainPart]);
-    const brokerbinData = getBrokerBinDataForParts([mainPart]);
-    const ebayData = getEbayDataForParts([mainPart]);
-    const inventoryData = getInventoryDataForParts([mainPart]);
-    const salesData = getSalesDataForParts([mainPart]);
-    const purchasesData = getPurchasesDataForParts([mainPart]);
+    // Build array of all part numbers to search (main + alternatives)
+    const allPartsToSearch = [mainPart];
+    for (const alt of alternatives) {
+      if (alt.value && !allPartsToSearch.includes(alt.value)) {
+        allPartsToSearch.push(alt.value);
+      }
+    }
+
+    // Get data from main part AND all alternatives
+    const ingramData = getIngramDataForParts(allPartsToSearch);
+    const tdsynnexData = getTDSynnexDataForParts(allPartsToSearch);
+    const brokerbinData = getBrokerBinDataForParts(allPartsToSearch);
+    const ebayData = getEbayDataForParts(allPartsToSearch);
+    const inventoryData = getInventoryDataForParts(allPartsToSearch);
+    const salesData = getSalesDataForParts(allPartsToSearch);
+    const purchasesData = getPurchasesDataForParts(allPartsToSearch);
 
     // Get description and category
     let description = 'N/A';
     let category = 'N/A';
     if (ingramData.description) {
       description = ingramData.description;
-      category = ingramData.category || 'N/A';
     } else if (brokerbinData.description) {
       description = brokerbinData.description;
     } else if (inventoryData.description) {
       description = inventoryData.description;
-      category = inventoryData.category || 'N/A';
+    }
+
+    // Get category from available sources
+    // Priority: Inventory (Epicor/MFPUS) > Ingram > TDSynnex
+    // Check that category is valid (not '-' placeholder)
+    if (inventoryData.category && inventoryData.category !== '-') {
+      category = inventoryData.category;
+    } else if (ingramData.category && ingramData.category !== '-') {
+      category = ingramData.category;
+    } else if (tdsynnexData.category && tdsynnexData.category !== '-') {
+      category = tdsynnexData.category;
+    }
+    // Strip numeric prefix like "347 - " from category
+    if (category && category.includes(' - ')) {
+      category = category.split(' - ').slice(1).join(' - ');
+    }
+
+    // Calculate Buy Price Recommendation
+    const buyPrices = [
+      ingramData.minPrice,
+      tdsynnexData.minPrice,
+      brokerbinData.minPrice,
+      purchasesData.rawAvgPrice
+    ].filter(p => p !== null && p !== undefined && p > 0);
+    const buyPriceRecommendation = buyPrices.length > 0
+      ? `$${Math.min(...buyPrices).toFixed(2)}`
+      : '-';
+
+    // Calculate Sell Price Recommendation
+    const sellPrices = [
+      salesData.rawAvgPrice,
+      ebayData.rawAvgPrice,
+      brokerbinData.rawAvgPrice
+    ].filter(p => p !== null && p !== undefined && p > 0);
+    let sellPriceRecommendation = '-';
+    if (sellPrices.length > 0) {
+      const avgSellPrice = sellPrices.reduce((a, b) => a + b, 0) / sellPrices.length;
+      sellPriceRecommendation = `$${avgSellPrice.toFixed(2)}`;
+    } else if (buyPrices.length > 0) {
+      const markup = Math.min(...buyPrices) * 1.30;
+      sellPriceRecommendation = `$${markup.toFixed(2)}`;
     }
 
     // Add row data
@@ -5403,8 +5489,8 @@ function exportAllToExcel() {
       purchasesData.sumQty,
       purchasesData.avgPrice,
       purchasesData.lastSupplier,
-      '-', // Buy Price Recommendation
-      '-'  // Sell Price Recommendation
+      buyPriceRecommendation,
+      sellPriceRecommendation
     ]);
   }
 
