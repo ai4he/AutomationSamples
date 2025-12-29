@@ -2587,12 +2587,17 @@ async function fetchAmazonData(partNumbers) {
         if (Array.isArray(data) && data.length > 0) {
           const { title = [], price = [], image = [], link = [] } = data[0];
           for (let i = 0; i < title.length; i++) {
+            // Fix relative Amazon links by prepending domain
+            let fullLink = link[i] || '#';
+            if (fullLink && fullLink.startsWith('/')) {
+              fullLink = 'https://www.amazon.com' + fullLink;
+            }
             newItems.push({
               sourcePartNumber: source,
               title: title[i] || '-',
               rawPrice: price[i] || '-',
               image: image[i] || null,
-              link: link[i] || '#'
+              link: fullLink
             });
           }
         }
