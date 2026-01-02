@@ -974,7 +974,8 @@ async function handleSearch() {
     return;
   }
   const partNumbersRaw = partNumberInputs.split(/,|\||\s+/);
-  const partNumbers = new Set(partNumbersRaw.map(p => p.trim()).filter(p => p));
+  // Convert all part numbers to uppercase for consistency with backend data
+  const partNumbers = new Set(partNumbersRaw.map(p => p.trim().toUpperCase()).filter(p => p));
  
   if (partNumbers.size === 0) {
     alert('Please enter at least one part number');
