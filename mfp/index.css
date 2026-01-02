@@ -7,6 +7,27 @@ body {
   background: url('background.jpg') no-repeat center center fixed;
   background-size: cover;
 }
+
+/* Force part number input to display uppercase */
+#part-numbers {
+  text-transform: uppercase;
+}
+
+/* Loading spinner for description field */
+.spinner-small {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  color: #666;
+  font-style: italic;
+}
 .container {
   width: 80%;               /* Occupies 95% of the window width */
   /* max-width: 1800px;        (Optional) Limit how wide it can get on large screens */

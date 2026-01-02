@@ -333,6 +333,8 @@ let expansionsInProgress = false;
 let selectedPartNumber = null;
 // Store alternatives data per part number
 let partAlternativesData = {};
+// Track if description is locked (high-priority source found) per part
+let descriptionLockedForPart = {};
 /***************************************************
  * Stop Search Function
  ***************************************************/
@@ -963,6 +965,7 @@ async function handleSearch() {
 
   // Clear alternatives data for new search (workflow-specific)
   partAlternativesData = {};
+  descriptionLockedForPart = {};
 
   // Limpiar la interfaz
   cleanupUI();
@@ -1332,10 +1335,14 @@ function getDescriptionFromDistributors(partNumbers) {
   // Select best description based on priority
   let description = null;
   let category = null;
+  let descriptionSource = null;
+  let descriptionPriority = null;
 
   if (descriptions.length > 0) {
     descriptions.sort((a, b) => a.priority - b.priority);
     description = descriptions[0].value;
+    descriptionSource = descriptions[0].source;
+    descriptionPriority = descriptions[0].priority;
     console.log(`[getDescriptionFromDistributors] Description from: ${descriptions[0].source} (priority ${descriptions[0].priority}) for part: ${descriptions[0].partNumber}`);
   }
 
@@ -1345,8 +1352,8 @@ function getDescriptionFromDistributors(partNumbers) {
     console.log(`[getDescriptionFromDistributors] Category from: ${categories[0].source} (priority ${categories[0].priority}) for part: ${categories[0].partNumber}`);
   }
 
-  console.log('[getDescriptionFromDistributors] Result:', { description, category });
-  return { description, category };
+  console.log('[getDescriptionFromDistributors] Result:', { description, category, descriptionSource, descriptionPriority });
+  return { description, category, descriptionSource, descriptionPriority };
 }
 
 function updateAlternativesForSelectedPart() {
@@ -1368,37 +1375,44 @@ function updateAlternativesForSelectedPart() {
     return;
   }
 
-  console.log('[updateAlternativesForSelectedPart] Selected part:', selectedPartNumber);
-  console.log('[updateAlternativesForSelectedPart] Part data from alternatives:', partData);
-
-  // Always try to get the best description based on priority
-  // Priority: Lenovo Press > Ingram > BrokerBin > TDSynnex > Google Search > partData
-  let description = partData.description;
-  let category = partData.category;
-
-  console.log('[updateAlternativesForSelectedPart] Initial values from partData:', { description, category });
+  // Check if description is already locked for this part (high-priority source found)
+  if (descriptionLockedForPart[selectedPartNumber]) {
+    // Already locked, don't update description/category anymore
+    return;
+  }
 
   // Get all related part numbers (selected + alternatives)
   const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
-  console.log('[updateAlternativesForSelectedPart] Searching descriptions for parts:', relatedParts);
-
   const distributorInfo = getDescriptionFromDistributors(relatedParts);
-  console.log('[updateAlternativesForSelectedPart] Distributor info:', distributorInfo);
 
-  // Use distributor description if found (it has priority order built-in)
-  if (distributorInfo.description) {
-    description = distributorInfo.description;
+  // Determine description and category
+  let description = distributorInfo.description || partData.description;
+  let category = distributorInfo.category || partData.category;
+
+  // Check if we found a high-priority source (1 = Lenovo Press, 2 = Ingram)
+  const isHighPriority = distributorInfo.descriptionPriority && distributorInfo.descriptionPriority <= 2;
+
+  // If high-priority source found, lock for this part
+  if (isHighPriority) {
+    descriptionLockedForPart[selectedPartNumber] = true;
   }
-  if (distributorInfo.category) {
-    category = distributorInfo.category;
+
+  // Build HTML
+  let html = '';
+
+  // Show loader if: not high priority found AND search is still in progress
+  const searchInProgress = mainSearchInProgress || activeRequestsCount > 0;
+  if (!isHighPriority && searchInProgress) {
+    html += `
+      <p><strong>Description:</strong> <span class="loading-text">Searching for best description... <span class="spinner-small">⏳</span></span></p>
+      <p><strong>Category:</strong> ${category || 'N/A'}</p>
+    `;
+  } else {
+    html += `
+      <p><strong>Description:</strong> ${description || 'N/A'}</p>
+      <p><strong>Category:</strong> ${category || 'N/A'}</p>
+    `;
   }
-
-  console.log('[updateAlternativesForSelectedPart] Final values:', { description, category });
-
-  let html = `
-    <p><strong>Description:</strong> ${description || 'N/A'}</p>
-    <p><strong>Category:</strong> ${category || 'N/A'}</p>
-  `;
 
   if (partData.alternatives && partData.alternatives.length > 0) {
     html += `
