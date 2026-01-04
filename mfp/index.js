@@ -335,6 +335,10 @@ let selectedPartNumber = null;
 let partAlternativesData = {};
 // Track if description is locked (high-priority source found) per part
 let descriptionLockedForPart = {};
+// Store BrokerBin descriptions per part (to show after 15 second delay if no priority found)
+let brokerBinDescriptionForPart = {};
+// Timer for showing BrokerBin description after delay
+let brokerBinDescriptionTimers = {};
 /***************************************************
  * Stop Search Function
  ***************************************************/
@@ -704,6 +708,9 @@ function checkIfAllDone() {
     if (activeRequestsCount > 0) return;
     if (analysisAlreadyCalled) return;
 
+    // Update description/category display now that all searches are done
+    updateAlternativesForSelectedPart();
+
     analysisAlreadyCalled = true;
     // Don't hide spinner here - let performFinalAnalysis() hide it when done
     performFinalAnalysis();
@@ -966,6 +973,10 @@ async function handleSearch() {
   // Clear alternatives data for new search (workflow-specific)
   partAlternativesData = {};
   descriptionLockedForPart = {};
+  // Clear BrokerBin description storage and timers
+  brokerBinDescriptionForPart = {};
+  Object.values(brokerBinDescriptionTimers).forEach(timer => clearTimeout(timer));
+  brokerBinDescriptionTimers = {};
 
   // Limpiar la interfaz
   cleanupUI();
@@ -1273,20 +1284,29 @@ function getDescriptionFromDistributors(partNumbers) {
       }
     }
 
-    // Priority 3: BrokerBin
+    // Priority 3: BrokerBin - prefer "MFP Technology Services" company
     if (searchResults.brokerbin && searchResults.brokerbin.length > 0) {
-      const brokerbinResult = searchResults.brokerbin.find(item =>
+      // Filter results for this part number
+      const brokerbinMatches = searchResults.brokerbin.filter(item =>
         item.part === partNumber ||
         item.sourcePartNumber === partNumber
       );
+      // Prefer MFP Technology Services, fallback to first result
+      let brokerbinResult = brokerbinMatches.find(item =>
+        item.company && item.company.toLowerCase().includes('mfp technology')
+      );
+      if (!brokerbinResult && brokerbinMatches.length > 0) {
+        brokerbinResult = brokerbinMatches[0];
+      }
       if (brokerbinResult) {
-        console.log('[getDescriptionFromDistributors] Found in BrokerBin:', brokerbinResult);
+        console.log('[getDescriptionFromDistributors] Found in BrokerBin (prefer MFP Tech):', brokerbinResult);
         if (brokerbinResult.description && brokerbinResult.description !== '-') {
           descriptions.push({
             value: brokerbinResult.description,
             priority: 3,
             source: 'BrokerBin',
-            partNumber: partNumber
+            partNumber: partNumber,
+            isBrokerBin: true  // Flag to identify BrokerBin descriptions
           });
         }
       }
@@ -1375,12 +1395,6 @@ function updateAlternativesForSelectedPart() {
     return;
   }
 
-  // Check if description is already locked for this part (high-priority source found)
-  if (descriptionLockedForPart[selectedPartNumber]) {
-    // Already locked, don't update description/category anymore
-    return;
-  }
-
   // Get all related part numbers (selected + alternatives)
   const relatedParts = getAllRelatedPartNumbers(selectedPartNumber);
   const distributorInfo = getDescriptionFromDistributors(relatedParts);
@@ -1389,25 +1403,82 @@ function updateAlternativesForSelectedPart() {
   let description = distributorInfo.description || partData.description;
   let category = distributorInfo.category || partData.category;
 
+  // Check if description is already locked for this part (high-priority source found)
+  const isLocked = descriptionLockedForPart[selectedPartNumber];
+
   // Check if we found a high-priority source (1 = Lenovo Press, 2 = Ingram)
   const isHighPriority = distributorInfo.descriptionPriority && distributorInfo.descriptionPriority <= 2;
 
-  // If high-priority source found, lock for this part
-  if (isHighPriority) {
+  // Check if source is BrokerBin (priority 3)
+  const isBrokerBin = distributorInfo.descriptionPriority === 3;
+
+  // If high-priority source found, lock for this part and cancel any BrokerBin timer
+  if (isHighPriority && !isLocked) {
     descriptionLockedForPart[selectedPartNumber] = true;
+    // Cancel BrokerBin timer if exists
+    if (brokerBinDescriptionTimers[selectedPartNumber]) {
+      clearTimeout(brokerBinDescriptionTimers[selectedPartNumber]);
+      delete brokerBinDescriptionTimers[selectedPartNumber];
+    }
   }
 
   // Build HTML
   let html = '';
-
-  // Show loader if: not high priority found AND search is still in progress
   const searchInProgress = mainSearchInProgress || activeRequestsCount > 0;
-  if (!isHighPriority && searchInProgress) {
+
+  // Logic for showing description:
+  // 1. If locked (high-priority found), show the locked description
+  // 2. If high-priority found now, show it
+  // 3. If BrokerBin found but search still in progress, save it and show "Searching..." (wait 7 seconds)
+  // 4. If search complete and only BrokerBin, show BrokerBin description
+  // 5. Otherwise show "Searching..."
+
+  if (isLocked || isHighPriority) {
+    // High-priority found - show it
+    html += `
+      <p><strong>Description:</strong> ${description || 'N/A'}</p>
+      <p><strong>Category:</strong> ${category || 'N/A'}</p>
+    `;
+  } else if (isBrokerBin && searchInProgress) {
+    // BrokerBin found but search still in progress - save it and start 7-second timer
+    brokerBinDescriptionForPart[selectedPartNumber] = {
+      description: description,
+      category: category
+    };
+
+    // Start 15-second timer if not already running
+    if (!brokerBinDescriptionTimers[selectedPartNumber]) {
+      const partNum = selectedPartNumber; // Capture for closure
+      brokerBinDescriptionTimers[partNum] = setTimeout(() => {
+        // After 15 seconds, if still not locked, show BrokerBin description
+        if (!descriptionLockedForPart[partNum] && selectedPartNumber === partNum) {
+          descriptionLockedForPart[partNum] = true;
+          updateAlternativesForSelectedPart(); // Re-render with BrokerBin description
+        }
+        delete brokerBinDescriptionTimers[partNum];
+      }, 15000);
+    }
+
+    // Show "Searching..." while waiting
+    html += `
+      <p><strong>Description:</strong> <span class="loading-text">Searching for best description... <span class="spinner-small">⏳</span></span></p>
+      <p><strong>Category:</strong> ${category || 'N/A'}</p>
+    `;
+  } else if (!searchInProgress && (isBrokerBin || brokerBinDescriptionForPart[selectedPartNumber])) {
+    // Search complete and only BrokerBin available - show it
+    const brokerBinData = brokerBinDescriptionForPart[selectedPartNumber] || { description, category };
+    html += `
+      <p><strong>Description:</strong> ${brokerBinData.description || description || 'N/A'}</p>
+      <p><strong>Category:</strong> ${brokerBinData.category || category || 'N/A'}</p>
+    `;
+  } else if (searchInProgress) {
+    // Still searching, no results yet
     html += `
       <p><strong>Description:</strong> <span class="loading-text">Searching for best description... <span class="spinner-small">⏳</span></span></p>
       <p><strong>Category:</strong> ${category || 'N/A'}</p>
     `;
   } else {
+    // Search complete, no description found
     html += `
       <p><strong>Description:</strong> ${description || 'N/A'}</p>
       <p><strong>Category:</strong> ${category || 'N/A'}</p>
