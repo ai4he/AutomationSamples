@@ -2784,6 +2784,7 @@ async function fetchEbayData(partNumbers) {
               sourcePartNumber: source,
               title: item.title || '-',
               rawPrice: priceDisplay,
+              price: item.price ? Number.parseFloat(item.price) : null,
               image: item.image || null,
               link: item.link || '#',
               condition: item.condition || 'Unknown',
@@ -5337,14 +5338,15 @@ function getBrokerBinDataForParts(parts) {
   // Return raw values for recommendations
   const rawAvgPrice = prices.length > 0 ? (prices.reduce((a,b) => a+b, 0) / prices.length) : null;
   const minPrice = prices.length > 0 ? Math.min(...prices) : null;
-  const sumQty = bbResults.reduce((sum, item) => sum + (Number.parseInt(item.quantity) || 0), 0);
+  const sumQty = bbResults.reduce((sum, item) => sum + (Number.parseInt(item.qty) || 0), 0);
   const description = bbResults.length > 0 ? (bbResults[0].description || null) : null;
   return { avgPrice, rawAvgPrice, minPrice, sumQty, description };
 }
 
 function getEbayDataForParts(parts) {
   const ebayResults = searchResults.ebay.filter(item => parts.includes(item.sourcePartNumber));
-  const prices = ebayResults.map(item => Number.parseFloat(item.price)).filter(p => !Number.isNaN(p) && p > 0);
+  // Use the numeric price field stored during fetch
+  const prices = ebayResults.map(item => item.price).filter(p => p !== null && !Number.isNaN(p) && p > 0);
   const avgPrice = prices.length > 0 ? `$${(prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2)}` : '-';
   // Return raw values for recommendations
   const rawAvgPrice = prices.length > 0 ? (prices.reduce((a,b) => a+b, 0) / prices.length) : null;
