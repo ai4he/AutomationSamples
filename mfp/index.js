@@ -2672,17 +2672,52 @@ async function fetchAmazonData(partNumbers) {
         const data = await resp.json();
         if (Array.isArray(data) && data.length > 0) {
           const { title = [], price = [], image = [], link = [] } = data[0];
-          for (let i = 0; i < title.length; i++) {
-            // Fix relative Amazon links by prepending domain
-            let fullLink = link[i] || '#';
+
+          // Use title array as primary reference (most reliable)
+          // Deduplicate by product ID from links
+          const seenProductIds = new Set();
+          const maxLen = Math.max(title.length, image.length, link.length);
+
+          for (let i = 0; i < maxLen; i++) {
+            const currentTitle = title[i] || '';
+            const currentLink = link[i] || '';
+            const currentImage = image[i] || null;
+            const currentPrice = price[i] || '-';
+
+            // Skip "no results" messages
+            if (currentTitle.toLowerCase().includes('no results')) {
+              continue;
+            }
+
+            // Skip if no title
+            if (!currentTitle) continue;
+
+            // Skip if no price
+            if (!currentPrice || currentPrice === '-') continue;
+
+            // Extract product ID for deduplication
+            const idMatch = currentLink.match(/\/dp\/([A-Z0-9]+)/i);
+            const productId = idMatch ? idMatch[1] : null;
+
+            // Skip duplicates if we have a product ID
+            if (productId && seenProductIds.has(productId)) {
+              continue;
+            }
+            if (productId) {
+              seenProductIds.add(productId);
+            }
+
+            // Fix relative Amazon links
+            let fullLink = currentLink || '#';
             if (fullLink && fullLink.startsWith('/')) {
               fullLink = 'https://www.amazon.com' + fullLink;
             }
+
             newItems.push({
               sourcePartNumber: source,
-              title: title[i] || '-',
-              rawPrice: price[i] || '-',
-              image: image[i] || null,
+              title: currentTitle || '-',
+              rawPrice: currentPrice,
+              image: currentImage,
               link: fullLink
             });
           }
