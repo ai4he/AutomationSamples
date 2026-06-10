@@ -4,8 +4,8 @@
 let currentWorkflow = null;
 
 function selectWorkflow(workflow, skipInputSave = false) {
-  // Save current workflow data before switching
-  if (currentWorkflow) {
+  // Save current workflow data before switching (only for servers/parts; admin has no data)
+  if (currentWorkflow && currentWorkflow !== 'admin') {
     saveCurrentWorkflowData(skipInputSave);
   }
 
@@ -24,6 +24,50 @@ function selectWorkflow(workflow, skipInputSave = false) {
     mainInterface.style.display = 'block';
   }
 
+  // Toggle admin mode: hide search UI + show admin card (or vice versa)
+  const adminCard = document.getElementById('admin-card');
+  const searchCard = mainInterface ? mainInterface.querySelector('.card') : null;
+  const tabsDiv = document.querySelector('.tabs');
+  const tabContents = document.querySelectorAll('.tab-content');
+  const serversBtn = document.getElementById('servers-workflow-btn');
+  const partsBtn = document.getElementById('parts-workflow-btn');
+  const adminBtn = document.getElementById('admin-workflow-btn');
+
+  if (workflow === 'admin') {
+    if (adminCard) adminCard.style.display = 'block';
+    if (searchCard) searchCard.style.display = 'none';
+    if (tabsDiv) tabsDiv.style.display = 'none';
+    tabContents.forEach(tc => tc.style.display = 'none');
+    const altDiv = document.getElementById('alternative-numbers');
+    if (altDiv) altDiv.style.display = 'none';
+    const serversDD = document.getElementById('servers-dropdown-container');
+    const partsDD = document.getElementById('parts-dropdown-container');
+    if (serversDD) serversDD.style.display = 'none';
+    if (partsDD) partsDD.style.display = 'none';
+    if (serversBtn) serversBtn.classList.remove('active');
+    if (partsBtn) partsBtn.classList.remove('active');
+    if (adminBtn) adminBtn.classList.add('active');
+    // Show password gate or upload UI based on session
+    if (sessionStorage.getItem('mintAdminAuthed') === '1') {
+      showAdminUpload();
+    } else {
+      const authDiv = document.getElementById('admin-auth');
+      const uploadDiv = document.getElementById('admin-upload');
+      if (authDiv) authDiv.style.display = 'block';
+      if (uploadDiv) uploadDiv.style.display = 'none';
+    }
+    sessionStorage.setItem('selectedWorkflow', workflow);
+    return;
+  }
+
+  // Non-admin: ensure admin card hidden and search card visible
+  if (adminCard) adminCard.style.display = 'none';
+  if (searchCard) searchCard.style.display = 'block';
+  if (tabsDiv) tabsDiv.style.display = '';
+  // Clear any inline display:none we set on tab-contents while in admin
+  tabContents.forEach(tc => { if (tc.style.display === 'none') tc.style.display = ''; });
+  if (adminBtn) adminBtn.classList.remove('active');
+
   // Show/hide appropriate dropdown
   const serversDropdown = document.getElementById('servers-dropdown-container');
   const partsDropdown = document.getElementById('parts-dropdown-container');
@@ -36,8 +80,6 @@ function selectWorkflow(workflow, skipInputSave = false) {
   }
 
   // Update workflow button active states
-  const serversBtn = document.getElementById('servers-workflow-btn');
-  const partsBtn = document.getElementById('parts-workflow-btn');
   if (serversBtn && partsBtn) {
     if (workflow === 'servers') {
       serversBtn.classList.add('active');
@@ -223,6 +265,170 @@ function handleDropdownChange(workflowType) {
 function refreshAllTabs() {
   // Refresh based on current tab
   refreshCurrentTab();
+}
+
+/***************************************************
+ * Admin Section — Parts Database Upload
+ ***************************************************/
+const ADMIN_PASSWORD = 'M1ntAdm1n!';
+
+function adminLogin() {
+  const input = document.getElementById('admin-password-input');
+  const err = document.getElementById('admin-auth-error');
+  if (!input) return;
+  if (input.value === ADMIN_PASSWORD) {
+    sessionStorage.setItem('mintAdminAuthed', '1');
+    input.value = '';
+    if (err) err.style.display = 'none';
+    showAdminUpload();
+  } else {
+    if (err) err.style.display = 'block';
+  }
+}
+
+function adminLogout() {
+  sessionStorage.removeItem('mintAdminAuthed');
+  const authDiv = document.getElementById('admin-auth');
+  const uploadDiv = document.getElementById('admin-upload');
+  const result = document.getElementById('upload-result');
+  if (authDiv) authDiv.style.display = 'block';
+  if (uploadDiv) uploadDiv.style.display = 'none';
+  if (result) result.style.display = 'none';
+}
+
+function showAdminUpload() {
+  const authDiv = document.getElementById('admin-auth');
+  const uploadDiv = document.getElementById('admin-upload');
+  if (authDiv) authDiv.style.display = 'none';
+  if (uploadDiv) uploadDiv.style.display = 'block';
+  fetchDatabaseStatus();
+}
+
+async function fetchDatabaseStatus() {
+  const current = document.getElementById('database-status-current');
+  const details = document.getElementById('database-status-history-details');
+  const tbody = document.querySelector('#database-history-table tbody');
+  if (!current) return;
+  current.textContent = 'Loading database status…';
+  if (details) details.style.display = 'none';
+  try {
+    const res = await fetch(`https://${serverDomain}/webhook/admin/bible-status`, {
+      headers: { 'x-admin-password': ADMIN_PASSWORD }
+    });
+    if (!res.ok) {
+      current.innerHTML = `<span style="color:#dc2626;">Unable to load status (HTTP ${res.status}).</span>`;
+      return;
+    }
+    const info = await res.json();
+    const latest = info.latest;
+    const currentCount = info.current_row_count;
+    const history = Array.isArray(info.history) ? info.history : [];
+    if (latest) {
+      const when = formatDatabaseDate(latest.uploaded_at);
+      const rows = Number(latest.row_count).toLocaleString();
+      const liveCount = Number(currentCount).toLocaleString();
+      const mismatch = (latest.row_count !== currentCount)
+        ? ` <span style="color:#b45309;">(table currently has ${liveCount} rows)</span>`
+        : '';
+      current.innerHTML = `<strong>Current database:</strong> ${escapeHtml(latest.filename)} · ${rows} rows · uploaded ${when}${mismatch}`;
+    } else {
+      current.innerHTML = `<em>No database uploaded yet.</em>`;
+    }
+    if (tbody) {
+      tbody.innerHTML = '';
+      for (const h of history) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${escapeHtml(h.filename || '')}</td><td>${Number(h.row_count).toLocaleString()}</td><td>${formatDatabaseDate(h.uploaded_at)}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+    if (details && history.length > 1) details.style.display = 'block';
+  } catch (err) {
+    current.innerHTML = `<span style="color:#dc2626;">Status error: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+function formatDatabaseDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function handleDatabaseDrop(event) {
+  event.preventDefault();
+  const dropzone = document.getElementById('upload-dropzone');
+  if (dropzone) dropzone.classList.remove('dragover');
+  const files = event.dataTransfer && event.dataTransfer.files;
+  if (files && files.length > 0) uploadDatabaseFile(files[0]);
+}
+
+function handleDatabaseFileSelect(event) {
+  const files = event.target && event.target.files;
+  if (files && files.length > 0) uploadDatabaseFile(files[0]);
+  if (event.target) event.target.value = '';
+}
+
+async function uploadDatabaseFile(file) {
+  if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    showUploadResult('error', 'El archivo debe ser .xlsx');
+    return;
+  }
+
+  const dropzone = document.getElementById('upload-dropzone');
+  const progress = document.getElementById('upload-progress');
+  const result = document.getElementById('upload-result');
+  const filenameDisplay = document.getElementById('upload-filename-display');
+  const fill = document.getElementById('upload-progress-fill');
+
+  if (dropzone) dropzone.style.display = 'none';
+  if (progress) progress.style.display = 'block';
+  if (result) result.style.display = 'none';
+  if (filenameDisplay) filenameDisplay.textContent = file.name;
+  // Restart the CSS animation by re-applying
+  if (fill) { fill.style.animation = 'none'; void fill.offsetWidth; fill.style.animation = ''; }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const response = await fetch(`https://${serverDomain}/webhook/admin/upload-bible`, {
+      method: 'POST',
+      headers: { 'x-admin-password': ADMIN_PASSWORD },
+      body: formData
+    });
+
+    let data = null;
+    try { data = await response.json(); } catch (e) { /* not json */ }
+
+    if (progress) progress.style.display = 'none';
+    if (dropzone) dropzone.style.display = 'block';
+
+    if (response.ok && data && data.success) {
+      const rows = (data.row_count != null) ? data.row_count.toLocaleString() : '?';
+      showUploadResult('success', `Database updated with ${rows} rows from ${data.filename || file.name}.`);
+      fetchDatabaseStatus();
+    } else {
+      const msg = (data && data.error) ? data.error : `Upload failed (HTTP ${response.status}).`;
+      showUploadResult('error', msg);
+    }
+  } catch (err) {
+    if (progress) progress.style.display = 'none';
+    if (dropzone) dropzone.style.display = 'block';
+    showUploadResult('error', `Network error: ${err.message}`);
+  }
+}
+
+function showUploadResult(type, message) {
+  const result = document.getElementById('upload-result');
+  if (!result) return;
+  result.className = `upload-result ${type}`;
+  result.textContent = message;
+  result.style.display = 'block';
 }
 
 /***************************************************
@@ -574,7 +780,7 @@ function refreshCurrentTab() {
  ***************************************************/
 async function getAlternativePartNumbers(partNumber) {
   try {
-    const response = await fetch(`https://${serverDomain}/webhook/get-parts-prioritized?item=${encodeURIComponent(partNumber)}`);
+    const response = await fetch(`https://${serverDomain}/webhook/get-parts-prioritized-v2?item=${encodeURIComponent(partNumber)}`);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -1400,14 +1606,18 @@ function updateAlternativesForSelectedPart() {
   const distributorInfo = getDescriptionFromDistributors(relatedParts);
 
   // Determine description and category
-  let description = distributorInfo.description || partData.description;
-  let category = distributorInfo.category || partData.category;
+  // PRIORITY: parts database (via partData from get-parts-prioritized-v2) wins over distributor sources.
+  // The database is the authoritative Lenovo translation list; distributors are fallback only.
+  let description = partData.description || distributorInfo.description;
+  let category = partData.category || distributorInfo.category;
 
   // Check if description is already locked for this part (high-priority source found)
   const isLocked = descriptionLockedForPart[selectedPartNumber];
 
-  // Check if we found a high-priority source (1 = Lenovo Press, 2 = Ingram)
-  const isHighPriority = distributorInfo.descriptionPriority && distributorInfo.descriptionPriority <= 2;
+  // Database description (from get-parts-prioritized-v2) counts as highest priority for locking.
+  const hasDatabaseDescription = !!(partData.description && String(partData.description).trim());
+  // Check if we found a high-priority source: database OR Lenovo Press/Ingram
+  const isHighPriority = hasDatabaseDescription || (distributorInfo.descriptionPriority && distributorInfo.descriptionPriority <= 2);
 
   // Check if source is BrokerBin (priority 3)
   const isBrokerBin = distributorInfo.descriptionPriority === 3;

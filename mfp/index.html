@@ -187,6 +187,144 @@
     .workflow-btn-welcome.parts-btn {
       opacity: 1 !important;
     }
+    /* Admin workflow button */
+    .workflow-btn.admin-btn {
+      background: linear-gradient(135deg, #4b5563 0%, #1f2937 100%);
+      color: white;
+      opacity: 0.5;
+      transition: all 0.3s ease;
+    }
+    .workflow-btn.admin-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(75, 85, 99, 0.5);
+      border-color: #6b7280;
+      opacity: 0.7;
+    }
+    .workflow-btn.admin-btn.active {
+      opacity: 1;
+      box-shadow: 0 2px 10px rgba(75, 85, 99, 0.4);
+      border: 2px solid #9ca3af;
+    }
+    /* Admin card */
+    #admin-card .admin-section { margin-top: 16px; }
+    #admin-card h3 { margin-top: 0; }
+    .admin-auth-row {
+      display: flex;
+      gap: 8px;
+      margin: 12px 0;
+      max-width: 420px;
+    }
+    .admin-auth-row input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .admin-auth-row button {
+      padding: 8px 20px;
+      background: #1f2937;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .admin-auth-row button:hover { background: #374151; }
+    .error-msg { color: #dc2626; margin-top: 8px; }
+    .upload-dropzone {
+      border: 2px dashed #9ca3af;
+      border-radius: 12px;
+      padding: 36px;
+      text-align: center;
+      background: #f9fafb;
+      transition: all 0.2s;
+      cursor: pointer;
+      margin: 16px 0;
+    }
+    .upload-dropzone:hover,
+    .upload-dropzone.dragover {
+      border-color: #2563eb;
+      background: #eff6ff;
+    }
+    .upload-dropzone .dropzone-icon { font-size: 44px; margin-bottom: 8px; }
+    .upload-dropzone p { margin: 6px 0; }
+    .upload-dropzone .muted { color: #6b7280; font-size: 13px; }
+    .upload-progress { margin-top: 16px; }
+    .progress-bar {
+      height: 8px;
+      background: #e5e7eb;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #2563eb;
+      width: 5%;
+      animation: progressAnim 90s linear forwards;
+    }
+    @keyframes progressAnim {
+      0% { width: 5%; }
+      100% { width: 95%; }
+    }
+    .upload-result {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    .upload-result.success {
+      background: #d1fae5;
+      color: #065f46;
+      border-left: 4px solid #10b981;
+    }
+    .upload-result.error {
+      background: #fee2e2;
+      color: #991b1b;
+      border-left: 4px solid #dc2626;
+    }
+    .link-btn {
+      background: none;
+      border: none;
+      color: #6b7280;
+      cursor: pointer;
+      text-decoration: underline;
+      font-size: 13px;
+      padding: 0;
+      margin-top: 16px;
+    }
+    .link-btn:hover { color: #1f2937; }
+    /* Database status card */
+    .database-status-card {
+      background: #f3f4f6;
+      border-left: 4px solid #6b7280;
+      padding: 12px 16px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    .database-status-current { color: #374151; }
+    .database-status-current strong { color: #111827; }
+    .database-status-card details summary {
+      cursor: pointer;
+      color: #4b5563;
+      font-size: 13px;
+      user-select: none;
+    }
+    #database-history-table {
+      width: 100%;
+      margin-top: 8px;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    #database-history-table th,
+    #database-history-table td {
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    #database-history-table th { color: #6b7280; font-weight: 500; }
   </style>
   
   <!-- Microsoft Authentication Library (MSAL) -->
@@ -200,13 +338,13 @@
 </head>
 <body>
   <!-- Authentication Overlay -->
-  <div id="auth-overlay">
+  <!-- <div id="auth-overlay">
     <div id="auth-container">
       <h3>Please Log In</h3>
       <button id="microsoft-signin-btn">Sign in with Microsoft</button>
       <span id="user-info"></span>
     </div>
-  </div>
+  </div> -->
 
   <!-- Welcome Screen (shown initially) -->
   <div id="welcome-screen">
@@ -244,6 +382,9 @@
         </button>
         <button id="parts-workflow-btn" class="workflow-btn parts-btn" onclick="selectWorkflow('parts')">
           <span class="btn-icon">🔧</span> Parts
+        </button>
+        <button id="admin-workflow-btn" class="workflow-btn admin-btn" onclick="selectWorkflow('admin')">
+          <span class="btn-icon">⚙️</span> Admin
         </button>
       </div>
 
@@ -304,6 +445,58 @@ Provide a buy and sell price recommendation
           <label style="display: none;"><input type="checkbox" id="toggle-ebay-connector"> eBayConnector</label>
           <label style="display: none;"><input type="checkbox" id="toggle-amazon-connector"> AmazonConnector</label>
         </div>
+      </div>
+    </div>
+
+    <!-- Admin Card (only visible when Admin workflow is selected) -->
+    <div class="card" id="admin-card" style="display: none;">
+      <h2><span class="btn-icon">⚙️</span> Admin</h2>
+
+      <div id="admin-auth" class="admin-section">
+        <h3>🔒 Admin Access</h3>
+        <p>Enter the admin password to manage the parts database.</p>
+        <div class="admin-auth-row">
+          <input type="password" id="admin-password-input" placeholder="Password" onkeydown="if(event.key==='Enter') adminLogin()" />
+          <button onclick="adminLogin()">Enter</button>
+        </div>
+        <p id="admin-auth-error" class="error-msg" style="display:none;">Incorrect password.</p>
+      </div>
+
+      <div id="admin-upload" class="admin-section" style="display:none;">
+        <h3>📚 Parts Database — Replace Source File</h3>
+        <p>Upload a new <strong>.xlsx</strong> file. The current parts database will be fully replaced.</p>
+
+        <!-- Current database status (current version + history) -->
+        <div id="database-status-card" class="database-status-card">
+          <div id="database-status-current" class="database-status-current">Loading database status…</div>
+          <details id="database-status-history-details" style="display:none; margin-top:10px;">
+            <summary>Upload history</summary>
+            <table id="database-history-table">
+              <thead><tr><th>File</th><th>Rows</th><th>Uploaded</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </details>
+        </div>
+
+        <div id="upload-dropzone" class="upload-dropzone"
+             ondragover="event.preventDefault(); this.classList.add('dragover')"
+             ondragleave="this.classList.remove('dragover')"
+             ondrop="handleDatabaseDrop(event)"
+             onclick="document.getElementById('upload-file-input').click()">
+          <div class="dropzone-icon">📂</div>
+          <p><strong>Drag &amp; drop</strong> your .xlsx file here</p>
+          <p class="muted">or click to choose a file</p>
+          <input type="file" id="upload-file-input" accept=".xlsx" style="display:none;" onchange="handleDatabaseFileSelect(event)" />
+        </div>
+
+        <div id="upload-progress" class="upload-progress" style="display:none;">
+          <p>Uploading <strong id="upload-filename-display"></strong>… this may take ~1 minute.</p>
+          <div class="progress-bar"><div class="progress-fill" id="upload-progress-fill"></div></div>
+        </div>
+
+        <div id="upload-result" class="upload-result" style="display:none;"></div>
+
+        <button class="link-btn" onclick="adminLogout()">Sign out</button>
       </div>
     </div>
 
@@ -513,7 +706,7 @@ Provide a buy and sell price recommendation
   </div>
 
   <!-- Basic Authentication -->
-  <!-- <script type="text/javascript">
+  <script type="text/javascript">
     (function() {
       if (sessionStorage.getItem('auth') === 'ok') return;
 
@@ -530,7 +723,7 @@ Provide a buy and sell price recommendation
         throw new Error('Access Denied');
       }
     })();
-  </script> -->
+  </script>
 
   <!-- External JavaScript -->
   <script type="text/javascript" src="index.js?v=202504111"></script>
