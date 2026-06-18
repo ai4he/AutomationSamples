@@ -797,24 +797,27 @@ async function getAlternativePartNumbers(partNumber) {
     const description = record.Description || '';
     const category = record.Category || '';
     const originalPart = record.ORD && record.ORD.trim() ? record.ORD : partNumber;
+    // Display order: OPT → FRU → PPN → MPN → MFG → OEM.
+    // Reason: when a user searches by something other than the OPT (e.g. an MPN),
+    // we want the canonical OPT to surface first in the alternatives list.
     const alternatives = [];
-    if (record.FRU && record.FRU.length > 0) {
-      record.FRU.forEach(num => alternatives.push({ type: 'FRU', value: num }));
-    }
-    if (record.MFG && record.MFG.length > 0) {
-      record.MFG.forEach(num => alternatives.push({ type: 'MFG', value: num }));
-    }
-    if (record.OEM && record.OEM.length > 0) {
-      record.OEM.forEach(num => alternatives.push({ type: 'OEM', value: num }));
-    }
     if (record.OPT && record.OPT.length > 0) {
       record.OPT.forEach(num => alternatives.push({ type: 'OPT', value: num }));
+    }
+    if (record.FRU && record.FRU.length > 0) {
+      record.FRU.forEach(num => alternatives.push({ type: 'FRU', value: num }));
     }
     if (record.PPN && record.PPN.length > 0) {
       record.PPN.forEach(num => alternatives.push({ type: 'PPN', value: num }));
     }
     if (record.MPN && record.MPN.length > 0) {
       record.MPN.forEach(num => alternatives.push({ type: 'MPN', value: num }));
+    }
+    if (record.MFG && record.MFG.length > 0) {
+      record.MFG.forEach(num => alternatives.push({ type: 'MFG', value: num }));
+    }
+    if (record.OEM && record.OEM.length > 0) {
+      record.OEM.forEach(num => alternatives.push({ type: 'OEM', value: num }));
     }
     return {
       original: originalPart,
