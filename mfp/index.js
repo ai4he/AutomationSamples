@@ -810,6 +810,12 @@ async function getAlternativePartNumbers(partNumber) {
     if (record.OPT && record.OPT.length > 0) {
       record.OPT.forEach(num => alternatives.push({ type: 'OPT', value: num }));
     }
+    if (record.PPN && record.PPN.length > 0) {
+      record.PPN.forEach(num => alternatives.push({ type: 'PPN', value: num }));
+    }
+    if (record.MPN && record.MPN.length > 0) {
+      record.MPN.forEach(num => alternatives.push({ type: 'MPN', value: num }));
+    }
     return {
       original: originalPart,
       description,
@@ -1305,6 +1311,13 @@ async function handleSearch() {
         updateAlternativesForSelectedPart();
       }
 
+      // Cap distributor searches at first 3 of each type — FRU, PPN, OPT, MPN, OEM, MFG.
+      // Display side (alternatives list) still shows all values; this cap only gates which
+      // alternatives trigger calls to BrokerBin/Epicor/TDSynnex/Ingram/etc., which in turn
+      // controls which rows appear in the Summary tab.
+      const SEARCH_LIMITS = { OPT: 3, MPN: 3, PPN: 3, FRU: 3, OEM: 3, MFG: 3 };
+      const searchedByType = { OPT: 0, MPN: 0, PPN: 0, FRU: 0, OEM: 0, MFG: 0 };
+
       // Callback for when new alternatives are found
       async function onNewAlts(newlyAdded) {
         if (stopSearchRequested) return;
@@ -1320,10 +1333,12 @@ async function handleSearch() {
         const freshParts = [];
         for (const alt of newlyAdded) {
           const altUpper = alt.value.trim().toUpperCase();
-          if (!globalAlreadySearched.has(altUpper)) {
-            globalAlreadySearched.add(altUpper);
-            freshParts.push({ number: alt.value, source: `${alt.type}: ${alt.value}` });
-          }
+          if (globalAlreadySearched.has(altUpper)) continue;
+          const limit = SEARCH_LIMITS[alt.type];
+          if (limit !== undefined && searchedByType[alt.type] >= limit) continue;
+          if (limit !== undefined) searchedByType[alt.type]++;
+          globalAlreadySearched.add(altUpper);
+          freshParts.push({ number: alt.value, source: `${alt.type}: ${alt.value}` });
         }
         if (freshParts.length > 0) {
           await executeEndpointSearches(freshParts);
@@ -6144,6 +6159,10 @@ function searchPartNumber(partNumber) {
       updateAlternativesForSelectedPart();
     }
 
+    // Cap distributor searches at first 3 of each type — FRU, PPN, OPT, MPN, OEM, MFG.
+    const SEARCH_LIMITS = { OPT: 3, MPN: 3, PPN: 3, FRU: 3, OEM: 3, MFG: 3 };
+    const searchedByType = { OPT: 0, MPN: 0, PPN: 0, FRU: 0, OEM: 0, MFG: 0 };
+
     // Callback for alternatives
     async function onNewAlts(newlyAdded) {
       if (stopSearchRequested) return;
@@ -6154,10 +6173,12 @@ function searchPartNumber(partNumber) {
       const freshParts = [];
       for (const alt of newlyAdded) {
         const altUpper = alt.value.trim().toUpperCase();
-        if (!globalAlreadySearched.has(altUpper)) {
-          globalAlreadySearched.add(altUpper);
-          freshParts.push({ number: alt.value, source: `${alt.type}: ${alt.value}` });
-        }
+        if (globalAlreadySearched.has(altUpper)) continue;
+        const limit = SEARCH_LIMITS[alt.type];
+        if (limit !== undefined && searchedByType[alt.type] >= limit) continue;
+        if (limit !== undefined) searchedByType[alt.type]++;
+        globalAlreadySearched.add(altUpper);
+        freshParts.push({ number: alt.value, source: `${alt.type}: ${alt.value}` });
       }
       if (freshParts.length > 0) {
         await executeEndpointSearches(freshParts);
